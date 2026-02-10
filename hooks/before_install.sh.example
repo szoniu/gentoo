@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# hooks/before_install.sh.example
+# This hook runs before the installation begins.
+# Rename to before_install.sh and make executable to activate.
+#
+# Available environment variables:
+#   All CONFIG_VARS (INIT_SYSTEM, TARGET_DISK, FILESYSTEM, etc.)
+#   MOUNTPOINT, LOG_FILE, SCRIPT_DIR, etc.
+#
+# Example: Backup current partition table
+# sfdisk --dump "${TARGET_DISK}" > "/tmp/partition-backup-$(date +%Y%m%d).dump"
+
+echo "before_install hook executed"

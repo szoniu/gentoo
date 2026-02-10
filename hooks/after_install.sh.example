@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# hooks/after_install.sh.example
+# This hook runs after all installation phases complete.
+# Rename to after_install.sh and make executable to activate.
+#
+# Example: Install additional dotfiles
+# cp -r /root/dotfiles "${MOUNTPOINT}/home/${USERNAME}/"
+
+echo "after_install hook executed"

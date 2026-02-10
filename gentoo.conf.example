@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# gentoo.conf.example — Example configuration for the Gentoo TUI Installer
+#
+# This file shows all available configuration variables with their defaults
+# and descriptions. Copy this file and customize it for your setup.
+#
+# Usage:
+#   cp gentoo.conf.example my-config.conf
+#   # Edit my-config.conf
+#   ./install.sh --config my-config.conf --install
+#
+
+# --- Init System ---
+# Options: systemd, openrc
+INIT_SYSTEM='systemd'
+
+# --- Disk Configuration ---
+# Target disk device (e.g., /dev/sda, /dev/nvme0n1)
+# TARGET_DISK='/dev/sda'
+
+# Partition scheme: auto, dual-boot, manual
+PARTITION_SCHEME='auto'
+
+# Specific partition paths (set automatically by 'auto', required for 'manual')
+# ESP_PARTITION='/dev/sda1'
+# ROOT_PARTITION='/dev/sda2'
+# SWAP_PARTITION='/dev/sda3'
+# BOOT_PARTITION=''
+
+# Reuse existing ESP (for dual-boot): yes, no
+ESP_REUSE='no'
+
+# --- Filesystem ---
+# Options: ext4, btrfs, xfs
+FILESYSTEM='ext4'
+
+# Btrfs subvolumes (colon-separated name:mountpoint pairs)
+# Only used when FILESYSTEM=btrfs
+BTRFS_SUBVOLUMES='@:/:@home:/home:@var-log:/var/log:@snapshots:/.snapshots'
+
+# --- Swap ---
+# Options: zram, partition, file, none
+SWAP_TYPE='zram'
+
+# Swap size in MiB (for partition or file type)
+SWAP_SIZE_MIB='4096'
+
+# --- Network ---
+# System hostname
+HOSTNAME='gentoo'
+
+# Gentoo mirror URL
+MIRROR_URL='https://distfiles.gentoo.org'
+
+# --- Locale ---
+# Timezone (from /usr/share/zoneinfo)
+TIMEZONE='Europe/Warsaw'
+
+# System locale
+LOCALE='en_US.UTF-8'
+
+# Console keymap
+KEYMAP='us'
+
+# --- Kernel ---
+# Options: dist-kernel, genkernel
+KERNEL_TYPE='dist-kernel'
+
+# --- GPU ---
+# Detected automatically. Override if needed.
+# GPU_VENDOR='nvidia'  # nvidia, amd, intel, none, unknown
+# GPU_DRIVER='nvidia-drivers'
+# VIDEO_CARDS='nvidia'
+# GPU_USE_NVIDIA_OPEN='yes'  # yes for Turing+
+
+# --- CPU ---
+# Detected automatically. Override if needed.
+# CPU_MARCH='znver4'
+# CPU_FLAGS='aes avx avx2 ...'
+
+# --- Desktop ---
+# Space-separated list of KDE apps to install
+DESKTOP_EXTRAS='konsole dolphin kate firefox-bin gwenview okular ark spectacle'
+
+# --- Users ---
+# Root password hash (generate with: openssl passwd -6)
+# ROOT_PASSWORD_HASH='$6$...'
+
+# Regular user
+# USERNAME='user'
+# USER_PASSWORD_HASH='$6$...'
+USER_GROUPS='wheel,audio,video,usb,input,plugdev'
+
+# --- SSH ---
+ENABLE_SSH='yes'
+
+# --- Extra Packages ---
+# Space-separated list of additional packages
+EXTRA_PACKAGES=''
