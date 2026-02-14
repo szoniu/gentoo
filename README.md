@@ -168,7 +168,7 @@ Możesz też wyeksportować własny preset w ekranie 15 wizarda.
 ## Co jeśli coś pójdzie nie tak
 
 - **Błąd podczas instalacji** — installer wyświetli menu: Retry / Shell / Continue / Log / Abort. Możesz wejść do shella, naprawić problem i wrócić.
-- **Przerwa w prądzie / reboot** — installer zapisuje checkpointy po każdej fazie. Jeśli faza chroot się przerwie, checkpointy pozwolą ominąć już ukończone kroki. Uwaga: ponowne uruchomienie wizarda od nowa czyści wszystkie checkpointy.
+- **Przerwa w prądzie / reboot** — niestety trzeba zacząć od nowa. Mechanizm wznowienia jest w planach (patrz TODO w CLAUDE.md).
 - **Log** — pełny log instalacji: `/tmp/gentoo-installer.log`
 - **Coś jest nie tak z konfiguracją** — użyj `./install.sh --configure` żeby przejść wizarda ponownie
 
