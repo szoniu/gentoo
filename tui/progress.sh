@@ -74,9 +74,13 @@ _run_chroot_with_live_output() {
 
     einfo "=== Phase: Chroot installation ==="
 
+    export LIVE_OUTPUT=1
+
     chroot_setup
     run_chroot_phase
     chroot_teardown
+
+    unset LIVE_OUTPUT
 
     checkpoint_set "chroot"
 
