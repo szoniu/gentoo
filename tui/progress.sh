@@ -44,6 +44,10 @@ screen_progress() {
     # Open pipe for writing
     exec 3>"${progress_pipe}"
 
+    # Redirect stderr to log file to prevent log messages bleeding through gauge
+    exec 4>&2
+    exec 2>>"${LOG_FILE}"
+
     # Run actual installation with progress updates
     local completed_weight=0
     for entry in "${INSTALL_PHASES[@]}"; do
@@ -73,6 +77,10 @@ screen_progress() {
     echo "100" >&3 2>/dev/null || true
     echo "Installation complete!" >&3 2>/dev/null || true
     echo "XXX" >&3 2>/dev/null || true
+
+    # Restore stderr
+    exec 2>&4
+    exec 4>&-
 
     # Cleanup
     exec 3>&-

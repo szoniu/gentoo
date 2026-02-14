@@ -41,13 +41,9 @@ stage3_download() {
     try "Downloading stage3 tarball" \
         wget --progress=dot:mega -O "${dest}" "${url}"
 
-    # Download DIGESTS
+    # Download DIGESTS (GPG clearsigned, contains SHA512 hashes)
     try "Downloading DIGESTS" \
         wget -q -O "${dest}.DIGESTS" "${url}.DIGESTS"
-
-    # Download DIGESTS.asc (GPG signed)
-    try "Downloading DIGESTS signature" \
-        wget -q -O "${dest}.DIGESTS.asc" "${url}.DIGESTS.asc"
 
     STAGE3_FILE="${dest}"
     STAGE3_FILENAME="${filename}"
@@ -71,14 +67,14 @@ stage3_verify() {
     try "Importing Gentoo GPG key" \
         gpg --keyserver hkps://keys.gentoo.org --recv-keys "${GENTOO_GPG_KEY}"
 
-    # Verify GPG signature
+    # Verify GPG signature (DIGESTS is clearsigned)
     try "Verifying GPG signature" \
-        gpg --verify "${file}.DIGESTS.asc"
+        gpg --verify "${file}.DIGESTS"
 
     # Verify SHA512
     einfo "Checking SHA512 checksum..."
     local expected_hash
-    expected_hash=$(grep -A1 "SHA512" "${file}.DIGESTS.asc" | \
+    expected_hash=$(grep -A1 "SHA512" "${file}.DIGESTS" | \
                     grep "$(basename "${file}")" | awk '{print $1}')
 
     if [[ -z "${expected_hash}" ]]; then
@@ -114,7 +110,7 @@ stage3_extract() {
         tar xpf "${file}" --xattrs-include='*.*' --numeric-owner -C "${MOUNTPOINT}"
 
     # Cleanup tarball to save space
-    rm -f "${file}" "${file}.DIGESTS" "${file}.DIGESTS.asc"
+    rm -f "${file}" "${file}.DIGESTS"
 
     einfo "Stage3 extracted to ${MOUNTPOINT}"
 }
