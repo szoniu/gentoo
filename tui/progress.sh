@@ -32,11 +32,14 @@ screen_progress() {
             continue
         fi
 
-        # Show status in dialog — stays on screen while phase runs
-        _show_phase_status "${i}" "${total}" "${phase_desc}"
-
-        # Execute the phase
-        _execute_phase "${phase_name}" "${phase_desc}"
+        if [[ "${phase_name}" == "chroot" ]]; then
+            # Chroot phase — show live log output instead of static infobox
+            _run_chroot_with_live_output
+        else
+            # Short phases — show status in dialog infobox
+            _show_phase_status "${i}" "${total}" "${phase_desc}"
+            _execute_phase "${phase_name}" "${phase_desc}"
+        fi
     done
 
     # Restore stderr
@@ -50,6 +53,38 @@ Remember to remove the installation media.\n\n\
 Log file: ${LOG_FILE}"
 
     return "${TUI_NEXT}"
+}
+
+# _run_chroot_with_live_output — Run chroot phase with visible log output
+_run_chroot_with_live_output() {
+    # Restore stderr so user sees live output
+    exec 2>&4
+
+    clear 2>/dev/null
+    echo -e "\033[1;36m══════════════════════════════════════════════════════════════════\033[0m"
+    echo -e "\033[1;37m  Gentoo TUI Installer — Installing system                       \033[0m"
+    echo -e "\033[1;36m══════════════════════════════════════════════════════════════════\033[0m"
+    echo -e "\033[0;33m  Live output below. This will take a while (1-4 hours).         \033[0m"
+    echo -e "\033[0;33m  Full log: ${LOG_FILE}                    \033[0m"
+    echo -e "\033[1;36m══════════════════════════════════════════════════════════════════\033[0m"
+    echo ""
+
+    einfo "=== Phase: Chroot installation ==="
+
+    chroot_setup
+    run_chroot_phase
+    chroot_teardown
+
+    checkpoint_set "chroot"
+
+    echo ""
+    echo -e "\033[1;32m══════════════════════════════════════════════════════════════════\033[0m"
+    echo -e "\033[1;32m  Chroot installation complete!                                   \033[0m"
+    echo -e "\033[1;32m══════════════════════════════════════════════════════════════════\033[0m"
+    sleep 2
+
+    # Re-redirect stderr for any remaining phases
+    exec 2>>"${LOG_FILE}"
 }
 
 # _show_phase_status — Display current phase in dialog_infobox
@@ -101,11 +136,6 @@ _execute_phase() {
             generate_make_conf
             copy_dns_info
             copy_installer_to_chroot
-            ;;
-        chroot)
-            chroot_setup
-            run_chroot_phase
-            chroot_teardown
             ;;
     esac
 
