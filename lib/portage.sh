@@ -87,7 +87,7 @@ GRUB_PLATFORMS="${GRUB_PLATFORMS}"
 FEATURES="parallel-fetch candy buildpkg"
 
 # --- Language ---
-L10N="$(echo "${LOCALE:-en_US.UTF-8}" | cut -d. -f1 | tr '_' '-' | tr '[:upper:]' '[:lower:]') en"
+L10N="$(echo "${LOCALE:-en_US.UTF-8}" | cut -d. -f1 | tr '_' '-') en"
 LINGUAS="$(echo "${LOCALE:-en_US.UTF-8}" | cut -d_ -f1) en"
 MAKECONF
 }
