@@ -30,12 +30,21 @@ _write_make_conf() {
     local jobs="${EMERGE_JOBS_DEFAULT}"
     local load="${EMERGE_LOAD_DEFAULT}"
 
-    # Auto-calculate jobs from CPU count
+    # Auto-calculate from CPU count
     local cpu_count
     cpu_count=$(get_cpu_count)
     if (( cpu_count > 1 )); then
-        jobs="${cpu_count}"
-        load="${cpu_count}.0"
+        jobs="$(( cpu_count + 1 ))"             # slightly over-subscribe make threads
+        load="$(( cpu_count + 2 )).0"            # generous load limit for first install
+    fi
+
+    # Parallel package builds: 2 for ≤8 threads, scale up for bigger CPUs
+    # Too many parallel emerges eat RAM (each C++ build can use 1-2 GB)
+    local emerge_jobs=2
+    if (( cpu_count >= 16 )); then
+        emerge_jobs=4
+    elif (( cpu_count >= 12 )); then
+        emerge_jobs=3
     fi
 
     local use_flags
@@ -63,7 +72,7 @@ fi)
 
 # --- Parallelism ---
 MAKEOPTS="-j${jobs} -l${load}"
-EMERGE_DEFAULT_OPTS="--jobs=${jobs} --load-average=${load} --with-bdeps=y --complete-graph=y"
+EMERGE_DEFAULT_OPTS="--jobs=${emerge_jobs} --load-average=${load} --with-bdeps=y --complete-graph=y"
 
 # --- USE flags ---
 USE="${use_flags}"
