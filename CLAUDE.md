@@ -22,11 +22,11 @@ lib/                    — Moduły biblioteczne (NIGDY nie uruchamiać bezpośr
 ├── protection.sh       — Guard: sprawdza $_GENTOO_INSTALLER
 ├── constants.sh        — Stałe globalne, ścieżki, CONFIG_VARS[]
 ├── logging.sh          — elog/einfo/ewarn/eerror/die/die_trace, kolory, log do pliku
-├── utils.sh            — try (interaktywne recovery), checkpoint_set/reached, is_root/is_efi/has_network
+├── utils.sh            — try (interaktywne recovery, text fallback bez dialog, LIVE_OUTPUT via tee), checkpoint_set/reached, is_root/is_efi/has_network
 ├── dialog.sh           — Wrapper dialog/whiptail, primitives (msgbox/yesno/menu/radiolist/checklist/gauge/infobox/inputbox/passwordbox), wizard runner (register_wizard_screens + run_wizard)
 ├── config.sh           — config_save/load/set/get/dump (${VAR@Q} quoting)
 ├── hardware.sh         — detect_cpu/gpu/disks/esp, get_hardware_summary
-├── disk.sh             — Dwufazowe: disk_plan_add/show/auto/dualboot → disk_execute_plan, mount/unmount_filesystems, get_uuid
+├── disk.sh             — Dwufazowe: disk_plan_add/show/auto/dualboot → cleanup_target_disk + disk_execute_plan, mount/unmount_filesystems, get_uuid
 ├── network.sh          — check_network, install_network_manager, select_fastest_mirror
 ├── stage3.sh           — stage3_get_url/download/verify/extract
 ├── portage.sh          — generate_make_conf (_write_make_conf), portage_sync, portage_select_profile, portage_install_cpuflags, install_extra_packages, setup_guru_repository, install_noctalia_shell
@@ -104,6 +104,12 @@ Wszystkie zmienne konfiguracyjne są zdefiniowane w `CONFIG_VARS[]` w `lib/const
 
 `try "opis" polecenie args...` — na błędzie wyświetla menu Retry/Shell/Continue/Log/Abort. Każde polecenie które może się nie udać MUSI iść przez `try`.
 
+Dwa tryby działania:
+- **Normalny**: output komendy → log file (silent). Dialog UI dla menu recovery.
+- **`LIVE_OUTPUT=1`**: output komendy → `tee` (terminal + log). Ustawiany w fazie chroot.
+
+Gdy `dialog` nie jest dostępny (np. wewnątrz chroota stage3), `try()` używa prostego textowego menu: `(r)etry | (s)hell | (c)ontinue | (a)bort`.
+
 ## Uruchamianie testów
 
 ```bash
@@ -130,6 +136,9 @@ Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `D
 - **Gentoo `.DIGESTS` format**: Plik `.DIGESTS` jest GPG clearsigned. Sekcja BLAKE2B jest PRZED SHA512. Nie ma oddzielnego `.DIGESTS.asc`. Parsowanie SHA512: użyć `awk` z tracking sekcji (`/^# SHA512/ { in_sha512=1 }`), nie `grep | head -1` (złapie BLAKE2B).
 - **Checkpointy w `/tmp` przeżywają restart installera**: Na live ISO `/tmp` nie jest czyszczony między uruchomieniami. Reformatowanie dysku inwaliduje chroot, ale checkpointy zostają → fazy są pomijane na starych danych. Rozwiązanie: `checkpoint_clear` na początku `screen_progress()`.
 - **stderr redirect a dialog UI**: Gdy stderr jest przekierowany do log file (`exec 2>>LOG`), `dialog` jest niewidoczny (bo pisze na stderr). `try()` musi tymczasowo przywrócić stderr (fd 4) żeby pokazać menu recovery. Wzorzec: `if { true >&4; } 2>/dev/null; then exec 2>&4; fi`.
+- **`dialog` brak w chroot stage3**: Świeży stage3 nie ma `dialog`. `try()` musi mieć text fallback (`read -r` z `/dev/tty`) zamiast `dialog_menu`. Sprawdzanie: `command -v "${DIALOG_CMD:-dialog}"`.
+- **`set -euo pipefail` + `inherit_errexit` + `grep` w `$()`**: `grep` zwraca exit 1 na brak dopasowania. Z `pipefail` cały pipeline failuje. Z `inherit_errexit` set -e działa wewnątrz `$()`. Efekt: `var=$(cmd | grep pattern | head -1)` zabija skrypt PRZED dotarciem do `if [[ -z "$var" ]]`. Rozwiązanie: `|| true` na końcu `$()`.
+- **Partycje z poprzedniej instalacji blokują `parted`**: Przy ponownej próbie instalacji, partycje docelowego dysku mogą być nadal zamontowane. `parted` odmawia `mklabel` z "Partition(s) are being used". Rozwiązanie: `cleanup_target_disk()` odmontowuje wszystkie partycje i deaktywuje swap przed `disk_execute_plan()`.
 
 ## TODO
 
