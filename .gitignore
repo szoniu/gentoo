@@ -16,3 +16,4 @@ src/
 /venv/
 .idea/
 .claude/
+.DS_Store
