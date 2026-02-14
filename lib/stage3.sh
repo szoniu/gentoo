@@ -37,11 +37,9 @@ stage3_download() {
     filename=$(basename "${url}")
     local dest="${MOUNTPOINT}/${filename}"
 
-    # Download tarball — show progress directly (not through try)
-    einfo "Downloading: ${url}"
-    if ! wget --progress=bar:force -O "${dest}" "${url}" 2>&1; then
-        die "Failed to download stage3 tarball"
-    fi
+    # Download tarball
+    try "Downloading stage3 tarball" \
+        wget -q -O "${dest}" "${url}"
 
     # Download DIGESTS (GPG clearsigned, contains SHA512 hashes)
     try "Downloading DIGESTS" \

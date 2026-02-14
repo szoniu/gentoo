@@ -1,20 +1,26 @@
 #!/usr/bin/env bash
-# tui/progress.sh — Installation progress screen
+# tui/progress.sh — Installation progress screen (all within dialog UI)
 source "${LIB_DIR}/protection.sh"
 
 # Phase definitions: "phase_name|description"
 readonly -a INSTALL_PHASES=(
     "preflight|Preflight checks"
-    "disks|Disk operations"
-    "stage3|Stage3 download and extraction"
-    "portage_preconfig|Portage pre-configuration"
-    "chroot|Chroot installation"
+    "disks|Partitioning and formatting disk"
+    "stage3_download|Downloading stage3 tarball (~700 MB)"
+    "stage3_verify|Verifying stage3 integrity"
+    "stage3_extract|Extracting stage3 tarball"
+    "portage_preconfig|Configuring Portage"
+    "chroot|Installing system (this will take a while)"
 )
 
-# screen_progress — Run installation with phase status display
+# screen_progress — Run installation with dialog_infobox status display
 screen_progress() {
     local total=${#INSTALL_PHASES[@]}
     local i=0
+
+    # Redirect stderr to log file so log messages don't bleed through dialog
+    exec 4>&2
+    exec 2>>"${LOG_FILE}"
 
     for entry in "${INSTALL_PHASES[@]}"; do
         local phase_name phase_desc
@@ -26,16 +32,45 @@ screen_progress() {
             continue
         fi
 
-        dialog_infobox "Installing Gentoo Linux [${i}/${total}]" \
-            "${phase_desc}...\n\nPlease wait."
+        # Show status in dialog — stays on screen while phase runs
+        _show_phase_status "${i}" "${total}" "${phase_desc}"
 
         # Execute the phase
         _execute_phase "${phase_name}" "${phase_desc}"
     done
 
-    dialog_msgbox "Complete" "Gentoo Linux installation has finished successfully!"
+    # Restore stderr
+    exec 2>&4
+    exec 4>&-
+
+    dialog_msgbox "Installation Complete" \
+        "Gentoo Linux has been successfully installed!\n\n\
+You can now reboot into your new system.\n\
+Remember to remove the installation media.\n\n\
+Log file: ${LOG_FILE}"
 
     return "${TUI_NEXT}"
+}
+
+# _show_phase_status — Display current phase in dialog_infobox
+_show_phase_status() {
+    local current="$1" total="$2" desc="$3"
+
+    # Build a simple text progress indicator
+    local bar=""
+    local j
+    for (( j = 1; j <= total; j++ )); do
+        if (( j < current )); then
+            bar+="[done] "
+        elif (( j == current )); then
+            bar+="[>>>>] "
+        else
+            bar+="[    ] "
+        fi
+    done
+
+    dialog_infobox "Installing Gentoo Linux  [${current}/${total}]" \
+        "${bar}\n\n${desc}...\n\nPlease wait. See ${LOG_FILE} for details."
 }
 
 # _execute_phase — Execute a single installation phase
@@ -53,8 +88,14 @@ _execute_phase() {
             disk_execute_plan
             mount_filesystems
             ;;
-        stage3)
-            _phase_stage3
+        stage3_download)
+            stage3_download
+            ;;
+        stage3_verify)
+            stage3_verify
+            ;;
+        stage3_extract)
+            stage3_extract
             ;;
         portage_preconfig)
             generate_make_conf
@@ -69,22 +110,4 @@ _execute_phase() {
     esac
 
     checkpoint_set "${phase_name}"
-}
-
-# _phase_stage3 — Stage3 with visible download progress
-_phase_stage3() {
-    # Show wget progress on screen (not through try which hides output)
-    clear 2>/dev/null
-    echo "=== Downloading Stage3 tarball ==="
-    echo ""
-    stage3_download
-    echo ""
-
-    dialog_infobox "Installing Gentoo Linux [3/${#INSTALL_PHASES[@]}]" \
-        "Verifying stage3 integrity...\n\nPlease wait."
-    stage3_verify
-
-    dialog_infobox "Installing Gentoo Linux [3/${#INSTALL_PHASES[@]}]" \
-        "Extracting stage3 tarball...\n\nThis may take a few minutes."
-    stage3_extract
 }

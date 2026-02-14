@@ -30,6 +30,13 @@ try() {
             die "Non-interactive mode — aborting on failure: ${desc}"
         fi
 
+        # Restore stderr for dialog UI if it was redirected (fd 4 saved by screen_progress)
+        local _stderr_redirected=0
+        if { true >&4; } 2>/dev/null; then
+            exec 2>&4
+            _stderr_redirected=1
+        fi
+
         local choice
         choice=$(dialog_menu "Command Failed: ${desc}" \
             "retry"    "Retry the command" \
@@ -41,19 +48,24 @@ try() {
         case "${choice}" in
             retry)
                 ewarn "Retrying: ${desc}"
+                # Re-redirect stderr if it was redirected
+                [[ ${_stderr_redirected} -eq 1 ]] && exec 2>>"${LOG_FILE}"
                 continue
                 ;;
             shell)
                 ewarn "Dropping to shell. Type 'exit' to return to installer."
                 PS1="(gentoo-installer rescue) \w \$ " bash --norc --noprofile || true
+                [[ ${_stderr_redirected} -eq 1 ]] && exec 2>>"${LOG_FILE}"
                 continue
                 ;;
             continue)
                 ewarn "Skipping: ${desc} (user chose to continue)"
+                [[ ${_stderr_redirected} -eq 1 ]] && exec 2>>"${LOG_FILE}"
                 return 0
                 ;;
             log)
                 dialog_textbox "Log Output" "${LOG_FILE}" || true
+                [[ ${_stderr_redirected} -eq 1 ]] && exec 2>>"${LOG_FILE}"
                 continue
                 ;;
             abort)

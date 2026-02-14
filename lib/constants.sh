@@ -49,7 +49,9 @@ readonly TUI_ABORT=2
 readonly -a CHECKPOINTS=(
     "preflight"
     "disks"
-    "stage3"
+    "stage3_download"
+    "stage3_verify"
+    "stage3_extract"
     "portage_preconfig"
     "chroot"
     # Inner chroot checkpoints (managed by _do_chroot_phases):
