@@ -17,7 +17,9 @@ disk_plan_reset() {
 disk_plan_add() {
     local desc="$1"
     shift
-    DISK_ACTIONS+=("${desc}|||$*")
+    local cmd
+    cmd=$(printf '%q ' "$@")
+    DISK_ACTIONS+=("${desc}|||${cmd}")
 }
 
 # disk_plan_show — Display planned actions

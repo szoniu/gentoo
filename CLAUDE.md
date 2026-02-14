@@ -29,7 +29,7 @@ lib/                    — Moduły biblioteczne (NIGDY nie uruchamiać bezpośr
 ├── disk.sh             — Dwufazowe: disk_plan_add/show/auto/dualboot → disk_execute_plan, mount/unmount_filesystems, get_uuid
 ├── network.sh          — check_network, install_network_manager, select_fastest_mirror
 ├── stage3.sh           — stage3_get_url/download/verify/extract
-├── portage.sh          — generate_make_conf (_write_make_conf), portage_sync, portage_select_profile, portage_install_cpuflags, install_extra_packages
+├── portage.sh          — generate_make_conf (_write_make_conf), portage_sync, portage_select_profile, portage_install_cpuflags, install_extra_packages, setup_guru_repository, install_noctalia_shell
 ├── kernel.sh           — kernel_install (dist-kernel vs genkernel)
 ├── bootloader.sh       — bootloader_install, _configure_grub (dual-boot os-prober)
 ├── system.sh           — system_set_timezone/locale/hostname/keymap, generate_fstab, install_filesystem_tools, system_create_users, system_finalize
@@ -53,7 +53,7 @@ tui/                    — Ekrany TUI
 ├── gpu_config.sh       — screen_gpu_config: auto/nvidia/amd/intel/none + nvidia-open
 ├── desktop_config.sh   — screen_desktop_config: KDE apps checklist
 ├── user_config.sh      — screen_user_config: root pwd, user, grupy, SSH
-├── extra_packages.sh   — screen_extra_packages: wolne pole tekstowe
+├── extra_packages.sh   — screen_extra_packages: checklist (fastfetch, GURU, noctalia) + wolne pole tekstowe
 ├── preset_save.sh      — screen_preset_save: opcjonalny eksport
 ├── summary.sh          — screen_summary: pełne podsumowanie + "YES" + countdown
 └── progress.sh         — screen_progress: gauge + fazowa instalacja
@@ -88,6 +88,8 @@ Wszystkie zmienne konfiguracyjne są zdefiniowane w `CONFIG_VARS[]` w `lib/const
 - `SWAP_TYPE` — zram/partition/file/none
 - `KERNEL_TYPE` — dist-kernel/genkernel
 - `GPU_VENDOR` — nvidia/amd/intel/none/unknown
+- `ENABLE_GURU` — yes/no (repozytorium GURU community)
+- `ENABLE_NOCTALIA` — yes/no (Noctalia Shell z GURU)
 
 ### Dwufazowe operacje dyskowe
 
@@ -121,6 +123,8 @@ Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `D
 - `config_save` używa `${VAR@Q}` (bash 4.4+) do bezpiecznego quotingu
 - Dialog: `2>&1 >/dev/tty` (dialog) vs `3>&1 1>&2 2>&3` (whiptail) — oba obsłużone w `lib/dialog.sh`
 - Pliki lib/ NIGDY nie są uruchamiane bezpośrednio — zawsze sourcowane
+- **`$*` vs `"$@"` vs `printf '%q '`**: Gdy komenda jest budowana jako string i później wykonywana przez `bash -c`, `$*` traci quoting argumentów ze spacjami (np. `"EFI System Partition"` → trzy osobne tokeny). Rozwiązanie: `printf '%q ' "$@"` zachowuje quoting. Dotyczy: `disk_plan_add()`, `chroot_exec()`, `dialog_prgbox()`. Bezpośrednie wykonanie (`"$@"`) nie ma tego problemu (np. `try()` linia 20).
+- **Interpolacja zmiennych w stringach innych języków**: Nie wstawiać zmiennych bashowych bezpośrednio w kod Pythona/Perla (np. `python3 -c "...('${password}')..."`). Znaki specjalne mogą złamać składnię lub umożliwić injection. Przekazywać przez zmienne środowiskowe (`GENTOO_PW="${password}" python3 -c "...os.environ['GENTOO_PW']..."`).
 
 ## Jak dodawać nowy ekran TUI
 

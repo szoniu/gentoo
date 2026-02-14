@@ -185,5 +185,5 @@ get_cpu_count() {
 generate_password_hash() {
     local password="$1"
     openssl passwd -6 "${password}" 2>/dev/null || \
-    python3 -c "import crypt; print(crypt.crypt('${password}', crypt.mksalt(crypt.METHOD_SHA512)))" 2>/dev/null
+    GENTOO_PW="${password}" python3 -c "import crypt, os; print(crypt.crypt(os.environ['GENTOO_PW'], crypt.mksalt(crypt.METHOD_SHA512)))" 2>/dev/null
 }

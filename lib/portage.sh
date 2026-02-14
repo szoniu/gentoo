@@ -172,8 +172,51 @@ portage_install_cpuflags() {
     fi
 }
 
+# setup_guru_repository — Enable the GURU community overlay
+setup_guru_repository() {
+    if [[ "${ENABLE_GURU:-no}" != "yes" ]]; then
+        return 0
+    fi
+
+    einfo "Enabling GURU repository..."
+
+    # Ensure eselect-repository is available
+    if ! command -v eselect &>/dev/null || ! eselect repository list -i 2>/dev/null | grep -q guru; then
+        try "Installing eselect-repository" emerge --quiet app-eselect/eselect-repository
+    fi
+
+    try "Enabling GURU overlay" eselect repository enable guru
+    try "Syncing GURU overlay" emerge --sync guru
+}
+
+# install_noctalia_shell — Install Noctalia Shell from GURU
+install_noctalia_shell() {
+    if [[ "${ENABLE_NOCTALIA:-no}" != "yes" ]]; then
+        return 0
+    fi
+
+    einfo "Installing Noctalia Shell..."
+
+    # Accept ~amd64 keyword for noctalia-shell
+    local keywords_dir="/etc/portage/package.accept_keywords"
+    if [[ -d "${keywords_dir}" ]]; then
+        echo "gui-apps/noctalia-shell ~amd64" > "${keywords_dir}/noctalia-shell"
+    else
+        mkdir -p "$(dirname "${keywords_dir}")"
+        echo "gui-apps/noctalia-shell ~amd64" >> "${keywords_dir}"
+    fi
+
+    try "Installing noctalia-shell" emerge --quiet gui-apps/noctalia-shell
+}
+
 # install_extra_packages — Install user-selected extra packages
 install_extra_packages() {
+    # Enable GURU repo if requested (before installing packages)
+    setup_guru_repository
+
+    # Install noctalia-shell if requested
+    install_noctalia_shell
+
     if [[ -z "${EXTRA_PACKAGES:-}" ]]; then
         einfo "No extra packages to install"
         return 0

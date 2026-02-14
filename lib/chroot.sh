@@ -77,12 +77,15 @@ chroot_teardown() {
 
 # chroot_exec — Execute a command inside the chroot
 chroot_exec() {
+    local cmd
+    cmd=$(printf '%q ' "$@")
+
     if [[ "${DRY_RUN}" == "1" ]]; then
-        einfo "[DRY-RUN] Would chroot exec: $*"
+        einfo "[DRY-RUN] Would chroot exec: ${cmd}"
         return 0
     fi
 
-    chroot "${MOUNTPOINT}" /bin/bash -c "$*"
+    chroot "${MOUNTPOINT}" /bin/bash -c "${cmd}"
 }
 
 # copy_dns_info — Copy DNS resolver config to chroot

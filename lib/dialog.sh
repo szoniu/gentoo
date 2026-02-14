@@ -192,10 +192,12 @@ dialog_textbox() {
 dialog_prgbox() {
     local title="$1"
     shift
+    local cmd
+    cmd=$(printf '%q ' "$@")
     if [[ "${DIALOG_CMD}" == "dialog" ]]; then
         "${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
             --title "${title}" \
-            --prgbox "$*" \
+            --prgbox "${cmd}" \
             "${DIALOG_HEIGHT}" "${DIALOG_WIDTH}"
     else
         # whiptail doesn't have prgbox, fall back to msgbox

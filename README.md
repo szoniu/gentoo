@@ -82,8 +82,8 @@ ping -c 3 gentoo.org
 
 ```bash
 sudo su
-git clone https://github.com/user/gentoo-installer.git
-cd gentoo-installer
+git clone https://github.com/szoniu/gentoo.git
+cd gentoo
 ./install.sh
 ```
 
