@@ -134,6 +134,7 @@ Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `D
 ## TODO
 
 - **Rozważyć zamianę `parted` na `sfdisk` lub `sgdisk`**: `sfdisk` (util-linux) i `sgdisk` (gptfdisk) mają lepsze API skryptowe, nie re-tokenizują argumentów i lepiej obsługują GPT. `parted -s` ma fundamentalne problemy z parsowaniem wielowyrazowych labeli. Migracja wymagałaby przepisania `disk_plan_auto()` i `disk_plan_dualboot()` w `lib/disk.sh`.
+- **Naprawić mechanizm checkpointów (wznowienie po awarii)**: Obecnie `checkpoint_clear` na początku `screen_progress()` kasuje wszystkie checkpointy, co de facto wyłącza wznowienie. Było to konieczne bo stare checkpointy z `/tmp` przeżywały restart installera i pomijały fazy na nieistniejących danych (po reformatowaniu dysku). Możliwe podejścia: (1) walidacja checkpointów — przed pominięciem fazy sprawdzić czy jej efekt faktycznie istnieje (np. czy mountpoint jest zamontowany, czy stage3 jest rozpakowany), (2) przechowywanie checkpointów na docelowym dysku (`${MOUNTPOINT}/tmp/`) zamiast w `/tmp` — znikają przy reformatowaniu, (3) selektywne czyszczenie — kasować tylko pre-chroot checkpointy, zostawiać chroot checkpoint jeśli mountpoint jest poprawny.
 
 ## Jak dodawać nowy ekran TUI
 
