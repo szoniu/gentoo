@@ -152,6 +152,38 @@ disk_plan_dualboot() {
 
 # --- Phase 2: Execution ---
 
+# cleanup_target_disk — Unmount all partitions on target disk and deactivate swap
+# Required before repartitioning (parted refuses if partitions are in use)
+cleanup_target_disk() {
+    local disk="${TARGET_DISK}"
+
+    if [[ "${DRY_RUN}" == "1" ]]; then
+        einfo "[DRY-RUN] Would cleanup ${disk}"
+        return 0
+    fi
+
+    einfo "Cleaning up ${disk} (unmounting partitions, deactivating swap)..."
+
+    # Deactivate any swap partitions on this disk
+    local swap_part
+    while IFS= read -r swap_part; do
+        [[ -z "${swap_part}" ]] && continue
+        swapoff "${swap_part}" 2>/dev/null && einfo "Deactivated swap: ${swap_part}" || true
+    done < <(awk -v disk="${disk}" 'NR>1 && $1 ~ "^"disk {print $1}' /proc/swaps 2>/dev/null)
+
+    # Unmount all partitions on this disk (reverse order for nested mounts)
+    local -a mounts
+    readarray -t mounts < <(awk -v disk="${disk}" '$1 ~ "^"disk {print $2}' /proc/mounts 2>/dev/null | sort -r)
+
+    local mnt
+    for mnt in "${mounts[@]}"; do
+        [[ -z "${mnt}" ]] && continue
+        umount -l "${mnt}" 2>/dev/null && einfo "Unmounted: ${mnt}" || true
+    done
+
+    einfo "Cleanup of ${disk} complete"
+}
+
 # disk_execute_plan — Execute all planned disk operations
 disk_execute_plan() {
     if [[ ${#DISK_ACTIONS[@]} -eq 0 ]]; then
@@ -165,6 +197,9 @@ disk_execute_plan() {
                 ;;
         esac
     fi
+
+    # Clean up any leftover mounts from previous installation attempts
+    cleanup_target_disk
 
     disk_plan_show
 
