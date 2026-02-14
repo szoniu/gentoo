@@ -23,7 +23,7 @@ lib/                    — Moduły biblioteczne (NIGDY nie uruchamiać bezpośr
 ├── constants.sh        — Stałe globalne, ścieżki, CONFIG_VARS[]
 ├── logging.sh          — elog/einfo/ewarn/eerror/die/die_trace, kolory, log do pliku
 ├── utils.sh            — try (interaktywne recovery), checkpoint_set/reached, is_root/is_efi/has_network
-├── dialog.sh           — Wrapper dialog/whiptail, primitives (msgbox/yesno/menu/radiolist/checklist/gauge/inputbox/passwordbox), wizard runner (register_wizard_screens + run_wizard)
+├── dialog.sh           — Wrapper dialog/whiptail, primitives (msgbox/yesno/menu/radiolist/checklist/gauge/infobox/inputbox/passwordbox), wizard runner (register_wizard_screens + run_wizard)
 ├── config.sh           — config_save/load/set/get/dump (${VAR@Q} quoting)
 ├── hardware.sh         — detect_cpu/gpu/disks/esp, get_hardware_summary
 ├── disk.sh             — Dwufazowe: disk_plan_add/show/auto/dualboot → disk_execute_plan, mount/unmount_filesystems, get_uuid
@@ -42,7 +42,7 @@ lib/                    — Moduły biblioteczne (NIGDY nie uruchamiać bezpośr
 tui/                    — Ekrany TUI
 ├── welcome.sh          — screen_welcome: branding + prereq check
 ├── preset_load.sh      — screen_preset_load: skip/file/browse
-├── hw_detect.sh        — screen_hw_detect: detect_all_hardware + summary
+├── hw_detect.sh        — screen_hw_detect: detect_all_hardware + summary (infobox auto-advance)
 ├── init_select.sh      — screen_init_select: systemd/openrc radiolist
 ├── disk_select.sh      — screen_disk_select: dysk + scheme (auto/dual-boot/manual)
 ├── filesystem_select.sh — screen_filesystem_select: ext4/btrfs/xfs + btrfs subvolumes
@@ -53,10 +53,10 @@ tui/                    — Ekrany TUI
 ├── gpu_config.sh       — screen_gpu_config: auto/nvidia/amd/intel/none + nvidia-open
 ├── desktop_config.sh   — screen_desktop_config: KDE apps checklist
 ├── user_config.sh      — screen_user_config: root pwd, user, grupy, SSH
-├── extra_packages.sh   — screen_extra_packages: checklist (fastfetch, GURU, noctalia) + wolne pole tekstowe
+├── extra_packages.sh   — screen_extra_packages: checklist (fastfetch, btop, kitty, GURU, noctalia) + wolne pole tekstowe
 ├── preset_save.sh      — screen_preset_save: opcjonalny eksport
 ├── summary.sh          — screen_summary: pełne podsumowanie + "YES" + countdown
-└── progress.sh         — screen_progress: gauge + fazowa instalacja
+└── progress.sh         — screen_progress: infobox (krótkie fazy) + live terminal (chroot)
 
 data/                   — Statyczne bazy danych
 ├── cpu_march_database.sh — CPU_MARCH_MAP[vendor:family:model] → -march flag
@@ -98,7 +98,7 @@ Wszystkie zmienne konfiguracyjne są zdefiniowane w `CONFIG_VARS[]` w `lib/const
 
 ### Checkpointy
 
-`checkpoint_set "nazwa"` tworzy plik w `$CHECKPOINT_DIR`. `checkpoint_reached "nazwa"` sprawdza. Pozwala wznowić po awarii.
+`checkpoint_set "nazwa"` tworzy plik w `$CHECKPOINT_DIR`. `checkpoint_reached "nazwa"` sprawdza. `checkpoint_clear` czyści wszystkie checkpointy — wywoływane na początku `screen_progress()` przy każdym świeżym uruchomieniu instalacji (bo checkpointy w `/tmp` przeżywają restart installera na live ISO).
 
 ### Funkcja `try`
 
@@ -125,11 +125,15 @@ Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `D
 - Pliki lib/ NIGDY nie są uruchamiane bezpośrednio — zawsze sourcowane
 - **`$*` vs `"$@"` vs `printf '%q '`**: Gdy komenda jest budowana jako string i później wykonywana przez `bash -c`, `$*` traci quoting argumentów ze spacjami (np. `"EFI System Partition"` → trzy osobne tokeny). Rozwiązanie: `printf '%q ' "$@"` zachowuje quoting. Dotyczy: `disk_plan_add()`, `chroot_exec()`, `dialog_prgbox()`. Bezpośrednie wykonanie (`"$@"`) nie ma tego problemu (np. `try()` linia 20).
 - **`parted -s` re-tokenizuje argumenty**: `parted -s` w trybie skryptowym łączy wszystkie argv z powrotem w jeden string i re-parsuje swoim tokenizerem. Nawet poprawnie zquotowane argumenty ze spacjami (np. `"EFI System Partition"`) są rozbijane. Rozwiązanie: używać nazw partycji bez spacji (`ESP`, `swap`, `linux`). Flaga `set N esp on` i tak decyduje o typie partycji, nie label.
+- **Interpolacja zmiennych w stringach innych języków**: Nie wstawiać zmiennych bashowych bezpośrednio w kod Pythona/Perla (np. `python3 -c "...('${password}')..."`). Znaki specjalne mogą złamać składnię lub umożliwić injection. Przekazywać przez zmienne środowiskowe (`GENTOO_PW="${password}" python3 -c "...os.environ['GENTOO_PW']..."`).
+- **`grep -oP` (PCRE) niedostępny w stage3 Gentoo**: `grep` w stage3 jest skompilowany bez PCRE. Zawsze używać POSIX alternatyw: `sed 's/.*\[//;s/\].*//'` zamiast `grep -oP '\[\K[^]]+'`, `grep -o '\[pattern\]'` zamiast `grep -oP`.
+- **Gentoo `.DIGESTS` format**: Plik `.DIGESTS` jest GPG clearsigned. Sekcja BLAKE2B jest PRZED SHA512. Nie ma oddzielnego `.DIGESTS.asc`. Parsowanie SHA512: użyć `awk` z tracking sekcji (`/^# SHA512/ { in_sha512=1 }`), nie `grep | head -1` (złapie BLAKE2B).
+- **Checkpointy w `/tmp` przeżywają restart installera**: Na live ISO `/tmp` nie jest czyszczony między uruchomieniami. Reformatowanie dysku inwaliduje chroot, ale checkpointy zostają → fazy są pomijane na starych danych. Rozwiązanie: `checkpoint_clear` na początku `screen_progress()`.
+- **stderr redirect a dialog UI**: Gdy stderr jest przekierowany do log file (`exec 2>>LOG`), `dialog` jest niewidoczny (bo pisze na stderr). `try()` musi tymczasowo przywrócić stderr (fd 4) żeby pokazać menu recovery. Wzorzec: `if { true >&4; } 2>/dev/null; then exec 2>&4; fi`.
 
 ## TODO
 
 - **Rozważyć zamianę `parted` na `sfdisk` lub `sgdisk`**: `sfdisk` (util-linux) i `sgdisk` (gptfdisk) mają lepsze API skryptowe, nie re-tokenizują argumentów i lepiej obsługują GPT. `parted -s` ma fundamentalne problemy z parsowaniem wielowyrazowych labeli. Migracja wymagałaby przepisania `disk_plan_auto()` i `disk_plan_dualboot()` w `lib/disk.sh`.
-- **Interpolacja zmiennych w stringach innych języków**: Nie wstawiać zmiennych bashowych bezpośrednio w kod Pythona/Perla (np. `python3 -c "...('${password}')..."`). Znaki specjalne mogą złamać składnię lub umożliwić injection. Przekazywać przez zmienne środowiskowe (`GENTOO_PW="${password}" python3 -c "...os.environ['GENTOO_PW']..."`).
 
 ## Jak dodawać nowy ekran TUI
 

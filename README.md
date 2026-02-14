@@ -139,7 +139,7 @@ Po zakończeniu installer zapyta czy chcesz rebootować. Wyjmij pendrive i uruch
 | 14 | Pakiety | Dodatkowe pakiety do zainstalowania |
 | 15 | Preset save | Opcjonalny eksport konfiguracji na przyszłość |
 | 16 | Podsumowanie | Pełny przegląd + potwierdzenie "YES" |
-| 17 | Instalacja | Progress bar — siedź i czekaj |
+| 17 | Instalacja | Live output w terminalu — siedź i czekaj |
 
 ## Dual-boot z Windows
 
@@ -168,7 +168,7 @@ Możesz też wyeksportować własny preset w ekranie 15 wizarda.
 ## Co jeśli coś pójdzie nie tak
 
 - **Błąd podczas instalacji** — installer wyświetli menu: Retry / Shell / Continue / Log / Abort. Możesz wejść do shella, naprawić problem i wrócić.
-- **Przerwa w prądzie / reboot** — installer zapisuje checkpointy po każdej fazie. Uruchom go ponownie — wznowi od ostatniego ukończonego kroku.
+- **Przerwa w prądzie / reboot** — installer zapisuje checkpointy po każdej fazie. Jeśli faza chroot się przerwie, checkpointy pozwolą ominąć już ukończone kroki. Uwaga: ponowne uruchomienie wizarda od nowa czyści wszystkie checkpointy.
 - **Log** — pełny log instalacji: `/tmp/gentoo-installer.log`
 - **Coś jest nie tak z konfiguracją** — użyj `./install.sh --configure` żeby przejść wizarda ponownie
 
