@@ -13,6 +13,9 @@ Tip: Run 'ls /usr/share/zoneinfo/' to see available zones." \
     TIMEZONE="${tz}"
     export TIMEZONE
 
+    # Apply timezone to live environment so logs show correct time
+    export TZ="${TIMEZONE}"
+
     # Locale
     local locale_choice
     locale_choice=$(dialog_menu "System Locale" \
