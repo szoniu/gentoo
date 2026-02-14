@@ -122,6 +122,13 @@ _execute_phase() {
         disks)
             disk_execute_plan
             mount_filesystems
+            # Disk reformatted — all downstream checkpoints are stale
+            local cp
+            for cp in stage3_download stage3_verify stage3_extract portage_preconfig chroot \
+                      portage_sync world_update system_config kernel fstab networking \
+                      bootloader swap_setup desktop users extras finalize; do
+                rm -f "${CHECKPOINT_DIR}/${cp}" 2>/dev/null || true
+            done
             ;;
         stage3_download)
             stage3_download
