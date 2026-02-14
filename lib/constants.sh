@@ -51,6 +51,8 @@ readonly -a CHECKPOINTS=(
     "disks"
     "stage3"
     "portage_preconfig"
+    "chroot"
+    # Inner chroot checkpoints (managed by _do_chroot_phases):
     "portage_sync"
     "world_update"
     "system_config"

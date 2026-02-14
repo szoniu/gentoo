@@ -37,9 +37,11 @@ stage3_download() {
     filename=$(basename "${url}")
     local dest="${MOUNTPOINT}/${filename}"
 
-    # Download tarball
-    try "Downloading stage3 tarball" \
-        wget --progress=dot:mega -O "${dest}" "${url}"
+    # Download tarball — show progress directly (not through try)
+    einfo "Downloading: ${url}"
+    if ! wget --progress=bar:force -O "${dest}" "${url}" 2>&1; then
+        die "Failed to download stage3 tarball"
+    fi
 
     # Download DIGESTS (GPG clearsigned, contains SHA512 hashes)
     try "Downloading DIGESTS" \
@@ -74,8 +76,9 @@ stage3_verify() {
     # Verify SHA512
     einfo "Checking SHA512 checksum..."
     local expected_hash
-    expected_hash=$(grep -A1 "SHA512" "${file}.DIGESTS" | \
-                    grep "$(basename "${file}")" | awk '{print $1}')
+    # Filter out .CONTENTS.gz lines — filename is a substring so both match
+    expected_hash=$(grep "$(basename "${file}")" "${file}.DIGESTS" | \
+                    grep -v CONTENTS | head -1 | awk '{print $1}')
 
     if [[ -z "${expected_hash}" ]]; then
         ewarn "Could not extract SHA512 hash, skipping checksum verification"
