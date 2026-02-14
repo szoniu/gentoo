@@ -76,9 +76,12 @@ stage3_verify() {
     # Verify SHA512
     einfo "Checking SHA512 checksum..."
     local expected_hash
-    # Filter out .CONTENTS.gz lines — filename is a substring so both match
-    expected_hash=$(grep "$(basename "${file}")" "${file}.DIGESTS" | \
-                    grep -v CONTENTS | head -1 | awk '{print $1}')
+    # Extract hash from SHA512 section only (BLAKE2B section comes first in DIGESTS)
+    expected_hash=$(awk -v fname="$(basename "${file}")" '
+        /^# SHA512/ { in_sha512=1; next }
+        /^#/ { in_sha512=0 }
+        in_sha512 && $0 ~ fname && !/CONTENTS/ { print $1; exit }
+    ' "${file}.DIGESTS")
 
     if [[ -z "${expected_hash}" ]]; then
         ewarn "Could not extract SHA512 hash, skipping checksum verification"
