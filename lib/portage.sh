@@ -136,7 +136,7 @@ portage_select_profile() {
 
     # eselect uses 1-based indexing from brackets [N]
     local profile_idx
-    profile_idx=$(eselect profile list | grep "${target_profile}" | grep -oP '\[\K[0-9]+')
+    profile_idx=$(eselect profile list | grep "${target_profile}" | sed 's/.*\[//;s/\].*//' | head -1)
 
     if [[ -n "${profile_idx}" ]]; then
         try "Setting profile to ${target_profile}" \

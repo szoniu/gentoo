@@ -53,7 +53,7 @@ detect_gpu() {
 
     # Extract vendor:device from [xxxx:yyyy]
     local pci_ids
-    pci_ids=$(echo "${gpu_line}" | grep -oP '\[\w{4}:\w{4}\]' | tail -1) || true
+    pci_ids=$(echo "${gpu_line}" | grep -o '\[[0-9a-fA-F]\{4\}:[0-9a-fA-F]\{4\}\]' | tail -1) || true
     local vendor_id device_id
     vendor_id=$(echo "${pci_ids}" | tr -d '[]' | cut -d: -f1)
     device_id=$(echo "${pci_ids}" | tr -d '[]' | cut -d: -f2)
