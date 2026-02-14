@@ -21,22 +21,6 @@ screen_kernel_select() {
     KERNEL_TYPE="${choice}"
     export KERNEL_TYPE
 
-    if [[ "${KERNEL_TYPE}" == "dist-kernel" ]]; then
-        dialog_msgbox "Distribution Kernel" \
-            "The distribution kernel (sys-kernel/gentoo-kernel-bin or\n\
-sys-kernel/gentoo-kernel) will be installed.\n\n\
-This is the fastest option and provides a well-tested\n\
-configuration that works on most hardware."
-    else
-        dialog_msgbox "genkernel" \
-            "genkernel will be used to build a custom kernel from\n\
-sys-kernel/gentoo-sources.\n\n\
-This takes longer but allows full control over the\n\
-kernel configuration.\n\n\
-Note: genkernel --menuconfig will be available for\n\
-advanced users during the build process."
-    fi
-
     einfo "Kernel type: ${KERNEL_TYPE}"
     return "${TUI_NEXT}"
 }

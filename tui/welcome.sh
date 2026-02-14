@@ -6,24 +6,21 @@ source "${LIB_DIR}/protection.sh"
 # Returns: TUI_NEXT (0), TUI_BACK (1), TUI_ABORT (2)
 screen_welcome() {
     local welcome_text
-    welcome_text="Welcome to the ${INSTALLER_NAME} v${INSTALLER_VERSION}
+    welcome_text="Welcome to ${INSTALLER_NAME} v${INSTALLER_VERSION}
 
-This wizard will guide you through the complete installation
-of Gentoo Linux with KDE Plasma desktop.
+This wizard will guide you through installing Gentoo Linux
+with KDE Plasma desktop.
 
-What this installer will do:
-  * Detect your hardware (CPU, GPU, disks)
-  * Partition and format your disk
-  * Install Gentoo stage3 and configure Portage
-  * Build and install the kernel
-  * Set up KDE Plasma desktop with SDDM
-  * Configure bootloader (GRUB, dual-boot supported)
+The installer will:
+  * Detect hardware (CPU, GPU, disks)
+  * Partition and format disk
+  * Install stage3 and configure Portage
+  * Build kernel, set up KDE Plasma + SDDM
+  * Configure GRUB bootloader (dual-boot supported)
 
 Requirements:
-  * Root access
-  * UEFI boot mode
-  * Working internet connection
-  * At least 60 GiB free disk space
+  * Root access           * UEFI boot mode
+  * Internet connection   * 60 GiB+ free disk space
 
 Press OK to check prerequisites and continue."
 

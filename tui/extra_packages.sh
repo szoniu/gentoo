@@ -7,6 +7,8 @@ screen_extra_packages() {
     local selections
     selections=$(dialog_checklist "Extra Packages" \
         "fastfetch"    "System info tool (like neofetch)"     "on"  \
+        "btop"         "Resource monitor (top/htop alternative)" "on"  \
+        "kitty"        "GPU-accelerated terminal emulator"   "on"  \
         "app-editors/vim"  "Vim text editor"                  "off" \
         "dev-vcs/git"      "Git version control"              "off" \
         "app-misc/htop"    "Interactive process viewer"       "off" \
@@ -34,6 +36,12 @@ screen_extra_packages() {
                 ;;
             fastfetch)
                 pkgs+=("app-misc/fastfetch")
+                ;;
+            btop)
+                pkgs+=("sys-process/btop")
+                ;;
+            kitty)
+                pkgs+=("x11-terms/kitty")
                 ;;
             *)
                 pkgs+=("${item}")

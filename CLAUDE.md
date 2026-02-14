@@ -124,6 +124,11 @@ Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `D
 - Dialog: `2>&1 >/dev/tty` (dialog) vs `3>&1 1>&2 2>&3` (whiptail) — oba obsłużone w `lib/dialog.sh`
 - Pliki lib/ NIGDY nie są uruchamiane bezpośrednio — zawsze sourcowane
 - **`$*` vs `"$@"` vs `printf '%q '`**: Gdy komenda jest budowana jako string i później wykonywana przez `bash -c`, `$*` traci quoting argumentów ze spacjami (np. `"EFI System Partition"` → trzy osobne tokeny). Rozwiązanie: `printf '%q ' "$@"` zachowuje quoting. Dotyczy: `disk_plan_add()`, `chroot_exec()`, `dialog_prgbox()`. Bezpośrednie wykonanie (`"$@"`) nie ma tego problemu (np. `try()` linia 20).
+- **`parted -s` re-tokenizuje argumenty**: `parted -s` w trybie skryptowym łączy wszystkie argv z powrotem w jeden string i re-parsuje swoim tokenizerem. Nawet poprawnie zquotowane argumenty ze spacjami (np. `"EFI System Partition"`) są rozbijane. Rozwiązanie: używać nazw partycji bez spacji (`ESP`, `swap`, `linux`). Flaga `set N esp on` i tak decyduje o typie partycji, nie label.
+
+## TODO
+
+- **Rozważyć zamianę `parted` na `sfdisk` lub `sgdisk`**: `sfdisk` (util-linux) i `sgdisk` (gptfdisk) mają lepsze API skryptowe, nie re-tokenizują argumentów i lepiej obsługują GPT. `parted -s` ma fundamentalne problemy z parsowaniem wielowyrazowych labeli. Migracja wymagałaby przepisania `disk_plan_auto()` i `disk_plan_dualboot()` w `lib/disk.sh`.
 - **Interpolacja zmiennych w stringach innych języków**: Nie wstawiać zmiennych bashowych bezpośrednio w kod Pythona/Perla (np. `python3 -c "...('${password}')..."`). Znaki specjalne mogą złamać składnię lub umożliwić injection. Przekazywać przez zmienne środowiskowe (`GENTOO_PW="${password}" python3 -c "...os.environ['GENTOO_PW']..."`).
 
 ## Jak dodawać nowy ekran TUI

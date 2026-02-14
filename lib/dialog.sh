@@ -32,6 +32,15 @@ init_dialog() {
 
 # --- Primitives ---
 
+# dialog_infobox — Display a message without waiting for input (returns immediately)
+dialog_infobox() {
+    local title="$1" text="$2"
+    "${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
+        --title "${title}" \
+        --infobox "${text}" \
+        "${DIALOG_HEIGHT}" "${DIALOG_WIDTH}"
+}
+
 # dialog_msgbox — Display a message box
 dialog_msgbox() {
     local title="$1" text="$2"
@@ -231,6 +240,9 @@ run_wizard() {
         local screen_func="${_WIZARD_SCREENS[${_WIZARD_INDEX}]}"
 
         elog "Running wizard screen ${_WIZARD_INDEX}/${total}: ${screen_func}"
+
+        # Clear terminal to prevent flicker between screens
+        clear 2>/dev/null
 
         local rc=0
         "${screen_func}" || rc=$?

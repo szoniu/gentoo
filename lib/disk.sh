@@ -47,7 +47,7 @@ disk_plan_auto() {
 
     # ESP partition (512 MiB)
     disk_plan_add "Create ESP partition (${ESP_SIZE_MIB} MiB)" \
-        parted -s "${disk}" mkpart "EFI System Partition" fat32 1MiB "$((ESP_SIZE_MIB + 1))MiB"
+        parted -s "${disk}" mkpart ESP fat32 1MiB "$((ESP_SIZE_MIB + 1))MiB"
     disk_plan_add "Set ESP flag" \
         parted -s "${disk}" set 1 esp on
 
@@ -57,13 +57,13 @@ disk_plan_auto() {
     if [[ "${swap_type}" == "partition" ]]; then
         local swap_end="$((next_start + swap_size))"
         disk_plan_add "Create swap partition (${swap_size} MiB)" \
-            parted -s "${disk}" mkpart "Linux swap" linux-swap "${next_start}MiB" "${swap_end}MiB"
+            parted -s "${disk}" mkpart swap linux-swap "${next_start}MiB" "${swap_end}MiB"
         next_start="${swap_end}"
     fi
 
     # Root partition (rest of disk)
     disk_plan_add "Create root partition (remaining space)" \
-        parted -s "${disk}" mkpart "Linux filesystem" "${next_start}MiB" "100%"
+        parted -s "${disk}" mkpart linux "${next_start}MiB" "100%"
 
     # Determine partition device names
     local part_prefix="${disk}"
@@ -120,7 +120,7 @@ disk_plan_dualboot() {
         # Need to create root partition in free space
         # Find free space on disk
         disk_plan_add "Create root partition in free space" \
-            parted -s "${disk}" mkpart "Linux filesystem" ext4 0% 100%
+            parted -s "${disk}" mkpart linux ext4 0% 100%
 
         # Determine partition name
         local part_count

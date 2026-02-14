@@ -3,9 +3,8 @@
 source "${LIB_DIR}/protection.sh"
 
 screen_hw_detect() {
-    dialog_msgbox "Hardware Detection" \
-        "The installer will now scan your hardware.\n\nThis may take a moment..." \
-        || return "${TUI_ABORT}"
+    dialog_infobox "Hardware Detection" \
+        "Scanning your hardware...\n\nThis may take a moment."
 
     # Run detection
     detect_all_hardware

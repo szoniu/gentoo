@@ -2,7 +2,7 @@
 # constants.sh — Global constants for the Gentoo installer
 source "${LIB_DIR}/protection.sh"
 
-readonly INSTALLER_VERSION="1.0.0"
+readonly INSTALLER_VERSION="1.1.0"
 readonly INSTALLER_NAME="Gentoo TUI Installer"
 
 # Paths (use defaults, allow override from environment)
