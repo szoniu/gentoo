@@ -116,27 +116,29 @@ portage_select_profile() {
     esac
 
     # Find the profile number
+    # Note: || true needed on grep pipelines — grep returns 1 on no match,
+    # which kills the script under set -euo pipefail + inherit_errexit
     local profile_num
-    profile_num=$(eselect profile list | grep -n "${target_profile}" | head -1 | cut -d: -f1)
+    profile_num=$(eselect profile list | grep -n "${target_profile}" | head -1 | cut -d: -f1) || true
 
     if [[ -z "${profile_num}" ]]; then
         # Try partial match
-        profile_num=$(eselect profile list | grep -n "plasma" | grep "${INIT_SYSTEM:-systemd}" | head -1 | cut -d: -f1)
+        profile_num=$(eselect profile list | grep -n "plasma" | grep "${INIT_SYSTEM:-systemd}" | head -1 | cut -d: -f1) || true
     fi
 
     if [[ -z "${profile_num}" ]]; then
         ewarn "Could not find exact profile. Available profiles:"
-        eselect profile list
+        eselect profile list || true
         ewarn "Please select manually."
 
         local manual
-        manual=$(eselect profile list | grep -n "desktop" | head -20)
+        manual=$(eselect profile list | grep -n "desktop" | head -20) || true
         die "Profile selection failed. Available desktop profiles:\n${manual}"
     fi
 
     # eselect uses 1-based indexing from brackets [N]
     local profile_idx
-    profile_idx=$(eselect profile list | grep "${target_profile}" | sed 's/.*\[//;s/\].*//' | head -1)
+    profile_idx=$(eselect profile list | grep "${target_profile}" | sed 's/.*\[//;s/\].*//' | head -1) || true
 
     if [[ -n "${profile_idx}" ]]; then
         try "Setting profile to ${target_profile}" \

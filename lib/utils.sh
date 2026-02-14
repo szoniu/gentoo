@@ -46,17 +46,33 @@ try() {
         fi
 
         local choice
-        choice=$(dialog_menu "Command Failed: ${desc}" \
-            "retry"    "Retry the command" \
-            "shell"    "Drop to a shell (type 'exit' to return)" \
-            "continue" "Skip this step and continue" \
-            "log"      "View last 50 lines of log" \
-            "abort"    "Abort installation") || choice="abort"
+
+        if command -v "${DIALOG_CMD:-dialog}" &>/dev/null; then
+            # Full dialog UI available
+            choice=$(dialog_menu "Command Failed: ${desc}" \
+                "retry"    "Retry the command" \
+                "shell"    "Drop to a shell (type 'exit' to return)" \
+                "continue" "Skip this step and continue" \
+                "log"      "View last 50 lines of log" \
+                "abort"    "Abort installation") || choice="abort"
+        else
+            # No dialog (e.g. inside chroot) — simple text menu
+            echo "" >&2
+            echo "=== FAILED: ${desc} ===" >&2
+            echo "  (r)etry  | (s)hell  | (c)ontinue  | (a)bort" >&2
+            local _reply=""
+            read -r -p "Choice [r/s/c/a]: " _reply < /dev/tty || _reply="a"
+            case "${_reply}" in
+                r*) choice="retry" ;;
+                s*) choice="shell" ;;
+                c*) choice="continue" ;;
+                *)  choice="abort" ;;
+            esac
+        fi
 
         case "${choice}" in
             retry)
                 ewarn "Retrying: ${desc}"
-                # Re-redirect stderr if it was redirected
                 [[ ${_stderr_redirected} -eq 1 ]] && exec 2>>"${LOG_FILE}"
                 continue
                 ;;
