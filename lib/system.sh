@@ -36,8 +36,9 @@ system_set_locale() {
 
     try "Generating locales" locale-gen
 
-    # Set system locale
-    try "Setting system locale" eselect locale set "${locale}"
+    # Set system locale (eselect uses "utf8" not "UTF-8")
+    local eselect_locale="${locale/UTF-8/utf8}"
+    try "Setting system locale" eselect locale set "${eselect_locale}"
 
     # Update environment
     env-update 2>/dev/null || true
