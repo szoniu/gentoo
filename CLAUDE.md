@@ -139,10 +139,51 @@ Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `D
 - **`dialog` brak w chroot stage3**: Świeży stage3 nie ma `dialog`. `try()` musi mieć text fallback (`read -r` z `/dev/tty`) zamiast `dialog_menu`. Sprawdzanie: `command -v "${DIALOG_CMD:-dialog}"`.
 - **`set -euo pipefail` + `inherit_errexit` + `grep` w `$()`**: `grep` zwraca exit 1 na brak dopasowania. Z `pipefail` cały pipeline failuje. Z `inherit_errexit` set -e działa wewnątrz `$()`. Efekt: `var=$(cmd | grep pattern | head -1)` zabija skrypt PRZED dotarciem do `if [[ -z "$var" ]]`. Rozwiązanie: `|| true` na końcu `$()`.
 - **Partycje z poprzedniej instalacji blokują `parted`**: Przy ponownej próbie instalacji, partycje docelowego dysku mogą być nadal zamontowane. `parted` odmawia `mklabel` z "Partition(s) are being used". Rozwiązanie: `cleanup_target_disk()` odmontowuje wszystkie partycje i deaktywuje swap przed `disk_execute_plan()`.
+- **`eselect locale` format `utf8` nie `UTF-8`**: `eselect locale set "pl_PL.UTF-8"` → "target doesn't appear to be valid". eselect wymaga formatu `pl_PL.utf8`. Rozwiązanie: `${locale/UTF-8/utf8}` w `system_set_locale()`.
+- **Non-English locale + `myspell-en`**: L10N bez regionalnego wariantu angielskiego (np. `L10N="pl-PL en"` bez `en-US`) powoduje REQUIRED_USE failure dla `myspell-en`. Rozwiązanie: zawsze dodawać `en-US` jako fallback w L10N.
+- **`locale-gen` musi się zakończyć przed `eselect locale list`**: Jeśli `locale-gen` nie dokończy (np. przez orphan tee), `eselect locale list` pokaże tylko `C`, `C.UTF-8`, `POSIX` — wygenerowane locale nie pojawią się. Ręczne naprawienie: `echo "pl_PL.UTF-8 UTF-8" > /etc/locale.gen && locale-gen`.
+- **Zabicie `tee` może kaskadowo ubić bieżącą komendę**: Gdy `try()` używa `| tee`, zabicie procesu `tee` powoduje broken pipe → SIGPIPE do komendy (np. genkernel). Efekt: komenda pada w trakcie pracy. NIE zabijać tee podczas trwającej kompilacji — poczekać aż się zawiesi (brak aktywności w `top`).
+- **`genkernel` przy retry buduje od nowa**: `genkernel all` robi `make mrproper` na początku, co kasuje poprzedni build. Retry po padnięciu = pełna rekompilacja (20-60 min). To normalne zachowanie genkernel.
+- **Exit code `0` przy faktycznym błędzie w `try()`**: Po `if cmd; then ...; fi` bez `else`, bash ustawia `$?` na 0 niezależnie od exit code komendy ("if no condition tested true" → exit 0). Efekt: `try()` wyświetla "Failed (exit 0)" mimo faktycznego błędu. Bug kosmetyczny — detekcja błędu działa poprawnie.
+
+## Debugowanie podczas instalacji na żywym sprzęcie
+
+Gentoo Live ISO daje dostęp do wielu TTY. Przełączanie: `Ctrl+Alt+F1`..`F6`.
+
+- **TTY1**: Installer (główny ekran)
+- **TTY2-6**: Wolne konsole do debugowania
+
+Przydatne komendy na drugim TTY:
+```bash
+# Podgląd logów w czasie rzeczywistym
+tail -f /tmp/gentoo-installer.log                    # log zewnętrzny (pre-chroot)
+tail -f /mnt/gentoo/tmp/gentoo-installer.log         # log wewnętrzny (chroot)
+
+# Podgląd logów genkernel
+tail -f /mnt/gentoo/var/log/genkernel.log
+
+# Co się kompiluje
+top                                                  # cc1/gcc = kompilacja, emerge = portage
+
+# Sprawdzenie orphan procesów tee
+ps aux | grep tee
+
+# Sprawdzenie OOM killer
+dmesg | grep -i "oom\|killed"
+
+# Sprawdzenie zamontowanych partycji
+mount | grep /mnt/gentoo
+```
+
+Jeśli installer zawiśnie:
+1. Sprawdź na TTY2 czy procesy `cc1`/`make` działają (`top`) — jeśli tak, kompilacja trwa, poczekaj
+2. Sprawdź `ps aux | grep tee` — orphan tee może blokować pipeline. Zabij TYLKO jeśli żadna kompilacja nie trwa
+3. Sprawdź `tail` logów — ostatni wpis pokaże na czym stanął
 
 ## TODO
 
 - **Rozważyć zamianę `parted` na `sfdisk` lub `sgdisk`**: `sfdisk` (util-linux) i `sgdisk` (gptfdisk) mają lepsze API skryptowe, nie re-tokenizują argumentów i lepiej obsługują GPT. `parted -s` ma fundamentalne problemy z parsowaniem wielowyrazowych labeli. Migracja wymagałaby przepisania `disk_plan_auto()` i `disk_plan_dualboot()` w `lib/disk.sh`.
+- **Naprawić wyświetlanie exit code w `try()`**: Po `if cmd; then ...; fi` bez `else`, `$?` jest zawsze 0. Poprawka: przechwycić exit code przez `cmd || true; exit_code=${PIPESTATUS[0]}` (pipeline) lub `$?` (bezpośrednie), a potem `if [[ ${exit_code} -eq 0 ]]; then ...`.
 - **Naprawić mechanizm checkpointów (wznowienie po awarii)**: Obecnie `checkpoint_clear` na początku `screen_progress()` kasuje wszystkie checkpointy, co de facto wyłącza wznowienie. Było to konieczne bo stare checkpointy z `/tmp` przeżywały restart installera i pomijały fazy na nieistniejących danych (po reformatowaniu dysku). Możliwe podejścia: (1) walidacja checkpointów — przed pominięciem fazy sprawdzić czy jej efekt faktycznie istnieje (np. czy mountpoint jest zamontowany, czy stage3 jest rozpakowany), (2) przechowywanie checkpointów na docelowym dysku (`${MOUNTPOINT}/tmp/`) zamiast w `/tmp` — znikają przy reformatowaniu, (3) selektywne czyszczenie — kasować tylko pre-chroot checkpointy, zostawiać chroot checkpoint jeśli mountpoint jest poprawny.
 
 ## Jak dodawać nowy ekran TUI

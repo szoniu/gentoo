@@ -167,8 +167,43 @@ Możesz też wyeksportować własny preset w ekranie 15 wizarda.
 
 ## Co jeśli coś pójdzie nie tak
 
-- **Błąd podczas instalacji** — installer wyświetli menu: Retry / Shell / Continue / Log / Abort. Możesz wejść do shella, naprawić problem i wrócić.
-- **Przerwa w prądzie / reboot** — niestety trzeba zacząć od nowa. Mechanizm wznowienia jest w planach (patrz TODO w CLAUDE.md).
+### Recovery menu
+
+Gdy komenda się nie powiedzie, installer wyświetli menu recovery:
+
+- **(r)etry** — ponów komendę (np. po naprawieniu problemu w shellu)
+- **(s)hell** — wejdź do shella, napraw ręcznie, wpisz `exit` żeby wrócić
+- **(c)ontinue** — pomiń ten krok i kontynuuj (ostrożnie!)
+- **(a)bort** — przerwij instalację
+
+### Drugie TTY — twój najlepszy przyjaciel
+
+Podczas instalacji masz dostęp do wielu konsol. Przełączaj się przez **Ctrl+Alt+F1**...**F6**:
+
+- **TTY1** — installer (tu lecą kompilacje)
+- **TTY2-6** — wolne konsole do debugowania
+
+Na drugim TTY możesz:
+
+```bash
+# Podgląd co się kompiluje w czasie rzeczywistym
+top
+
+# Log installera
+tail -f /tmp/gentoo-installer.log                   # przed chroot
+tail -f /mnt/gentoo/tmp/gentoo-installer.log        # w chroot
+
+# Log genkernel (jeśli wybrałeś genkernel)
+tail -f /mnt/gentoo/var/log/genkernel.log
+
+# Sprawdź czy coś nie zawiesiło się
+ps aux | grep -E "tee|emerge|make"
+```
+
+### Typowe problemy
+
+- **Installer zawisł, nic się nie dzieje** — sprawdź na TTY2 czy `cc1`/`gcc`/`make` działają w `top`. Jeśli tak — kompilacja trwa, po prostu czekaj. Gentoo kompiluje WSZYSTKO ze źródeł. Kernel: 20-60 min. KDE Plasma: 1-4h.
+- **Przerwa w prądzie / reboot** — niestety trzeba zacząć od nowa. Mechanizm wznowienia jest w planach.
 - **Log** — pełny log instalacji: `/tmp/gentoo-installer.log`
 - **Coś jest nie tak z konfiguracją** — użyj `./install.sh --configure` żeby przejść wizarda ponownie
 
