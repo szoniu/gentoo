@@ -17,20 +17,18 @@ try() {
         einfo "Running: ${desc}"
         elog "Command: $*"
 
+        local exit_code=0
         if [[ "${LIVE_OUTPUT:-0}" == "1" ]]; then
             # Show output on terminal AND log to file (pipeline, not process substitution)
-            if "$@" 2>&1 | tee -a "${LOG_FILE}"; then
-                einfo "Success: ${desc}"
-                return 0
-            fi
+            "$@" 2>&1 | tee -a "${LOG_FILE}" || exit_code=$?
         else
-            if "$@" >> "${LOG_FILE}" 2>&1; then
-                einfo "Success: ${desc}"
-                return 0
-            fi
+            "$@" >> "${LOG_FILE}" 2>&1 || exit_code=$?
         fi
 
-        local exit_code=$?
+        if [[ ${exit_code} -eq 0 ]]; then
+            einfo "Success: ${desc}"
+            return 0
+        fi
         eerror "Failed (exit ${exit_code}): ${desc}"
         eerror "Command: $*"
 
