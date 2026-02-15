@@ -91,6 +91,15 @@ Wszystkie zmienne konfiguracyjne są zdefiniowane w `CONFIG_VARS[]` w `lib/const
 - `ENABLE_GURU` — yes/no (repozytorium GURU community)
 - `ENABLE_NOCTALIA` — yes/no (Noctalia Shell z GURU)
 
+### Polityka `~amd64` (testing keywords)
+
+NIGDY nie ustawiać `ACCEPT_KEYWORDS="~amd64"` globalnie — destabilizuje cały system. Zamiast tego per-pakiet w `/etc/portage/package.accept_keywords/`:
+- `sys-kernel/gentoo-kernel-bin ~amd64` — dist-kernel (kernel.sh)
+- `sys-kernel/gentoo-sources ~amd64` — genkernel (kernel.sh)
+- `gui-apps/noctalia-shell ~amd64` — Noctalia Shell (portage.sh)
+
+Nowe pakiety wymagające `~amd64` dodawać w odpowiednim module `lib/`, nie w make.conf.
+
 ### Dwufazowe operacje dyskowe
 
 1. `disk_plan_auto()` / `disk_plan_dualboot()` — buduje `DISK_ACTIONS[]`
