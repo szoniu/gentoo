@@ -35,7 +35,7 @@ kernel_install_dist() {
 
     # Accept ~amd64 for latest kernel if needed
     mkdir -p /etc/portage/package.accept_keywords
-    echo "sys-kernel/gentoo-kernel-bin ~amd64" > \
+    echo "sys-kernel/gentoo-kernel-bin ~amd64" >> \
         /etc/portage/package.accept_keywords/kernel 2>/dev/null || true
 
     # Try binary kernel first (much faster)
@@ -59,6 +59,11 @@ kernel_install_dist() {
 kernel_install_genkernel() {
     einfo "Installing kernel with genkernel..."
 
+    # Accept ~amd64 for latest kernel sources
+    mkdir -p /etc/portage/package.accept_keywords
+    echo "sys-kernel/gentoo-sources ~amd64" >> \
+        /etc/portage/package.accept_keywords/kernel 2>/dev/null || true
+
     # Install gentoo-sources
     try "Installing gentoo-sources" emerge --quiet sys-kernel/gentoo-sources
 
@@ -75,10 +80,8 @@ kernel_install_genkernel() {
     local genkernel_opts=(
         --makeopts="-j$(get_cpu_count)"
         --no-menuconfig
-        --btrfs
         --lvm
         --luks
-        all
     )
 
     # Add filesystem support
@@ -90,6 +93,8 @@ kernel_install_genkernel() {
             # XFS is built-in by default
             ;;
     esac
+
+    genkernel_opts+=(all)
 
     try "Building kernel with genkernel" genkernel "${genkernel_opts[@]}"
 
