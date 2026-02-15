@@ -33,6 +33,16 @@ screen_extra_packages() {
             noctalia-shell)
                 ENABLE_NOCTALIA="yes"
                 ENABLE_GURU="yes"  # noctalia requires GURU
+                # Ask which Wayland compositor to install
+                local compositor
+                compositor=$(dialog_radiolist "Noctalia Compositor" \
+                    "Noctalia Shell requires a Wayland compositor.\nSelect one:" \
+                    "hyprland" "Hyprland — dynamic tiling Wayland compositor" "on"  \
+                    "niri"     "Niri — scrollable-tiling Wayland compositor"  "off" \
+                    "sway"     "Sway — i3-compatible Wayland compositor"      "off" \
+                ) || return "${TUI_BACK}"
+                NOCTALIA_COMPOSITOR=$(echo "${compositor}" | tr -d '"')
+                export NOCTALIA_COMPOSITOR
                 ;;
             fastfetch)
                 pkgs+=("app-misc/fastfetch")

@@ -113,6 +113,12 @@ Nowe pakiety wymagające `~amd64` dodawać w odpowiednim module `lib/`, nie w ma
 
 Noctalia Shell to shell do **Wayland compositorów** (Niri/Hyprland/Sway), NIE do KDE Plasma. Instalowanie go obok KDE nie szkodzi, ale nie będzie działać bez osobnego compositora. GURU overlay wymaga `dev-vcs/git` do synca.
 
+- **Quickshell** (`gui-apps/quickshell`) jest ściągany automatycznie jako RDEPEND noctalia-shell
+- **Compositor NIE jest zależnością** — trzeba go zainstalować osobno
+- Instalator pyta o wybór compositora (Hyprland/Niri/Sway) gdy użytkownik zaznaczy Noctalia
+- Zmienna `NOCTALIA_COMPOSITOR` przechowuje wybór (hyprland/niri/sway)
+- Autostart konfigurowany w `/etc/skel/.config/{hypr,niri,sway}/` + kopiowany do usera
+
 ### Dwufazowe operacje dyskowe
 
 1. `disk_plan_auto()` / `disk_plan_dualboot()` — buduje `DISK_ACTIONS[]`

@@ -205,14 +205,14 @@ setup_guru_repository() {
     try "Syncing GURU overlay" emerge --sync guru
 }
 
-# install_noctalia_shell — Install Noctalia Shell from GURU
+# install_noctalia_shell — Install Noctalia Shell + Wayland compositor from GURU
 install_noctalia_shell() {
     if [[ "${ENABLE_NOCTALIA:-no}" != "yes" ]]; then
         return 0
     fi
 
-    einfo "Installing Noctalia Shell..."
-    ewarn "Note: Noctalia Shell requires a Wayland compositor (Niri/Hyprland/Sway), not KDE Plasma"
+    local compositor="${NOCTALIA_COMPOSITOR:-hyprland}"
+    einfo "Installing Noctalia Shell with ${compositor}..."
 
     # Accept ~amd64 keywords for noctalia-shell and its GURU dependencies
     mkdir -p /etc/portage/package.accept_keywords
@@ -222,7 +222,111 @@ install_noctalia_shell() {
         echo "media-video/gpu-screen-recorder ~amd64"
     } > /etc/portage/package.accept_keywords/noctalia-shell
 
+    # Install selected Wayland compositor
+    _install_noctalia_compositor "${compositor}"
+
+    # Install Noctalia Shell itself (pulls in quickshell automatically)
     try "Installing noctalia-shell" emerge --quiet gui-apps/noctalia-shell
+
+    # Configure compositor to launch Noctalia Shell
+    _configure_noctalia_autostart "${compositor}"
+}
+
+# _install_noctalia_compositor — Install the selected Wayland compositor
+_install_noctalia_compositor() {
+    local compositor="$1"
+
+    case "${compositor}" in
+        hyprland)
+            mkdir -p /etc/portage/package.accept_keywords
+            echo "gui-wm/hyprland ~amd64" >> /etc/portage/package.accept_keywords/noctalia-shell
+            try "Installing Hyprland" emerge --quiet gui-wm/hyprland
+            ;;
+        niri)
+            mkdir -p /etc/portage/package.accept_keywords
+            echo "gui-wm/niri ~amd64" >> /etc/portage/package.accept_keywords/noctalia-shell
+            try "Installing Niri" emerge --quiet gui-wm/niri
+            ;;
+        sway)
+            try "Installing Sway" emerge --quiet gui-wm/sway
+            ;;
+        *)
+            ewarn "Unknown compositor: ${compositor}, skipping"
+            ;;
+    esac
+}
+
+# _configure_noctalia_autostart — Configure compositor to start Noctalia Shell
+_configure_noctalia_autostart() {
+    local compositor="$1"
+
+    # Create config for all users via skel
+    local skel="/etc/skel"
+
+    case "${compositor}" in
+        hyprland)
+            local conf_dir="${skel}/.config/hypr"
+            mkdir -p "${conf_dir}"
+            if [[ -f "${conf_dir}/hyprland.conf" ]]; then
+                echo 'exec-once = qs -c noctalia-shell' >> "${conf_dir}/hyprland.conf"
+            else
+                cat > "${conf_dir}/hyprland.conf" << 'HYPREOF'
+# Noctalia Shell autostart
+exec-once = qs -c noctalia-shell
+exec-once = dbus-update-activation-environment --systemd --all
+HYPREOF
+            fi
+            ;;
+        niri)
+            local conf_dir="${skel}/.config/niri"
+            mkdir -p "${conf_dir}"
+            if [[ -f "${conf_dir}/config.kdl" ]]; then
+                echo 'spawn-at-startup "qs" "-c" "noctalia-shell"' >> "${conf_dir}/config.kdl"
+            else
+                cat > "${conf_dir}/config.kdl" << 'NIRIEOF'
+// Noctalia Shell autostart
+spawn-at-startup "qs" "-c" "noctalia-shell"
+NIRIEOF
+            fi
+            ;;
+        sway)
+            local conf_dir="${skel}/.config/sway"
+            mkdir -p "${conf_dir}"
+            if [[ -f "${conf_dir}/config" ]]; then
+                echo 'exec qs -c noctalia-shell' >> "${conf_dir}/config"
+            else
+                cat > "${conf_dir}/config" << 'SWAYEOF'
+# Noctalia Shell autostart
+exec qs -c noctalia-shell
+SWAYEOF
+            fi
+            ;;
+    esac
+
+    # Also configure for the created user (if already exists)
+    if [[ -n "${USERNAME:-}" ]] && id "${USERNAME}" &>/dev/null; then
+        local user_home
+        user_home=$(eval echo "~${USERNAME}")
+        case "${compositor}" in
+            hyprland)
+                mkdir -p "${user_home}/.config/hypr"
+                cp "${skel}/.config/hypr/hyprland.conf" "${user_home}/.config/hypr/" 2>/dev/null || true
+                chown -R "${USERNAME}:${USERNAME}" "${user_home}/.config/hypr"
+                ;;
+            niri)
+                mkdir -p "${user_home}/.config/niri"
+                cp "${skel}/.config/niri/config.kdl" "${user_home}/.config/niri/" 2>/dev/null || true
+                chown -R "${USERNAME}:${USERNAME}" "${user_home}/.config/niri"
+                ;;
+            sway)
+                mkdir -p "${user_home}/.config/sway"
+                cp "${skel}/.config/sway/config" "${user_home}/.config/sway/" 2>/dev/null || true
+                chown -R "${USERNAME}:${USERNAME}" "${user_home}/.config/sway"
+                ;;
+        esac
+    fi
+
+    einfo "Noctalia Shell configured to autostart with ${compositor}"
 }
 
 # install_extra_packages — Install user-selected extra packages
