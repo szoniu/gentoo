@@ -11,6 +11,15 @@ kernel_install() {
     # Always install linux-firmware first
     try "Installing linux-firmware" emerge --quiet sys-kernel/linux-firmware
 
+    # Install Intel microcode for Intel CPUs (security + stability patches)
+    if grep -qi 'GenuineIntel' /proc/cpuinfo 2>/dev/null; then
+        try "Installing Intel microcode" emerge --quiet sys-firmware/intel-microcode
+    fi
+
+    # Configure installkernel with GRUB support
+    mkdir -p /etc/portage/package.use
+    echo "sys-kernel/installkernel grub" >> /etc/portage/package.use/installkernel 2>/dev/null || true
+
     # Install installkernel for automatic kernel installation
     try "Installing installkernel" emerge --quiet sys-kernel/installkernel
 
@@ -26,7 +35,25 @@ kernel_install() {
             ;;
     esac
 
+    # Configure dracut with root filesystem UUID
+    _configure_dracut_root
+
     einfo "Kernel installation complete"
+}
+
+# _configure_dracut_root — Tell dracut where the root filesystem is
+_configure_dracut_root() {
+    local root_uuid
+    root_uuid=$(get_uuid "${ROOT_PARTITION}" 2>/dev/null) || root_uuid=""
+
+    if [[ -n "${root_uuid}" ]]; then
+        mkdir -p /etc/dracut.conf.d
+        echo "kernel_cmdline=\"root=UUID=${root_uuid} rootfstype=${FILESYSTEM:-ext4}\"" \
+            > /etc/dracut.conf.d/root.conf
+        einfo "Dracut root configured: UUID=${root_uuid}"
+    else
+        ewarn "Could not determine root UUID for dracut config"
+    fi
 }
 
 # kernel_install_dist — Install distribution kernel (pre-configured)

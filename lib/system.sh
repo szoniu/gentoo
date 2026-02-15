@@ -252,6 +252,12 @@ system_finalize() {
         fi
     fi
 
+    # Enable default systemd services
+    if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+        try "Enabling default systemd services" \
+            systemctl preset-all --preset-mode=enable-only
+    fi
+
     # Install cpuid2cpuflags and update make.conf
     portage_install_cpuflags
 

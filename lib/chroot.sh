@@ -56,20 +56,15 @@ chroot_teardown() {
         return 0
     fi
 
-    local -a chroot_mounts=(
-        "${MOUNTPOINT}/run"
-        "${MOUNTPOINT}/dev/shm"
-        "${MOUNTPOINT}/dev/pts"
-        "${MOUNTPOINT}/dev"
-        "${MOUNTPOINT}/sys"
-        "${MOUNTPOINT}/proc"
-    )
+    # Unmount all mount points under MOUNTPOINT in reverse order
+    # This handles recursive bind mounts from --rbind /sys and /dev
+    local -a mounts
+    readarray -t mounts < <(awk -v mp="${MOUNTPOINT}" '$2 ~ "^"mp"/(proc|sys|dev|run)" {print $2}' /proc/mounts 2>/dev/null | sort -r)
 
     local mnt
-    for mnt in "${chroot_mounts[@]}"; do
-        if mountpoint -q "${mnt}" 2>/dev/null; then
-            umount -l "${mnt}" 2>/dev/null || true
-        fi
+    for mnt in "${mounts[@]}"; do
+        [[ -z "${mnt}" ]] && continue
+        umount -l "${mnt}" 2>/dev/null || true
     done
 
     einfo "Chroot teardown complete"
@@ -118,8 +113,14 @@ copy_installer_to_chroot() {
     local dest="${MOUNTPOINT}${CHROOT_INSTALLER_DIR}"
     mkdir -p "${dest}"
 
-    # Copy everything
-    cp -a "${SCRIPT_DIR}/"* "${dest}/"
+    # Copy installer files (exclude .git, tests, and temp files)
+    if command -v rsync &>/dev/null; then
+        rsync -a --exclude='.git' --exclude='tests' --exclude='*.HEIC' \
+            "${SCRIPT_DIR}/" "${dest}/"
+    else
+        cp -a "${SCRIPT_DIR}/"* "${dest}/"
+        rm -rf "${dest}/.git" 2>/dev/null || true
+    fi
     # Copy config file
     cp "${CONFIG_FILE}" "${dest}/$(basename "${CONFIG_FILE}")"
 

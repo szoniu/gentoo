@@ -69,6 +69,13 @@ source "${DATA_DIR}/use_flags_desktop.sh"
 # --- Cleanup trap ---
 cleanup() {
     local rc=$?
+
+    # Restore stderr if it was redirected to log file (fd 4 saved by screen_progress)
+    if { true >&4; } 2>/dev/null; then
+        exec 2>&4
+        exec 4>&-
+    fi
+
     if [[ "${_IN_CHROOT:-0}" != "1" ]]; then
         # Only do cleanup in outer process
         if mountpoint -q "${MOUNTPOINT}/proc" 2>/dev/null; then
@@ -83,6 +90,8 @@ cleanup() {
     return ${rc}
 }
 trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
 
 # --- Parse arguments ---
 MODE="full"
@@ -273,6 +282,7 @@ _do_chroot_phases() {
         maybe_exec 'before_portage_sync'
         portage_sync
         portage_select_profile
+        portage_install_cpuflags
         maybe_exec 'after_portage_sync'
         checkpoint_set "portage_sync"
     else
@@ -283,7 +293,7 @@ _do_chroot_phases() {
     if ! checkpoint_reached "world_update"; then
         einfo "--- Phase: @world update ---"
         maybe_exec 'before_world_update'
-        try "Updating @world" emerge --update --deep --newuse @world
+        try "Updating @world" emerge --update --deep --changed-use @world
         maybe_exec 'after_world_update'
         checkpoint_set "world_update"
     else

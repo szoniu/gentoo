@@ -97,8 +97,21 @@ NIGDY nie ustawiać `ACCEPT_KEYWORDS="~amd64"` globalnie — destabilizuje cały
 - `sys-kernel/gentoo-kernel-bin ~amd64` — dist-kernel (kernel.sh)
 - `sys-kernel/gentoo-sources ~amd64` — genkernel (kernel.sh)
 - `gui-apps/noctalia-shell ~amd64` — Noctalia Shell (portage.sh)
+- `gui-apps/quickshell ~amd64` — zależność Noctalia (portage.sh)
+- `media-video/gpu-screen-recorder ~amd64` — zależność Noctalia (portage.sh)
 
 Nowe pakiety wymagające `~amd64` dodawać w odpowiednim module `lib/`, nie w make.conf.
+
+### Konfiguracja kernela (per Gentoo Handbook)
+
+- **installkernel**: wymaga `USE="grub"` (`package.use/installkernel`) żeby wiedział, że ma konfigurować GRUB
+- **dracut**: wymaga `/etc/dracut.conf.d/root.conf` z `root=UUID=...` żeby initramfs znalazł root filesystem
+- **Intel microcode**: `sys-firmware/intel-microcode` instalowany automatycznie na CPU Intel (sprawdzamy `/proc/cpuinfo`)
+- **cpuid2cpuflags**: uruchamiany w fazie portage_sync (PRZED @world) żeby pakiety budowały się z optymalizacjami CPU
+
+### Noctalia Shell
+
+Noctalia Shell to shell do **Wayland compositorów** (Niri/Hyprland/Sway), NIE do KDE Plasma. Instalowanie go obok KDE nie szkodzi, ale nie będzie działać bez osobnego compositora. GURU overlay wymaga `dev-vcs/git` do synca.
 
 ### Dwufazowe operacje dyskowe
 

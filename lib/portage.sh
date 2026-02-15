@@ -191,8 +191,13 @@ setup_guru_repository() {
 
     einfo "Enabling GURU repository..."
 
+    # GURU uses git for sync — ensure git is installed
+    if ! command -v git &>/dev/null; then
+        try "Installing dev-vcs/git" emerge --quiet dev-vcs/git
+    fi
+
     # Ensure eselect-repository is available
-    if ! command -v eselect &>/dev/null || ! eselect repository list -i 2>/dev/null | grep -q guru; then
+    if ! eselect repository list &>/dev/null; then
         try "Installing eselect-repository" emerge --quiet app-eselect/eselect-repository
     fi
 
@@ -207,15 +212,15 @@ install_noctalia_shell() {
     fi
 
     einfo "Installing Noctalia Shell..."
+    ewarn "Note: Noctalia Shell requires a Wayland compositor (Niri/Hyprland/Sway), not KDE Plasma"
 
-    # Accept ~amd64 keyword for noctalia-shell
-    local keywords_dir="/etc/portage/package.accept_keywords"
-    if [[ -d "${keywords_dir}" ]]; then
-        echo "gui-apps/noctalia-shell ~amd64" > "${keywords_dir}/noctalia-shell"
-    else
-        mkdir -p "$(dirname "${keywords_dir}")"
-        echo "gui-apps/noctalia-shell ~amd64" >> "${keywords_dir}"
-    fi
+    # Accept ~amd64 keywords for noctalia-shell and its GURU dependencies
+    mkdir -p /etc/portage/package.accept_keywords
+    {
+        echo "gui-apps/noctalia-shell ~amd64"
+        echo "gui-apps/quickshell ~amd64"
+        echo "media-video/gpu-screen-recorder ~amd64"
+    } > /etc/portage/package.accept_keywords/noctalia-shell
 
     try "Installing noctalia-shell" emerge --quiet gui-apps/noctalia-shell
 }
