@@ -18,8 +18,8 @@ try() {
         elog "Command: $*"
 
         if [[ "${LIVE_OUTPUT:-0}" == "1" ]]; then
-            # Show output on terminal AND log to file
-            if "$@" > >(tee -a "${LOG_FILE}") 2>&1; then
+            # Show output on terminal AND log to file (pipeline, not process substitution)
+            if "$@" 2>&1 | tee -a "${LOG_FILE}"; then
                 einfo "Success: ${desc}"
                 return 0
             fi
