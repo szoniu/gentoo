@@ -226,7 +226,8 @@ install_noctalia_shell() {
     _install_noctalia_compositor "${compositor}"
 
     # Install Noctalia Shell itself (pulls in quickshell automatically)
-    try "Installing noctalia-shell" emerge --quiet gui-apps/noctalia-shell
+    # --autounmask-write --autounmask-continue: GURU deps may need extra ~amd64
+    try "Installing noctalia-shell" emerge --quiet --autounmask-write --autounmask-continue gui-apps/noctalia-shell
 
     # Configure compositor to launch Noctalia Shell
     _configure_noctalia_autostart "${compositor}"
@@ -240,12 +241,12 @@ _install_noctalia_compositor() {
         hyprland)
             mkdir -p /etc/portage/package.accept_keywords
             echo "gui-wm/hyprland ~amd64" >> /etc/portage/package.accept_keywords/noctalia-shell
-            try "Installing Hyprland" emerge --quiet gui-wm/hyprland
+            try "Installing Hyprland" emerge --quiet --autounmask-write --autounmask-continue gui-wm/hyprland
             ;;
         niri)
             mkdir -p /etc/portage/package.accept_keywords
             echo "gui-wm/niri ~amd64" >> /etc/portage/package.accept_keywords/noctalia-shell
-            try "Installing Niri" emerge --quiet gui-wm/niri
+            try "Installing Niri" emerge --quiet --autounmask-write --autounmask-continue gui-wm/niri
             ;;
         sway)
             try "Installing Sway" emerge --quiet gui-wm/sway

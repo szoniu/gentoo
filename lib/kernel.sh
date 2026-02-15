@@ -66,11 +66,13 @@ kernel_install_dist() {
         /etc/portage/package.accept_keywords/kernel 2>/dev/null || true
 
     # Try binary kernel first (much faster)
-    if try "Installing gentoo-kernel-bin" emerge --quiet sys-kernel/gentoo-kernel-bin; then
+    # --autounmask-write --autounmask-continue: deps may also need ~amd64,
+    # let portage accept keyword changes automatically instead of stopping
+    if try "Installing gentoo-kernel-bin" emerge --quiet --autounmask-write --autounmask-continue sys-kernel/gentoo-kernel-bin; then
         einfo "Binary distribution kernel installed"
     else
         ewarn "Binary kernel failed, trying source-based dist-kernel"
-        try "Installing gentoo-kernel" emerge --quiet sys-kernel/gentoo-kernel
+        try "Installing gentoo-kernel" emerge --quiet --autounmask-write --autounmask-continue sys-kernel/gentoo-kernel
     fi
 
     # Ensure initramfs is generated
@@ -92,7 +94,8 @@ kernel_install_genkernel() {
         /etc/portage/package.accept_keywords/kernel 2>/dev/null || true
 
     # Install gentoo-sources
-    try "Installing gentoo-sources" emerge --quiet sys-kernel/gentoo-sources
+    # --autounmask-write --autounmask-continue: deps may also need ~amd64
+    try "Installing gentoo-sources" emerge --quiet --autounmask-write --autounmask-continue sys-kernel/gentoo-sources
 
     # Install genkernel
     try "Installing genkernel" emerge --quiet sys-kernel/genkernel
