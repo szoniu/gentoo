@@ -1,25 +1,40 @@
 #!/usr/bin/env bash
 # disk.sh — Two-phase disk operations (plan -> execute), UUID persistence
+# Uses sfdisk (util-linux) for atomic GPT partitioning
 source "${LIB_DIR}/protection.sh"
 
 # Action queue for two-phase disk operations
 declare -ga DISK_ACTIONS=()
+declare -ga DISK_STDIN=()
 
 # --- Phase 1: Planning ---
 
 # disk_plan_reset — Clear the action queue
 disk_plan_reset() {
     DISK_ACTIONS=()
+    DISK_STDIN=()
 }
 
-# disk_plan_add — Add an action to the queue
-# Usage: disk_plan_add "description" "command" [args...]
+# disk_plan_add — Add an action to the queue (no stdin)
+# Usage: disk_plan_add "description" command [args...]
 disk_plan_add() {
     local desc="$1"
     shift
     local cmd
     cmd=$(printf '%q ' "$@")
     DISK_ACTIONS+=("${desc}|||${cmd}")
+    DISK_STDIN+=("")
+}
+
+# disk_plan_add_stdin — Add an action with stdin data
+# Usage: disk_plan_add_stdin "description" "stdin_data" command [args...]
+disk_plan_add_stdin() {
+    local desc="$1" stdin="$2"
+    shift 2
+    local cmd
+    cmd=$(printf '%q ' "$@")
+    DISK_ACTIONS+=("${desc}|||${cmd}")
+    DISK_STDIN+=("${stdin}")
 }
 
 # disk_plan_show — Display planned actions
@@ -29,10 +44,13 @@ disk_plan_show() {
     for (( i = 0; i < ${#DISK_ACTIONS[@]}; i++ )); do
         local desc="${DISK_ACTIONS[$i]%%|||*}"
         einfo "  $((i + 1)). ${desc}"
+        if [[ -n "${DISK_STDIN[$i]:-}" ]]; then
+            elog "    stdin script: ${DISK_STDIN[$i]}"
+        fi
     done
 }
 
-# disk_plan_auto — Generate auto-partitioning plan
+# disk_plan_auto — Generate auto-partitioning plan using sfdisk
 disk_plan_auto() {
     local disk="${TARGET_DISK}"
     local fs="${FILESYSTEM:-ext4}"
@@ -41,29 +59,20 @@ disk_plan_auto() {
 
     disk_plan_reset
 
-    # Create GPT label
-    disk_plan_add "Create GPT partition table on ${disk}" \
-        parted -s "${disk}" mklabel gpt
+    # Build sfdisk script — single atomic operation for all partitions
+    local sfdisk_script="label: gpt"$'\n'
+    sfdisk_script+="start=1MiB, size=${ESP_SIZE_MIB}MiB, type=${GPT_TYPE_EFI}, name=ESP"$'\n'
 
-    # ESP partition (512 MiB)
-    disk_plan_add "Create ESP partition (${ESP_SIZE_MIB} MiB)" \
-        parted -s "${disk}" mkpart ESP fat32 1MiB "$((ESP_SIZE_MIB + 1))MiB"
-    disk_plan_add "Set ESP flag" \
-        parted -s "${disk}" set 1 esp on
-
-    local next_start="$((ESP_SIZE_MIB + 1))"
-
-    # Optional swap partition
     if [[ "${swap_type}" == "partition" ]]; then
-        local swap_end="$((next_start + swap_size))"
-        disk_plan_add "Create swap partition (${swap_size} MiB)" \
-            parted -s "${disk}" mkpart swap linux-swap "${next_start}MiB" "${swap_end}MiB"
-        next_start="${swap_end}"
+        sfdisk_script+="size=${swap_size}MiB, type=${GPT_TYPE_SWAP}, name=swap"$'\n'
     fi
 
-    # Root partition (rest of disk)
-    disk_plan_add "Create root partition (remaining space)" \
-        parted -s "${disk}" mkpart linux "${next_start}MiB" "100%"
+    # Root partition — no size= means remaining space
+    sfdisk_script+="type=${GPT_TYPE_LINUX}, name=linux"$'\n'
+
+    disk_plan_add_stdin "Create GPT partition table and partitions on ${disk}" \
+        "${sfdisk_script}" \
+        sfdisk --force --no-reread "${disk}"
 
     # Determine partition device names
     local part_prefix="${disk}"
@@ -117,10 +126,10 @@ disk_plan_dualboot() {
     einfo "Reusing existing ESP: ${ESP_PARTITION}"
 
     if [[ -z "${ROOT_PARTITION:-}" ]]; then
-        # Need to create root partition in free space
-        # Find free space on disk
-        disk_plan_add "Create root partition in free space" \
-            parted -s "${disk}" mkpart linux ext4 0% 100%
+        # Need to create root partition in free space using sfdisk --append
+        disk_plan_add_stdin "Create root partition in free space" \
+            "type=${GPT_TYPE_LINUX}, name=linux"$'\n' \
+            sfdisk --append --force --no-reread "${disk}"
 
         # Determine partition name
         local part_count
@@ -153,7 +162,7 @@ disk_plan_dualboot() {
 # --- Phase 2: Execution ---
 
 # cleanup_target_disk — Unmount all partitions on target disk and deactivate swap
-# Required before repartitioning (parted refuses if partitions are in use)
+# Required before repartitioning (existing partitions may block sfdisk)
 cleanup_target_disk() {
     local disk="${TARGET_DISK}"
 
@@ -208,9 +217,15 @@ disk_execute_plan() {
         local entry="${DISK_ACTIONS[$i]}"
         local desc="${entry%%|||*}"
         local cmd="${entry#*|||}"
+        local stdin_data="${DISK_STDIN[$i]:-}"
 
         einfo "[$((i + 1))/${#DISK_ACTIONS[@]}] ${desc}"
-        try "${desc}" bash -c "${cmd}"
+
+        if [[ -n "${stdin_data}" ]]; then
+            try "${desc}" bash -c "printf '%s' $(printf '%q' "${stdin_data}") | ${cmd}"
+        else
+            try "${desc}" bash -c "${cmd}"
+        fi
     done
 
     # Ensure kernel recognizes new partitions

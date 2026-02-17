@@ -262,7 +262,7 @@ system_finalize() {
     portage_install_cpuflags
 
     # Clean up
-    rm -rf /tmp/gentoo-installer-checkpoints
+    checkpoint_clear
     rm -f /tmp/gentoo-installer.conf
 
     einfo "System finalization complete"

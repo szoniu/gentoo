@@ -22,11 +22,11 @@ lib/                    — Moduły biblioteczne (NIGDY nie uruchamiać bezpośr
 ├── protection.sh       — Guard: sprawdza $_GENTOO_INSTALLER
 ├── constants.sh        — Stałe globalne, ścieżki, CONFIG_VARS[]
 ├── logging.sh          — elog/einfo/ewarn/eerror/die/die_trace, kolory, log do pliku
-├── utils.sh            — try (interaktywne recovery, text fallback bez dialog, LIVE_OUTPUT via tee), checkpoint_set/reached, is_root/is_efi/has_network
+├── utils.sh            — try (interaktywne recovery, text fallback bez dialog, LIVE_OUTPUT via tee), checkpoint_set/reached/validate/migrate_to_target, is_root/is_efi/has_network
 ├── dialog.sh           — Wrapper dialog/whiptail, primitives (msgbox/yesno/menu/radiolist/checklist/gauge/infobox/inputbox/passwordbox), wizard runner (register_wizard_screens + run_wizard)
 ├── config.sh           — config_save/load/set/get/dump (${VAR@Q} quoting)
 ├── hardware.sh         — detect_cpu/gpu/disks/esp, get_hardware_summary
-├── disk.sh             — Dwufazowe: disk_plan_add/show/auto/dualboot → cleanup_target_disk + disk_execute_plan, mount/unmount_filesystems, get_uuid
+├── disk.sh             — Dwufazowe: disk_plan_add/add_stdin/show/auto/dualboot → cleanup_target_disk + disk_execute_plan (sfdisk), mount/unmount_filesystems, get_uuid
 ├── network.sh          — check_network, install_network_manager, select_fastest_mirror
 ├── stage3.sh           — stage3_get_url/download/verify/extract
 ├── portage.sh          — generate_make_conf (_write_make_conf), portage_sync, portage_select_profile, portage_install_cpuflags, install_extra_packages, setup_guru_repository, install_noctalia_shell
@@ -41,6 +41,7 @@ lib/                    — Moduły biblioteczne (NIGDY nie uruchamiać bezpośr
 
 tui/                    — Ekrany TUI
 ├── welcome.sh          — screen_welcome: branding + prereq check
+├── ssh_monitor.sh      — screen_ssh_monitor: opcjonalny SSH na Live ISO (zdalne monitorowanie)
 ├── preset_load.sh      — screen_preset_load: skip/file/browse
 ├── hw_detect.sh        — screen_hw_detect: detect_all_hardware + summary (infobox auto-advance)
 ├── init_select.sh      — screen_init_select: systemd/openrc radiolist
@@ -56,7 +57,7 @@ tui/                    — Ekrany TUI
 ├── extra_packages.sh   — screen_extra_packages: checklist (fastfetch, btop, kitty, GURU, noctalia) + wolne pole tekstowe
 ├── preset_save.sh      — screen_preset_save: opcjonalny eksport
 ├── summary.sh          — screen_summary: pełne podsumowanie + "YES" + countdown
-└── progress.sh         — screen_progress: infobox (krótkie fazy) + live terminal (chroot)
+└── progress.sh         — screen_progress: resume detection + infobox (krótkie fazy) + live terminal (chroot)
 
 data/                   — Statyczne bazy danych
 ├── cpu_march_database.sh — CPU_MARCH_MAP[vendor:family:model] → -march flag
@@ -121,12 +122,16 @@ Noctalia Shell to shell do **Wayland compositorów** (Niri/Hyprland/Sway), NIE d
 
 ### Dwufazowe operacje dyskowe
 
-1. `disk_plan_auto()` / `disk_plan_dualboot()` — buduje `DISK_ACTIONS[]`
-2. `disk_execute_plan()` — iteruje i wykonuje przez `try`
+1. `disk_plan_auto()` / `disk_plan_dualboot()` — buduje `DISK_ACTIONS[]` + `DISK_STDIN[]`
+2. `disk_execute_plan()` — iteruje i wykonuje przez `try` (stdin piped dla sfdisk)
+
+Partycjonowanie używa `sfdisk` (util-linux) — atomowy skrypt stdin zamiast sekwencyjnych wywołań. Jedna komenda `sfdisk` tworzy GPT label + wszystkie partycje naraz. `disk_plan_add_stdin()` przechowuje dane stdin w `DISK_STDIN[]` (tablica równoległa do `DISK_ACTIONS[]`).
 
 ### Checkpointy
 
-`checkpoint_set "nazwa"` tworzy plik w `$CHECKPOINT_DIR`. `checkpoint_reached "nazwa"` sprawdza. `checkpoint_clear` czyści wszystkie checkpointy — wywoływane na początku `screen_progress()` przy każdym świeżym uruchomieniu instalacji (bo checkpointy w `/tmp` przeżywają restart installera na live ISO).
+`checkpoint_set "nazwa"` tworzy plik w `$CHECKPOINT_DIR`. `checkpoint_reached "nazwa"` sprawdza. Po zamontowaniu dysku docelowego `checkpoint_migrate_to_target()` przenosi checkpointy z `/tmp` na `${MOUNTPOINT}/tmp/gentoo-installer-checkpoints/` — znikają automatycznie przy reformatowaniu dysku.
+
+Wznowienie po awarii: `screen_progress()` sprawdza istniejące checkpointy i pyta użytkownika czy wznowić. `checkpoint_validate()` weryfikuje artefakty faz (np. czy stage3 jest rozpakowany, czy make.conf istnieje) — nieważne checkpointy są usuwane.
 
 ### Funkcja `try`
 
@@ -143,8 +148,9 @@ Gdy `dialog` nie jest dostępny (np. wewnątrz chroota stage3), `try()` używa p
 ```bash
 bash tests/test_config.sh      # Config round-trip (13 assertions)
 bash tests/test_hardware.sh    # CPU march + GPU database (16 assertions)
-bash tests/test_disk.sh        # Disk planning dry-run (12 assertions)
+bash tests/test_disk.sh        # Disk planning dry-run with sfdisk (21 assertions)
 bash tests/test_makeconf.sh    # make.conf generation (18 assertions)
+bash tests/test_checkpoint.sh  # Checkpoint validate + migrate (17 assertions)
 ```
 
 Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `DRY_RUN=1` i `NON_INTERACTIVE=1`.
@@ -157,16 +163,15 @@ Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `D
 - `config_save` używa `${VAR@Q}` (bash 4.4+) do bezpiecznego quotingu
 - Dialog: `2>&1 >/dev/tty` (dialog) vs `3>&1 1>&2 2>&3` (whiptail) — oba obsłużone w `lib/dialog.sh`
 - Pliki lib/ NIGDY nie są uruchamiane bezpośrednio — zawsze sourcowane
-- **`$*` vs `"$@"` vs `printf '%q '`**: Gdy komenda jest budowana jako string i później wykonywana przez `bash -c`, `$*` traci quoting argumentów ze spacjami (np. `"EFI System Partition"` → trzy osobne tokeny). Rozwiązanie: `printf '%q ' "$@"` zachowuje quoting. Dotyczy: `disk_plan_add()`, `chroot_exec()`, `dialog_prgbox()`. Bezpośrednie wykonanie (`"$@"`) nie ma tego problemu (np. `try()` linia 20).
-- **`parted -s` re-tokenizuje argumenty**: `parted -s` w trybie skryptowym łączy wszystkie argv z powrotem w jeden string i re-parsuje swoim tokenizerem. Nawet poprawnie zquotowane argumenty ze spacjami (np. `"EFI System Partition"`) są rozbijane. Rozwiązanie: używać nazw partycji bez spacji (`ESP`, `swap`, `linux`). Flaga `set N esp on` i tak decyduje o typie partycji, nie label.
+- **`$*` vs `"$@"` vs `printf '%q '`**: Gdy komenda jest budowana jako string i później wykonywana przez `bash -c`, `$*` traci quoting argumentów ze spacjami (np. `"EFI System Partition"` → trzy osobne tokeny). Rozwiązanie: `printf '%q ' "$@"` zachowuje quoting. Dotyczy: `disk_plan_add()`, `disk_plan_add_stdin()`, `chroot_exec()`, `dialog_prgbox()`. Bezpośrednie wykonanie (`"$@"`) nie ma tego problemu (np. `try()` linia 20).
 - **Interpolacja zmiennych w stringach innych języków**: Nie wstawiać zmiennych bashowych bezpośrednio w kod Pythona/Perla (np. `python3 -c "...('${password}')..."`). Znaki specjalne mogą złamać składnię lub umożliwić injection. Przekazywać przez zmienne środowiskowe (`GENTOO_PW="${password}" python3 -c "...os.environ['GENTOO_PW']..."`).
 - **`grep -oP` (PCRE) niedostępny w stage3 Gentoo**: `grep` w stage3 jest skompilowany bez PCRE. Zawsze używać POSIX alternatyw: `sed 's/.*\[//;s/\].*//'` zamiast `grep -oP '\[\K[^]]+'`, `grep -o '\[pattern\]'` zamiast `grep -oP`.
 - **Gentoo `.DIGESTS` format**: Plik `.DIGESTS` jest GPG clearsigned. Sekcja BLAKE2B jest PRZED SHA512. Nie ma oddzielnego `.DIGESTS.asc`. Parsowanie SHA512: użyć `awk` z tracking sekcji (`/^# SHA512/ { in_sha512=1 }`), nie `grep | head -1` (złapie BLAKE2B).
-- **Checkpointy w `/tmp` przeżywają restart installera**: Na live ISO `/tmp` nie jest czyszczony między uruchomieniami. Reformatowanie dysku inwaliduje chroot, ale checkpointy zostają → fazy są pomijane na starych danych. Rozwiązanie: `checkpoint_clear` na początku `screen_progress()`.
+- **Checkpointy na dysku docelowym**: Po zamontowaniu dysku docelowego checkpointy są migrowane z `/tmp` na `${MOUNTPOINT}/tmp/gentoo-installer-checkpoints/`. Dzięki temu reformatowanie dysku automatycznie kasuje checkpointy. Przy wznowieniu `checkpoint_validate()` weryfikuje artefakty przed pominięciem fazy.
 - **stderr redirect a dialog UI**: Gdy stderr jest przekierowany do log file (`exec 2>>LOG`), `dialog` jest niewidoczny (bo pisze na stderr). `try()` musi tymczasowo przywrócić stderr (fd 4) żeby pokazać menu recovery. Wzorzec: `if { true >&4; } 2>/dev/null; then exec 2>&4; fi`.
 - **`dialog` brak w chroot stage3**: Świeży stage3 nie ma `dialog`. `try()` musi mieć text fallback (`read -r` z `/dev/tty`) zamiast `dialog_menu`. Sprawdzanie: `command -v "${DIALOG_CMD:-dialog}"`.
 - **`set -euo pipefail` + `inherit_errexit` + `grep` w `$()`**: `grep` zwraca exit 1 na brak dopasowania. Z `pipefail` cały pipeline failuje. Z `inherit_errexit` set -e działa wewnątrz `$()`. Efekt: `var=$(cmd | grep pattern | head -1)` zabija skrypt PRZED dotarciem do `if [[ -z "$var" ]]`. Rozwiązanie: `|| true` na końcu `$()`.
-- **Partycje z poprzedniej instalacji blokują `parted`**: Przy ponownej próbie instalacji, partycje docelowego dysku mogą być nadal zamontowane. `parted` odmawia `mklabel` z "Partition(s) are being used". Rozwiązanie: `cleanup_target_disk()` odmontowuje wszystkie partycje i deaktywuje swap przed `disk_execute_plan()`.
+- **Partycje z poprzedniej instalacji blokują `sfdisk`**: Przy ponownej próbie instalacji, partycje docelowego dysku mogą być nadal zamontowane. `sfdisk` odmawia zapisu jeśli partycje są w użyciu. Rozwiązanie: `cleanup_target_disk()` odmontowuje wszystkie partycje i deaktywuje swap przed `disk_execute_plan()`.
 - **`eselect locale` format `utf8` nie `UTF-8`**: `eselect locale set "pl_PL.UTF-8"` → "target doesn't appear to be valid". eselect wymaga formatu `pl_PL.utf8`. Rozwiązanie: `${locale/UTF-8/utf8}` w `system_set_locale()`.
 - **Non-English locale + `myspell-en`**: L10N bez regionalnego wariantu angielskiego (np. `L10N="pl-PL en"` bez `en-US`) powoduje REQUIRED_USE failure dla `myspell-en`. Rozwiązanie: zawsze dodawać `en-US` jako fallback w L10N.
 - **`locale-gen` musi się zakończyć przed `eselect locale list`**: Jeśli `locale-gen` nie dokończy (np. przez orphan tee), `eselect locale list` pokaże tylko `C`, `C.UTF-8`, `POSIX` — wygenerowane locale nie pojawią się. Ręczne naprawienie: `echo "pl_PL.UTF-8 UTF-8" > /etc/locale.gen && locale-gen`.
@@ -175,6 +180,8 @@ Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `D
 - **Exit code `0` przy faktycznym błędzie w `try()`**: Po `if cmd; then ...; fi` bez `else`, bash ustawia `$?` na 0 niezależnie od exit code komendy ("if no condition tested true" → exit 0). Efekt: `try()` wyświetla "Failed (exit 0)" mimo faktycznego błędu. Bug kosmetyczny — detekcja błędu działa poprawnie.
 
 ## Debugowanie podczas instalacji na żywym sprzęcie
+
+Installer oferuje opcję uruchomienia SSH na Live ISO (ekran `screen_ssh_monitor` zaraz po welcome). Pozwala to monitorować instalację z innego komputera (`tail -f` logów, `top`, `dmesg`).
 
 Gentoo Live ISO daje dostęp do wielu TTY. Przełączanie: `Ctrl+Alt+F1`..`F6`.
 
@@ -207,11 +214,6 @@ Jeśli installer zawiśnie:
 1. Sprawdź na TTY2 czy procesy `cc1`/`make` działają (`top`) — jeśli tak, kompilacja trwa, poczekaj
 2. Sprawdź `ps aux | grep tee` — orphan tee może blokować pipeline. Zabij TYLKO jeśli żadna kompilacja nie trwa
 3. Sprawdź `tail` logów — ostatni wpis pokaże na czym stanął
-
-## TODO
-
-- **Rozważyć zamianę `parted` na `sfdisk` lub `sgdisk`**: `sfdisk` (util-linux) i `sgdisk` (gptfdisk) mają lepsze API skryptowe, nie re-tokenizują argumentów i lepiej obsługują GPT. `parted -s` ma fundamentalne problemy z parsowaniem wielowyrazowych labeli. Migracja wymagałaby przepisania `disk_plan_auto()` i `disk_plan_dualboot()` w `lib/disk.sh`.
-- **Naprawić mechanizm checkpointów (wznowienie po awarii)**: Obecnie `checkpoint_clear` na początku `screen_progress()` kasuje wszystkie checkpointy, co de facto wyłącza wznowienie. Było to konieczne bo stare checkpointy z `/tmp` przeżywały restart installera i pomijały fazy na nieistniejących danych (po reformatowaniu dysku). Możliwe podejścia: (1) walidacja checkpointów — przed pominięciem fazy sprawdzić czy jej efekt faktycznie istnieje (np. czy mountpoint jest zamontowany, czy stage3 jest rozpakowany), (2) przechowywanie checkpointów na docelowym dysku (`${MOUNTPOINT}/tmp/`) zamiast w `/tmp` — znikają przy reformatowaniu, (3) selektywne czyszczenie — kasować tylko pre-chroot checkpointy, zostawiać chroot checkpoint jeśli mountpoint jest poprawny.
 
 ## Jak dodawać nowy ekran TUI
 

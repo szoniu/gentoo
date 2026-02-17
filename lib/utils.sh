@@ -124,7 +124,7 @@ check_dependencies() {
         bash
         mkfs.ext4
         mkfs.vfat
-        parted
+        sfdisk
         mount
         umount
         blkid
@@ -194,6 +194,42 @@ checkpoint_reached() {
 checkpoint_clear() {
     rm -rf "${CHECKPOINT_DIR}"
     einfo "All checkpoints cleared"
+}
+
+# checkpoint_validate — Check if a checkpoint's artifact actually exists
+# Returns 0 if checkpoint is valid, 1 if it should be re-run
+checkpoint_validate() {
+    local name="$1"
+    case "${name}" in
+        preflight)
+            return 1 ;;  # always re-run (fast)
+        disks)
+            [[ -b "${ROOT_PARTITION:-}" ]] && mountpoint -q "${MOUNTPOINT}" 2>/dev/null ;;
+        stage3_extract)
+            [[ -f "${MOUNTPOINT}/etc/gentoo-release" ]] ;;
+        portage_preconfig)
+            [[ -f "${MOUNTPOINT}/etc/portage/make.conf" ]] ;;
+        stage3_download|stage3_verify)
+            checkpoint_reached "stage3_extract" && return 0; return 1 ;;
+        chroot)
+            [[ -f "${MOUNTPOINT}${CHECKPOINT_DIR_SUFFIX}/finalize" ]] ;;
+        kernel)
+            ls "${MOUNTPOINT}/boot/vmlinuz-"* &>/dev/null 2>&1 || ls /boot/vmlinuz-* &>/dev/null 2>&1 ;;
+        *)
+            return 0 ;;  # trust checkpoint for the rest
+    esac
+}
+
+# checkpoint_migrate_to_target — Move checkpoints from /tmp to target disk
+# Called after mounting filesystems so checkpoints survive reformat
+checkpoint_migrate_to_target() {
+    local target_dir="${MOUNTPOINT}${CHECKPOINT_DIR_SUFFIX}"
+    [[ "${CHECKPOINT_DIR}" == "${target_dir}" ]] && return 0
+    mkdir -p "${target_dir}"
+    [[ -d "${CHECKPOINT_DIR}" ]] && cp -a "${CHECKPOINT_DIR}/"* "${target_dir}/" 2>/dev/null || true
+    rm -rf "${CHECKPOINT_DIR}"
+    CHECKPOINT_DIR="${target_dir}"
+    export CHECKPOINT_DIR
 }
 
 # bytes_to_human — Convert bytes to human readable

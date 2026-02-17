@@ -13,13 +13,79 @@ readonly -a INSTALL_PHASES=(
     "chroot|Installing system (this will take a while)"
 )
 
+# _detect_and_handle_resume — Check for previous progress and ask user
+# Returns 0 if resuming, 1 if starting fresh
+_detect_and_handle_resume() {
+    local has_checkpoints=0
+
+    # Check /tmp checkpoints
+    if [[ -d "${CHECKPOINT_DIR}" ]] && ls "${CHECKPOINT_DIR}/"* &>/dev/null 2>&1; then
+        has_checkpoints=1
+    fi
+
+    # Check target disk checkpoints
+    local target_checkpoint_dir="${MOUNTPOINT}${CHECKPOINT_DIR_SUFFIX}"
+    if [[ -d "${target_checkpoint_dir}" ]] && ls "${target_checkpoint_dir}/"* &>/dev/null 2>&1; then
+        has_checkpoints=1
+        # Adopt target checkpoints if they exist and /tmp ones don't
+        if [[ ! -d "${CHECKPOINT_DIR}" ]] || ! ls "${CHECKPOINT_DIR}/"* &>/dev/null 2>&1; then
+            CHECKPOINT_DIR="${target_checkpoint_dir}"
+            export CHECKPOINT_DIR
+        fi
+    fi
+
+    if [[ "${has_checkpoints}" -eq 0 ]]; then
+        return 1  # no previous progress
+    fi
+
+    # List completed checkpoints for display
+    local completed_list=""
+    local cp_name
+    for cp_name in "${CHECKPOINTS[@]}"; do
+        if checkpoint_reached "${cp_name}"; then
+            completed_list+="  - ${cp_name}\n"
+        fi
+    done
+
+    if [[ "${NON_INTERACTIVE:-0}" == "1" ]]; then
+        # Non-interactive: default to resume
+        einfo "Non-interactive mode — resuming from previous progress"
+        _validate_and_clean_checkpoints
+        return 0
+    fi
+
+    if dialog_yesno "Resume Installation" \
+        "Previous installation progress detected:\n\n${completed_list}\nResume from where it left off?\n\nChoose 'No' to start fresh (all progress will be lost)."; then
+        _validate_and_clean_checkpoints
+        return 0
+    else
+        checkpoint_clear
+        return 1
+    fi
+}
+
+# _validate_and_clean_checkpoints — Validate each checkpoint, remove invalid ones
+_validate_and_clean_checkpoints() {
+    local cp_name
+    for cp_name in "${CHECKPOINTS[@]}"; do
+        if checkpoint_reached "${cp_name}" && ! checkpoint_validate "${cp_name}"; then
+            ewarn "Checkpoint '${cp_name}' failed validation — will re-run"
+            rm -f "${CHECKPOINT_DIR}/${cp_name}"
+        fi
+    done
+}
+
 # screen_progress — Run installation with dialog_infobox status display
 screen_progress() {
     local total=${#INSTALL_PHASES[@]}
     local i=0
 
-    # Fresh install — clear all checkpoints from previous runs
-    checkpoint_clear
+    # Check for previous progress and handle resume
+    if ! _detect_and_handle_resume; then
+        einfo "Starting fresh installation"
+    else
+        einfo "Resuming installation from previous progress"
+    fi
 
     # Redirect stderr to log file so log messages don't bleed through dialog
     exec 4>&2
@@ -32,6 +98,16 @@ screen_progress() {
 
         if checkpoint_reached "${phase_name}"; then
             einfo "Phase ${phase_name} already completed (checkpoint)"
+
+            # Re-mount filesystems if disks phase is skipped (needed after reboot)
+            if [[ "${phase_name}" == "disks" ]]; then
+                # Restore stderr temporarily for mount operations
+                exec 2>&4
+                mount_filesystems
+                checkpoint_migrate_to_target
+                exec 2>>"${LOG_FILE}"
+            fi
+
             continue
         fi
 
@@ -129,6 +205,7 @@ _execute_phase() {
         disks)
             disk_execute_plan
             mount_filesystems
+            checkpoint_migrate_to_target
             ;;
         stage3_download)
             stage3_download

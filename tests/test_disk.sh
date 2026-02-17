@@ -57,6 +57,9 @@ assert_eq "Plan has actions" "true" "$([[ ${#DISK_ACTIONS[@]} -gt 0 ]] && echo t
 assert_eq "ESP partition set" "/dev/sda1" "${ESP_PARTITION}"
 assert_eq "Root partition set" "/dev/sda2" "${ROOT_PARTITION}"
 
+# sfdisk: 1 sfdisk + 2 mkfs = 3 actions (no swap)
+assert_eq "Action count (auto, ext4, no swap)" "3" "${#DISK_ACTIONS[@]}"
+
 # Verify plan contains expected operations
 plan_text=""
 for action in "${DISK_ACTIONS[@]}"; do
@@ -65,6 +68,11 @@ done
 assert_contains "Plan has GPT" "GPT" "${plan_text}"
 assert_contains "Plan has ESP" "ESP" "${plan_text}"
 assert_contains "Plan has ext4" "ext4" "${plan_text}"
+
+# Verify sfdisk stdin script
+assert_contains "sfdisk script has EFI GUID" "${GPT_TYPE_EFI}" "${DISK_STDIN[0]}"
+assert_contains "sfdisk script has Linux GUID" "${GPT_TYPE_LINUX}" "${DISK_STDIN[0]}"
+assert_contains "sfdisk script has label: gpt" "label: gpt" "${DISK_STDIN[0]}"
 
 echo ""
 echo "=== Test: Disk Plan Generation (auto, btrfs, swap partition) ==="
@@ -80,6 +88,12 @@ assert_eq "ESP partition" "/dev/sda1" "${ESP_PARTITION}"
 assert_eq "Swap partition set" "/dev/sda2" "${SWAP_PARTITION:-}"
 assert_eq "Root partition" "/dev/sda3" "${ROOT_PARTITION}"
 
+# sfdisk: 1 sfdisk + 3 mkfs = 4 actions (with swap)
+assert_eq "Action count (auto, btrfs, swap)" "4" "${#DISK_ACTIONS[@]}"
+
+# Verify sfdisk stdin includes swap GUID
+assert_contains "sfdisk script has Swap GUID" "${GPT_TYPE_SWAP}" "${DISK_STDIN[0]}"
+
 echo ""
 echo "=== Test: NVMe partition naming ==="
 
@@ -92,6 +106,16 @@ disk_plan_auto
 
 assert_eq "NVMe ESP" "/dev/nvme0n1p1" "${ESP_PARTITION}"
 assert_eq "NVMe root" "/dev/nvme0n1p2" "${ROOT_PARTITION}"
+
+echo ""
+echo "=== Test: DISK_STDIN parallel array ==="
+
+# Verify DISK_STDIN has same length as DISK_ACTIONS
+assert_eq "DISK_STDIN length matches DISK_ACTIONS" "${#DISK_ACTIONS[@]}" "${#DISK_STDIN[@]}"
+
+# First entry (sfdisk) has stdin, rest (mkfs) don't
+assert_eq "sfdisk entry has stdin" "true" "$([[ -n "${DISK_STDIN[0]}" ]] && echo true || echo false)"
+assert_eq "mkfs entry has no stdin" "true" "$([[ -z "${DISK_STDIN[1]}" ]] && echo true || echo false)"
 
 echo ""
 echo "=== Test: Dry-run execution ==="

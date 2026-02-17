@@ -10,6 +10,7 @@ readonly INSTALLER_NAME="Gentoo TUI Installer"
 : "${CHROOT_INSTALLER_DIR:=/tmp/gentoo-installer}"
 : "${LOG_FILE:=/tmp/gentoo-installer.log}"
 : "${CHECKPOINT_DIR:=/tmp/gentoo-installer-checkpoints}"
+: "${CHECKPOINT_DIR_SUFFIX:=/tmp/gentoo-installer-checkpoints}"
 : "${CONFIG_FILE:=/tmp/gentoo-installer.conf}"
 
 # Stage3 URLs
@@ -24,6 +25,11 @@ readonly GENTOO_GPG_KEY="13EBBDBEDE7A12775DFDB1BABB572E0E2D182910"
 # Partition sizes (MiB)
 readonly ESP_SIZE_MIB=512
 readonly SWAP_DEFAULT_SIZE_MIB=4096
+
+# GPT partition type GUIDs (for sfdisk)
+readonly GPT_TYPE_EFI="C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
+readonly GPT_TYPE_LINUX="0FC63DAF-8483-4772-8E79-3D69D8477DE4"
+readonly GPT_TYPE_SWAP="0657FD6D-A4AB-43C4-84E5-0933C84B4F4F"
 
 # Emerge defaults
 readonly EMERGE_JOBS_DEFAULT=4

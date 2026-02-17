@@ -87,7 +87,7 @@ cd gentoo
 ./install.sh
 ```
 
-Installer poprowadzi Cię przez 17 ekranów konfiguracji, a potem zainstaluje wszystko automatycznie.
+Installer poprowadzi Cię przez 18 ekranów konfiguracji, a potem zainstaluje wszystko automatycznie.
 
 ### 5. Po instalacji
 
@@ -119,27 +119,28 @@ Po zakończeniu installer zapyta czy chcesz rebootować. Wyjmij pendrive i uruch
 
 ## Co robi installer
 
-17 ekranów TUI prowadzi przez:
+18 ekranów TUI prowadzi przez:
 
 | # | Ekran | Co konfigurujesz |
 |---|-------|-------------------|
 | 1 | Welcome | Sprawdzenie wymagań (root, UEFI, sieć) |
-| 2 | Preset | Opcjonalne załadowanie gotowej konfiguracji |
-| 3 | Hardware | Podgląd wykrytego CPU, GPU, dysków, Windows |
-| 4 | Init system | systemd (zalecany dla KDE) lub OpenRC |
-| 5 | Dysk | Wybór dysku + schemat (auto/dual-boot/manual) |
-| 6 | Filesystem | ext4 / btrfs (ze snapshotami) / XFS |
-| 7 | Swap | zram (domyślnie) / partycja / plik / brak |
-| 8 | Sieć | Hostname + mirror Gentoo |
-| 9 | Locale | Timezone, język, keymap |
-| 10 | Kernel | dist-kernel (szybki) lub genkernel (custom) |
-| 11 | GPU | Auto-wykryty sterownik + możliwość zmiany |
-| 12 | Desktop | KDE Plasma + wybór aplikacji (Dolphin, Firefox, Kate...) |
-| 13 | Użytkownicy | Hasło root, konto użytkownika, grupy, SSH |
-| 14 | Pakiety | Dodatkowe pakiety do zainstalowania |
-| 15 | Preset save | Opcjonalny eksport konfiguracji na przyszłość |
-| 16 | Podsumowanie | Pełny przegląd + potwierdzenie "YES" |
-| 17 | Instalacja | Live output w terminalu — siedź i czekaj |
+| 2 | Live SSH | Opcjonalny SSH na Live ISO do zdalnego monitorowania |
+| 3 | Preset | Opcjonalne załadowanie gotowej konfiguracji |
+| 4 | Hardware | Podgląd wykrytego CPU, GPU, dysków, Windows |
+| 5 | Init system | systemd (zalecany dla KDE) lub OpenRC |
+| 6 | Dysk | Wybór dysku + schemat (auto/dual-boot/manual) |
+| 7 | Filesystem | ext4 / btrfs (ze snapshotami) / XFS |
+| 8 | Swap | zram (domyślnie) / partycja / plik / brak |
+| 9 | Sieć | Hostname + mirror Gentoo |
+| 10 | Locale | Timezone, język, keymap |
+| 11 | Kernel | dist-kernel (szybki) lub genkernel (custom) |
+| 12 | GPU | Auto-wykryty sterownik + możliwość zmiany |
+| 13 | Desktop | KDE Plasma + wybór aplikacji (Dolphin, Firefox, Kate...) |
+| 14 | Użytkownicy | Hasło root, konto użytkownika, grupy, SSH |
+| 15 | Pakiety | Dodatkowe pakiety do zainstalowania |
+| 16 | Preset save | Opcjonalny eksport konfiguracji na przyszłość |
+| 17 | Podsumowanie | Pełny przegląd + potwierdzenie "YES" |
+| 18 | Instalacja | Live output w terminalu — siedź i czekaj |
 
 ## Dual-boot z Windows
 
@@ -200,10 +201,39 @@ tail -f /mnt/gentoo/var/log/genkernel.log
 ps aux | grep -E "tee|emerge|make"
 ```
 
+### Zdalne monitorowanie przez SSH
+
+Installer oferuje opcję uruchomienia serwera SSH na Live ISO. Ekran SSH pojawia się zaraz po ekranie powitalnym.
+
+Z drugiego komputera:
+
+```bash
+ssh root@<IP-live-ISO>
+
+# Logi w czasie rzeczywistym
+tail -f /tmp/gentoo-installer.log
+tail -f /mnt/gentoo/tmp/gentoo-installer.log
+tail -f /mnt/gentoo/var/log/genkernel.log
+
+# Co się kompiluje
+top
+
+# OOM killer
+dmesg | grep -i "oom\|killed"
+```
+
+Ręczne uruchomienie SSH (na TTY2):
+
+```bash
+echo "root:twojehaslo" | chpasswd
+rc-service sshd start
+ip addr
+```
+
 ### Typowe problemy
 
 - **Installer zawisł, nic się nie dzieje** — sprawdź na TTY2 czy `cc1`/`gcc`/`make` działają w `top`. Jeśli tak — kompilacja trwa, po prostu czekaj. Gentoo kompiluje WSZYSTKO ze źródeł. Kernel: 20-60 min. KDE Plasma: 1-4h.
-- **Przerwa w prądzie / reboot** — niestety trzeba zacząć od nowa. Mechanizm wznowienia jest w planach.
+- **Przerwa w prądzie / reboot** — uruchom installer ponownie, zapyta czy wznowić od ostatniego checkpointu. Fazy takie jak kompilacja kernela czy @world nie będą powtarzane.
 - **Log** — pełny log instalacji: `/tmp/gentoo-installer.log`
 - **Coś jest nie tak z konfiguracją** — użyj `./install.sh --configure` żeby przejść wizarda ponownie
 
@@ -274,7 +304,7 @@ Tak, ale upewnij się że VM jest w trybie UEFI. W VirtualBox: Settings → Syst
 Wyłącz Secure Boot w BIOS. NVIDIA proprietary drivers i wiele modułów kernela nie są podpisane.
 
 **P: Mogę użyć innego live ISO niż Gentoo?**
-Tak, dowolne live ISO z Linuxem zadziała, pod warunkiem że ma `bash`, `dialog` (lub `whiptail`), `git`, `parted`, `wget`, `gpg`. Ubuntu/Fedora live zazwyczaj mają wszystko albo można doinstalować.
+Tak, dowolne live ISO z Linuxem zadziała, pod warunkiem że ma `bash`, `dialog` (lub `whiptail`), `git`, `sfdisk`, `wget`, `gpg`. Ubuntu/Fedora live zazwyczaj mają wszystko albo można doinstalować.
 
 **P: Co jeśli nie mam `dialog`?**
 Na większości live ISO: `apt install dialog` (Debian/Ubuntu), `pacman -S dialog` (Arch), `dnf install dialog` (Fedora). Gentoo LiveGUI ma go domyślnie.

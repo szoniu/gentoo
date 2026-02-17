@@ -43,6 +43,7 @@ source "${LIB_DIR}/preset.sh"
 
 # --- Source TUI screens ---
 source "${TUI_DIR}/welcome.sh"
+source "${TUI_DIR}/ssh_monitor.sh"
 source "${TUI_DIR}/preset_load.sh"
 source "${TUI_DIR}/hw_detect.sh"
 source "${TUI_DIR}/init_select.sh"
@@ -172,6 +173,7 @@ run_configuration_wizard() {
 
     register_wizard_screens \
         screen_welcome \
+        screen_ssh_monitor \
         screen_preset_load \
         screen_hw_detect \
         screen_init_select \
@@ -217,11 +219,13 @@ run_pre_chroot() {
         maybe_exec 'before_disks'
         disk_execute_plan
         mount_filesystems
+        checkpoint_migrate_to_target
         maybe_exec 'after_disks'
         checkpoint_set "disks"
     else
         einfo "Skipping disks (checkpoint reached)"
         mount_filesystems
+        checkpoint_migrate_to_target
     fi
 
     # Phase 3: Stage3
