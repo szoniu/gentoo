@@ -25,13 +25,13 @@ lib/                    — Moduły biblioteczne (NIGDY nie uruchamiać bezpośr
 ├── utils.sh            — try (interaktywne recovery, text fallback bez dialog, LIVE_OUTPUT via tee), checkpoint_set/reached/validate/migrate_to_target, is_root/is_efi/has_network
 ├── dialog.sh           — Wrapper dialog/whiptail, primitives (msgbox/yesno/menu/radiolist/checklist/gauge/infobox/inputbox/passwordbox), wizard runner (register_wizard_screens + run_wizard)
 ├── config.sh           — config_save/load/set/get/dump (${VAR@Q} quoting)
-├── hardware.sh         — detect_cpu/gpu/disks/esp, get_hardware_summary
+├── hardware.sh         — detect_cpu/gpu/disks/esp/installed_oses, serialize/deserialize_detected_oses, get_hardware_summary
 ├── disk.sh             — Dwufazowe: disk_plan_add/add_stdin/show/auto/dualboot → cleanup_target_disk + disk_execute_plan (sfdisk), mount/unmount_filesystems, get_uuid
 ├── network.sh          — check_network, install_network_manager, select_fastest_mirror
 ├── stage3.sh           — stage3_get_url/download/verify/extract
 ├── portage.sh          — generate_make_conf (_write_make_conf), portage_sync, portage_select_profile, portage_install_cpuflags, install_extra_packages, setup_guru_repository, install_noctalia_shell
 ├── kernel.sh           — kernel_install (dist-kernel vs genkernel)
-├── bootloader.sh       — bootloader_install, _configure_grub (dual-boot os-prober)
+├── bootloader.sh       — bootloader_install, _configure_grub, _mount/_unmount_osprober, _verify_grub_config, _verify_efi_entries
 ├── system.sh           — system_set_timezone/locale/hostname/keymap, generate_fstab, install_filesystem_tools, system_create_users, system_finalize
 ├── desktop.sh          — desktop_install (GPU drivers, KDE Plasma, SDDM, PipeWire, KDE apps)
 ├── swap.sh             — swap_setup (zram-generator/zram-init, swap file)
@@ -41,7 +41,6 @@ lib/                    — Moduły biblioteczne (NIGDY nie uruchamiać bezpośr
 
 tui/                    — Ekrany TUI
 ├── welcome.sh          — screen_welcome: branding + prereq check
-├── ssh_monitor.sh      — screen_ssh_monitor: opcjonalny SSH na Live ISO (zdalne monitorowanie)
 ├── preset_load.sh      — screen_preset_load: skip/file/browse
 ├── hw_detect.sh        — screen_hw_detect: detect_all_hardware + summary (infobox auto-advance)
 ├── init_select.sh      — screen_init_select: systemd/openrc radiolist
@@ -53,7 +52,7 @@ tui/                    — Ekrany TUI
 ├── kernel_select.sh    — screen_kernel_select: dist-kernel/genkernel
 ├── gpu_config.sh       — screen_gpu_config: auto/nvidia/amd/intel/none + nvidia-open
 ├── desktop_config.sh   — screen_desktop_config: KDE apps checklist
-├── user_config.sh      — screen_user_config: root pwd, user, grupy, SSH
+├── user_config.sh      — screen_user_config: root pwd, user, grupy
 ├── extra_packages.sh   — screen_extra_packages: checklist (fastfetch, btop, kitty, GURU, noctalia) + wolne pole tekstowe
 ├── preset_save.sh      — screen_preset_save: opcjonalny eksport
 ├── summary.sh          — screen_summary: pełne podsumowanie + "YES" + countdown
@@ -91,6 +90,9 @@ Wszystkie zmienne konfiguracyjne są zdefiniowane w `CONFIG_VARS[]` w `lib/const
 - `GPU_VENDOR` — nvidia/amd/intel/none/unknown
 - `ENABLE_GURU` — yes/no (repozytorium GURU community)
 - `ENABLE_NOCTALIA` — yes/no (Noctalia Shell z GURU)
+- `WINDOWS_DETECTED` — 0/1 (auto-detected)
+- `LINUX_DETECTED` — 0/1 (auto-detected)
+- `DETECTED_OSES_SERIALIZED` — serialized map of partition→OS name
 
 ### Polityka `~amd64` (testing keywords)
 
@@ -150,7 +152,8 @@ bash tests/test_config.sh      # Config round-trip (13 assertions)
 bash tests/test_hardware.sh    # CPU march + GPU database (16 assertions)
 bash tests/test_disk.sh        # Disk planning dry-run with sfdisk (21 assertions)
 bash tests/test_makeconf.sh    # make.conf generation (18 assertions)
-bash tests/test_checkpoint.sh  # Checkpoint validate + migrate (17 assertions)
+bash tests/test_checkpoint.sh  # Checkpoint validate + migrate (16 assertions)
+bash tests/test_multiboot.sh   # Multi-boot OS detection + serialization (26 assertions)
 ```
 
 Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `DRY_RUN=1` i `NON_INTERACTIVE=1`.
@@ -181,39 +184,19 @@ Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `D
 
 ## Debugowanie podczas instalacji na żywym sprzęcie
 
-Installer oferuje opcję uruchomienia SSH na Live ISO (ekran `screen_ssh_monitor` zaraz po welcome). Pozwala to monitorować instalację z innego komputera (`tail -f` logów, `top`, `dmesg`).
+Gentoo Live ISO daje dostęp do wielu TTY (`Ctrl+Alt+F1`..`F6`). TTY1 = installer, TTY2-6 = wolne konsole. SSH na Live ISO można skonfigurować ręcznie — szczegóły w README.
 
-Gentoo Live ISO daje dostęp do wielu TTY. Przełączanie: `Ctrl+Alt+F1`..`F6`.
+### Multi-boot safety
 
-- **TTY1**: Installer (główny ekran)
-- **TTY2-6**: Wolne konsole do debugowania
+Instalator wykrywa zainstalowane OS-y (Windows, Linux) skanując partycje. Wyniki są przechowywane w `DETECTED_OSES[]` (assoc array) i serializowane do `DETECTED_OSES_SERIALIZED` na potrzeby config save/load.
 
-Przydatne komendy na drugim TTY:
-```bash
-# Podgląd logów w czasie rzeczywistym
-tail -f /tmp/gentoo-installer.log                    # log zewnętrzny (pre-chroot)
-tail -f /mnt/gentoo/tmp/gentoo-installer.log         # log wewnętrzny (chroot)
-
-# Podgląd logów genkernel
-tail -f /mnt/gentoo/var/log/genkernel.log
-
-# Co się kompiluje
-top                                                  # cc1/gcc = kompilacja, emerge = portage
-
-# Sprawdzenie orphan procesów tee
-ps aux | grep tee
-
-# Sprawdzenie OOM killer
-dmesg | grep -i "oom\|killed"
-
-# Sprawdzenie zamontowanych partycji
-mount | grep /mnt/gentoo
-```
-
-Jeśli installer zawiśnie:
-1. Sprawdź na TTY2 czy procesy `cc1`/`make` działają (`top`) — jeśli tak, kompilacja trwa, poczekaj
-2. Sprawdź `ps aux | grep tee` — orphan tee może blokować pipeline. Zabij TYLKO jeśli żadna kompilacja nie trwa
-3. Sprawdź `tail` logów — ostatni wpis pokaże na czym stanął
+Zabezpieczenia:
+- Dual-boot oferowany gdy wykryto Windows LUB innego Linuksa (nie tylko Windows)
+- Partycje w menu pokazują: rozmiar, fstype, label, [nazwa OS]
+- Wybór partycji z OS-em wymaga wpisania `ERASE`
+- Summary w trybie dual-boot wymaga `YES` i pokazuje co przetrwa
+- GRUB: os-prober mountuje inne OS-y, weryfikacja grub.cfg, weryfikacja wpisów EFI
+- `efibootmgr` sprawdza czy wpisy Windows/Gentoo przetrwały
 
 ## Jak dodawać nowy ekran TUI
 

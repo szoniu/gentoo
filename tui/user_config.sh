@@ -71,16 +71,6 @@ screen_user_config() {
     USER_GROUPS="${groups}"
     export USER_GROUPS
 
-    # SSH
-    local enable_ssh
-    dialog_yesno "SSH Server" \
-        "Enable SSH server (sshd) for remote access?" \
-        && enable_ssh="yes" \
-        || enable_ssh="no"
-
-    ENABLE_SSH="${enable_ssh}"
-    export ENABLE_SSH
-
-    einfo "User: ${USERNAME}, Groups: ${USER_GROUPS}, SSH: ${ENABLE_SSH}"
+    einfo "User: ${USERNAME}, Groups: ${USER_GROUPS}"
     return "${TUI_NEXT}"
 }

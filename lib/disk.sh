@@ -131,12 +131,13 @@ disk_plan_dualboot() {
             "type=${GPT_TYPE_LINUX}, name=linux"$'\n' \
             sfdisk --append --force --no-reread "${disk}"
 
-        # Determine partition name
-        local part_count
-        part_count=$(lsblk -lno NAME "${disk}" 2>/dev/null | wc -l)
+        # Determine partition name: count existing partitions via sfdisk
+        local existing_count
+        existing_count=$(sfdisk --dump "${disk}" 2>/dev/null | grep -c "^${disk}") || existing_count=0
+        local next_part_num=$(( existing_count + 1 ))
         local part_prefix="${disk}"
         [[ "${disk}" =~ [0-9]$ ]] && part_prefix="${disk}p"
-        ROOT_PARTITION="${part_prefix}${part_count}"
+        ROOT_PARTITION="${part_prefix}${next_part_num}"
     fi
 
     # Format root
@@ -232,6 +233,23 @@ disk_execute_plan() {
     if [[ "${DRY_RUN}" != "1" ]]; then
         partprobe "${TARGET_DISK}" 2>/dev/null || true
         sleep 2
+
+        # Verify ROOT_PARTITION exists for dual-boot (sfdisk --append may assign different number)
+        if [[ "${PARTITION_SCHEME:-}" == "dual-boot" && -n "${ROOT_PARTITION:-}" ]]; then
+            if [[ ! -b "${ROOT_PARTITION}" ]]; then
+                ewarn "Expected partition ${ROOT_PARTITION} not found, rescanning..."
+                local actual_last
+                actual_last=$(sfdisk --dump "${TARGET_DISK}" 2>/dev/null \
+                    | grep "^${TARGET_DISK}" | tail -1 | awk '{print $1}') || true
+                if [[ -n "${actual_last}" && -b "${actual_last}" ]]; then
+                    ewarn "Using detected partition: ${actual_last} (instead of ${ROOT_PARTITION})"
+                    ROOT_PARTITION="${actual_last}"
+                    export ROOT_PARTITION
+                else
+                    ewarn "Could not detect root partition — manual verification may be needed"
+                fi
+            fi
+        fi
     fi
 
     einfo "All disk operations completed"

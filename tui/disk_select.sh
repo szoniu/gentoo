@@ -2,6 +2,39 @@
 # tui/disk_select.sh — Disk selection + partition scheme
 source "${LIB_DIR}/protection.sh"
 
+# _get_partition_info_for_dialog — Build rich partition list with OS info
+# Args: disk esp_partition
+# Populates: part_items[] (tag, description pairs) and DANGEROUS_PARTITIONS[]
+_get_partition_info_for_dialog() {
+    local disk="$1" esp_partition="${2:-}"
+    part_items=()
+    declare -gA DANGEROUS_PARTITIONS=()
+
+    while IFS= read -r line; do
+        [[ -z "${line}" ]] && continue
+        local pname psize pfstype plabel
+        read -r pname psize pfstype plabel <<< "${line}"
+        local pdev="/dev/${pname}"
+
+        # Skip the disk device itself and ESP
+        [[ "${pdev}" == "${disk}" ]] && continue
+        [[ "${pdev}" == "${esp_partition}" ]] && continue
+
+        # Build description with filesystem and label info
+        local desc="${psize}"
+        [[ -n "${pfstype}" ]] && desc+=" ${pfstype}"
+        [[ -n "${plabel}" ]] && desc+=" \"${plabel}\""
+
+        # Add detected OS info
+        if [[ -n "${DETECTED_OSES[${pdev}]:-}" ]]; then
+            desc+=" [${DETECTED_OSES[${pdev}]}]"
+            DANGEROUS_PARTITIONS["${pdev}"]="${DETECTED_OSES[${pdev}]}"
+        fi
+
+        part_items+=("${pdev}" "${desc}")
+    done < <(lsblk -lno NAME,SIZE,FSTYPE,LABEL "${disk}" 2>/dev/null | tail -n +2)
+}
+
 screen_disk_select() {
     # Build disk list for dialog
     local -a disk_items=()
@@ -25,11 +58,18 @@ screen_disk_select() {
     TARGET_DISK="${selected_disk}"
     export TARGET_DISK
 
-    # Partition scheme
+    # Partition scheme — offer dual-boot if Windows OR Linux detected
     local scheme
-    if [[ "${WINDOWS_DETECTED:-0}" == "1" ]]; then
+    if [[ "${WINDOWS_DETECTED:-0}" == "1" || "${LINUX_DETECTED:-0}" == "1" ]]; then
+        local dualboot_desc="Dual-boot (reuse existing ESP)"
+        [[ "${WINDOWS_DETECTED:-0}" == "1" ]] && dualboot_desc="Dual-boot with Windows (reuse existing ESP)"
+        [[ "${LINUX_DETECTED:-0}" == "1" && "${WINDOWS_DETECTED:-0}" == "1" ]] && \
+            dualboot_desc="Dual-boot with Windows + Linux (reuse existing ESP)"
+        [[ "${LINUX_DETECTED:-0}" == "1" && "${WINDOWS_DETECTED:-0}" != "1" ]] && \
+            dualboot_desc="Dual-boot with Linux (reuse existing ESP)"
+
         scheme=$(dialog_menu "Partition Scheme" \
-            "dual-boot"  "Dual-boot with Windows (reuse existing ESP)" \
+            "dual-boot"  "${dualboot_desc}" \
             "auto"       "Auto-partition entire disk (DESTROYS ALL DATA)" \
             "manual"     "Manual partitioning (advanced)") \
             || return "${TUI_BACK}"
@@ -45,7 +85,7 @@ screen_disk_select() {
 
     case "${scheme}" in
         dual-boot)
-            # Reuse Windows ESP
+            # Reuse existing ESP
             if [[ -n "${WINDOWS_ESP:-}" ]]; then
                 ESP_PARTITION="${WINDOWS_ESP}"
                 ESP_REUSE="yes"
@@ -69,12 +109,7 @@ screen_disk_select() {
 
             # For dual-boot, select the partition for Gentoo root
             local -a part_items=()
-            while IFS= read -r line; do
-                local pname psize
-                read -r pname psize <<< "${line}"
-                [[ "/dev/${pname}" == "${ESP_PARTITION}" ]] && continue
-                part_items+=("/dev/${pname}" "${psize}")
-            done < <(lsblk -lno NAME,SIZE "${TARGET_DISK}" 2>/dev/null | tail -n +2)
+            _get_partition_info_for_dialog "${TARGET_DISK}" "${ESP_PARTITION}"
 
             if [[ ${#part_items[@]} -gt 0 ]]; then
                 local use_existing
@@ -86,6 +121,31 @@ screen_disk_select() {
                 if [[ "${use_existing}" == "existing" ]]; then
                     ROOT_PARTITION=$(dialog_menu "Select Root Partition" "${part_items[@]}") \
                         || return "${TUI_BACK}"
+
+                    # Warn if selected partition has a detected OS
+                    if [[ -n "${DANGEROUS_PARTITIONS[${ROOT_PARTITION}]:-}" ]]; then
+                        local os_name="${DANGEROUS_PARTITIONS[${ROOT_PARTITION}]}"
+
+                        dialog_msgbox "WARNING: Existing OS Detected" \
+                            "!!! DANGER !!!\n\n\
+The partition you selected contains:\n\n\
+  ${ROOT_PARTITION}: ${os_name}\n\n\
+Formatting this partition will PERMANENTLY DESTROY\n\
+this operating system and ALL its data.\n\n\
+Type ERASE in the next dialog to confirm."
+
+                        local erase_confirm
+                        erase_confirm=$(dialog_inputbox "Confirm Destruction" \
+                            "Type ERASE to confirm destruction of ${os_name} on ${ROOT_PARTITION}:" \
+                            "") || return "${TUI_BACK}"
+
+                        if [[ "${erase_confirm}" != "ERASE" ]]; then
+                            dialog_msgbox "Cancelled" \
+                                "Partition selection cancelled. You typed: '${erase_confirm}'"
+                            return "${TUI_BACK}"
+                        fi
+                    fi
+
                     export ROOT_PARTITION
                 fi
             fi

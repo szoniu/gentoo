@@ -119,38 +119,40 @@ Po zakończeniu installer zapyta czy chcesz rebootować. Wyjmij pendrive i uruch
 
 ## Co robi installer
 
-18 ekranów TUI prowadzi przez:
+17 ekranów TUI prowadzi przez:
 
 | # | Ekran | Co konfigurujesz |
 |---|-------|-------------------|
 | 1 | Welcome | Sprawdzenie wymagań (root, UEFI, sieć) |
-| 2 | Live SSH | Opcjonalny SSH na Live ISO do zdalnego monitorowania |
-| 3 | Preset | Opcjonalne załadowanie gotowej konfiguracji |
-| 4 | Hardware | Podgląd wykrytego CPU, GPU, dysków, Windows |
-| 5 | Init system | systemd (zalecany dla KDE) lub OpenRC |
-| 6 | Dysk | Wybór dysku + schemat (auto/dual-boot/manual) |
-| 7 | Filesystem | ext4 / btrfs (ze snapshotami) / XFS |
-| 8 | Swap | zram (domyślnie) / partycja / plik / brak |
-| 9 | Sieć | Hostname + mirror Gentoo |
-| 10 | Locale | Timezone, język, keymap |
-| 11 | Kernel | dist-kernel (szybki) lub genkernel (custom) |
-| 12 | GPU | Auto-wykryty sterownik + możliwość zmiany |
-| 13 | Desktop | KDE Plasma + wybór aplikacji (Dolphin, Firefox, Kate...) |
-| 14 | Użytkownicy | Hasło root, konto użytkownika, grupy, SSH |
-| 15 | Pakiety | Dodatkowe pakiety do zainstalowania |
-| 16 | Preset save | Opcjonalny eksport konfiguracji na przyszłość |
-| 17 | Podsumowanie | Pełny przegląd + potwierdzenie "YES" |
-| 18 | Instalacja | Live output w terminalu — siedź i czekaj |
+| 2 | Preset | Opcjonalne załadowanie gotowej konfiguracji |
+| 3 | Hardware | Podgląd wykrytego CPU, GPU, dysków, zainstalowanych OS-ów |
+| 4 | Init system | systemd (zalecany dla KDE) lub OpenRC |
+| 5 | Dysk | Wybór dysku + schemat (auto/dual-boot/manual) |
+| 6 | Filesystem | ext4 / btrfs (ze snapshotami) / XFS |
+| 7 | Swap | zram (domyślnie) / partycja / plik / brak |
+| 8 | Sieć | Hostname + mirror Gentoo |
+| 9 | Locale | Timezone, język, keymap |
+| 10 | Kernel | dist-kernel (szybki) lub genkernel (custom) |
+| 11 | GPU | Auto-wykryty sterownik + możliwość zmiany |
+| 12 | Desktop | KDE Plasma + wybór aplikacji (Dolphin, Firefox, Kate...) |
+| 13 | Użytkownicy | Hasło root, konto użytkownika, grupy |
+| 14 | Pakiety | Dodatkowe pakiety do zainstalowania |
+| 15 | Preset save | Opcjonalny eksport konfiguracji na przyszłość |
+| 16 | Podsumowanie | Pełny przegląd + potwierdzenie "YES" |
+| 17 | Instalacja | Live output w terminalu — siedź i czekaj |
 
-## Dual-boot z Windows
+## Dual-boot (Windows, Linux, multi-boot)
 
 Installer automatycznie:
-- Wykrywa istniejący ESP z Windows Boot Manager
+- Wykrywa zainstalowane OS-y (Windows, openSUSE, Ubuntu, Fedora, etc.)
+- Wykrywa istniejący ESP z Windows Boot Manager i innymi bootloaderami
 - Reuse'uje ESP (nigdy go nie formatuje!)
-- GRUB instaluje się do `EFI/Gentoo/` obok `EFI/Microsoft/`
-- `os-prober` dodaje Windows do menu GRUB
+- GRUB instaluje się do `EFI/Gentoo/` obok `EFI/Microsoft/` i innych
+- `os-prober` dodaje wszystkie wykryte OS-y do menu GRUB
+- Partycje z istniejącymi OS-ami są oznaczone w menu — przypadkowe nadpisanie wymaga potwierdzenia `ERASE`
+- Po instalacji weryfikuje czy GRUB i wpisy EFI zawierają wszystkie OS-y
 
-Wystarczy wybrać "Dual-boot with Windows" w ekranie partycjonowania.
+Wystarczy wybrać "Dual-boot" w ekranie partycjonowania. Opcja pojawia się automatycznie gdy installer wykryje inny OS na dysku.
 
 ## Presety (konfiguracja wielokrotnego użytku)
 
@@ -201,18 +203,55 @@ tail -f /mnt/gentoo/var/log/genkernel.log
 ps aux | grep -E "tee|emerge|make"
 ```
 
-### Zdalne monitorowanie przez SSH
+### Zdalna instalacja przez SSH
 
-Installer oferuje opcję uruchomienia serwera SSH na Live ISO. Ekran SSH pojawia się zaraz po ekranie powitalnym.
+Możesz odpalić instalację zdalnie — uruchom SSH na Live ISO, połącz się z innego komputera i odpal installer przez SSH. To pozwala wygodnie monitorować instalację, kopiować/wklejać, a nawet odejść od maszyny docelowej.
 
-Z drugiego komputera:
+#### Konfiguracja SSH na Live ISO
+
+Na maszynie docelowej (bootowanej z Live ISO), otwórz konsolę (TTY lub terminal) i:
+
+```bash
+# 1. Ustaw hasło root (Live ISO domyślnie nie ma hasła)
+echo "root:twojehaslo" | chpasswd
+
+# 2. Uruchom sshd
+#    Gentoo LiveGUI (OpenRC):
+rc-service sshd start
+
+#    Jeśli live ISO ma systemd:
+systemctl start sshd
+
+# 3. Sprawdź IP
+ip -4 addr show | grep inet
+```
+
+#### Zdalna instalacja z innego komputera
+
+```bash
+# Połącz się
+ssh root@<IP-live-ISO>
+
+# Sklonuj repo i uruchom installer
+git clone https://github.com/szoniu/gentoo.git
+cd gentoo
+./install.sh
+```
+
+Installer działa normalnie przez SSH — dialog TUI renderuje się w terminalu SSH.
+
+#### Monitorowanie z drugiego połączenia
+
+Otwórz drugie okno terminala i połącz się ponownie:
 
 ```bash
 ssh root@<IP-live-ISO>
 
 # Logi w czasie rzeczywistym
-tail -f /tmp/gentoo-installer.log
-tail -f /mnt/gentoo/tmp/gentoo-installer.log
+tail -f /tmp/gentoo-installer.log                   # przed chroot
+tail -f /mnt/gentoo/tmp/gentoo-installer.log        # w chroot
+
+# Log genkernel (jeśli wybrałeś genkernel)
 tail -f /mnt/gentoo/var/log/genkernel.log
 
 # Co się kompiluje
@@ -220,14 +259,6 @@ top
 
 # OOM killer
 dmesg | grep -i "oom\|killed"
-```
-
-Ręczne uruchomienie SSH (na TTY2):
-
-```bash
-echo "root:twojehaslo" | chpasswd
-rc-service sshd start
-ip addr
 ```
 
 ### Typowe problemy
@@ -274,7 +305,8 @@ bash tests/test_config.sh      # Config round-trip
 bash tests/test_hardware.sh    # CPU march + GPU database
 bash tests/test_disk.sh        # Disk planning dry-run
 bash tests/test_makeconf.sh    # make.conf generation
-bash tests/shellcheck.sh       # Lint (wymaga shellcheck)
+bash tests/test_checkpoint.sh  # Checkpoint validate + migrate
+bash tests/test_multiboot.sh   # Multi-boot OS detection + serialization
 ```
 
 ## Struktura projektu

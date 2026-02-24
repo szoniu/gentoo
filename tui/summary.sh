@@ -26,7 +26,6 @@ screen_summary() {
     summary+="CPU march:    ${CPU_MARCH:-x86-64}\n"
     summary+="\n"
     summary+="Username:     ${USERNAME:-user}\n"
-    summary+="SSH:          ${ENABLE_SSH:-no}\n"
     summary+="Desktop:      KDE Plasma + SDDM + PipeWire\n"
     [[ -n "${DESKTOP_EXTRAS:-}" ]] && summary+="KDE apps:     ${DESKTOP_EXTRAS}\n"
     [[ -n "${EXTRA_PACKAGES:-}" ]] && summary+="Extra pkgs:   ${EXTRA_PACKAGES}\n"
@@ -35,6 +34,15 @@ screen_summary() {
 
     if [[ "${ESP_REUSE:-no}" == "yes" ]]; then
         summary+="\nDual-boot:    YES (reusing ESP ${ESP_PARTITION:-?})\n"
+    fi
+
+    # Show detected operating systems
+    if [[ ${#DETECTED_OSES[@]} -gt 0 ]]; then
+        summary+="\nDetected OSes:\n"
+        local p
+        for p in "${!DETECTED_OSES[@]}"; do
+            summary+="  ${p}: ${DETECTED_OSES[${p}]}\n"
+        done
     fi
 
     # Show summary
@@ -54,6 +62,36 @@ screen_summary() {
 
         local confirmation
         confirmation=$(dialog_inputbox "Confirm Installation" \
+            "Type YES (all caps) to confirm and begin installation:" \
+            "") || return "${TUI_BACK}"
+
+        if [[ "${confirmation}" != "YES" ]]; then
+            dialog_msgbox "Cancelled" "Installation cancelled. You typed: '${confirmation}'"
+            return "${TUI_BACK}"
+        fi
+    elif [[ "${PARTITION_SCHEME:-auto}" == "dual-boot" ]]; then
+        local warning=""
+        warning+="!!! DUAL-BOOT INSTALLATION !!!\n\n"
+
+        # What WILL be formatted
+        warning+="WILL BE FORMATTED (data destroyed):\n"
+        warning+="  ${ROOT_PARTITION:-?} -> ${FILESYSTEM:-ext4}\n\n"
+
+        # What will SURVIVE
+        warning+="WILL BE PRESERVED:\n"
+        warning+="  ${ESP_PARTITION:-?}: EFI System Partition\n"
+        local p
+        for p in "${!DETECTED_OSES[@]}"; do
+            [[ "${p}" == "${ROOT_PARTITION:-}" ]] && continue
+            warning+="  ${p}: ${DETECTED_OSES[${p}]}\n"
+        done
+
+        warning+="\nType 'YES' in the next dialog to confirm."
+
+        dialog_msgbox "WARNING" "${warning}" || return "${TUI_BACK}"
+
+        local confirmation
+        confirmation=$(dialog_inputbox "Confirm Dual-Boot Installation" \
             "Type YES (all caps) to confirm and begin installation:" \
             "") || return "${TUI_BACK}"
 

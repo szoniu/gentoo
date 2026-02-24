@@ -221,18 +221,6 @@ system_create_users() {
         einfo "User ${USERNAME} created with groups: ${groups}"
     fi
 
-    # SSH
-    if [[ "${ENABLE_SSH:-no}" == "yes" ]]; then
-        try "Installing OpenSSH" emerge --quiet net-misc/openssh
-
-        if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
-            try "Enabling sshd" systemctl enable sshd
-        else
-            try "Enabling sshd" rc-update add sshd default
-        fi
-
-        einfo "SSH server enabled"
-    fi
 }
 
 # --- Finalization ---

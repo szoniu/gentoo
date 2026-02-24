@@ -43,7 +43,6 @@ source "${LIB_DIR}/preset.sh"
 
 # --- Source TUI screens ---
 source "${TUI_DIR}/welcome.sh"
-source "${TUI_DIR}/ssh_monitor.sh"
 source "${TUI_DIR}/preset_load.sh"
 source "${TUI_DIR}/hw_detect.sh"
 source "${TUI_DIR}/init_select.sh"
@@ -173,7 +172,6 @@ run_configuration_wizard() {
 
     register_wizard_screens \
         screen_welcome \
-        screen_ssh_monitor \
         screen_preset_load \
         screen_hw_detect \
         screen_init_select \
@@ -488,6 +486,7 @@ main() {
             ;;
         install)
             config_load "${CONFIG_FILE}"
+            deserialize_detected_oses
             init_dialog
             screen_progress
             run_post_install
@@ -496,6 +495,7 @@ main() {
             # Running inside chroot
             export _IN_CHROOT=1
             config_load "${CONFIG_FILE}"
+            deserialize_detected_oses
             _do_chroot_phases
             ;;
         *)

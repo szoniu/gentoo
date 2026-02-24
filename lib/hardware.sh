@@ -190,6 +190,177 @@ detect_esp() {
     export ESP_PARTITIONS WINDOWS_DETECTED WINDOWS_ESP
 }
 
+# --- Installed OS Detection ---
+
+# detect_installed_oses — Scan partitions for installed operating systems
+# Populates DETECTED_OSES associative array: partition → OS name
+detect_installed_oses() {
+    declare -gA DETECTED_OSES=()
+    LINUX_DETECTED=0
+
+    einfo "Scanning for installed operating systems..."
+
+    local part fstype
+    while IFS=' ' read -r part fstype; do
+        [[ -z "${part}" || -z "${fstype}" ]] && continue
+
+        # Skip ESP partitions
+        local esp
+        for esp in "${ESP_PARTITIONS[@]}"; do
+            [[ "${part}" == "${esp}" ]] && continue 2
+        done
+
+        case "${fstype}" in
+            ext4|xfs)
+                _detect_linux_on_partition "${part}" "${fstype}" ""
+                ;;
+            btrfs)
+                _detect_linux_on_partition "${part}" "${fstype}" ""
+                if [[ -z "${DETECTED_OSES[${part}]:-}" ]]; then
+                    # btrfs fallback: try subvol=@  (openSUSE, Ubuntu)
+                    _detect_linux_on_partition "${part}" "${fstype}" "@"
+                fi
+                ;;
+            ntfs)
+                _detect_ntfs_on_partition "${part}"
+                ;;
+        esac
+    done < <(lsblk -lno PATH,FSTYPE 2>/dev/null | awk '$2 != "" {print}')
+
+    export LINUX_DETECTED DETECTED_OSES
+
+    # Log results
+    if [[ ${#DETECTED_OSES[@]} -gt 0 ]]; then
+        local p
+        for p in "${!DETECTED_OSES[@]}"; do
+            einfo "Detected OS: ${p} → ${DETECTED_OSES[${p}]}"
+        done
+    else
+        einfo "No other operating systems detected"
+    fi
+
+    serialize_detected_oses
+}
+
+# _detect_linux_on_partition — Try to find /etc/os-release on a Linux partition
+# Args: partition fstype [subvol]
+_detect_linux_on_partition() {
+    local part="$1" fstype="$2" subvol="${3:-}"
+
+    # Check if already mounted
+    local existing_mount
+    existing_mount=$(findmnt -n -o TARGET "${part}" 2>/dev/null | head -1) || true
+
+    local tmp_mount="" needs_umount=0
+    if [[ -n "${existing_mount}" ]]; then
+        tmp_mount="${existing_mount}"
+    else
+        tmp_mount="/tmp/os-detect-$$"
+        mkdir -p "${tmp_mount}"
+
+        local mount_opts="-o ro"
+        [[ -n "${subvol}" ]] && mount_opts="-o ro,subvol=${subvol}"
+
+        if ! mount ${mount_opts} "${part}" "${tmp_mount}" 2>/dev/null; then
+            rmdir "${tmp_mount}" 2>/dev/null || true
+            return
+        fi
+        needs_umount=1
+    fi
+
+    if [[ -f "${tmp_mount}/etc/os-release" ]]; then
+        local pretty_name
+        pretty_name=$(sed -n 's/^PRETTY_NAME="\?\([^"]*\)"\?$/\1/p' "${tmp_mount}/etc/os-release" | head -1) || true
+        if [[ -n "${pretty_name}" ]]; then
+            DETECTED_OSES["${part}"]="${pretty_name}"
+            LINUX_DETECTED=1
+        fi
+    fi
+
+    if [[ "${needs_umount}" -eq 1 ]]; then
+        umount "${tmp_mount}" 2>/dev/null || true
+        rmdir "${tmp_mount}" 2>/dev/null || true
+    fi
+}
+
+# _detect_ntfs_on_partition — Check if NTFS partition is a Windows system drive
+_detect_ntfs_on_partition() {
+    local part="$1"
+
+    local existing_mount
+    existing_mount=$(findmnt -n -o TARGET "${part}" 2>/dev/null | head -1) || true
+
+    local tmp_mount="" needs_umount=0
+    if [[ -n "${existing_mount}" ]]; then
+        tmp_mount="${existing_mount}"
+    else
+        tmp_mount="/tmp/os-detect-$$"
+        mkdir -p "${tmp_mount}"
+
+        if ! mount -o ro "${part}" "${tmp_mount}" 2>/dev/null; then
+            rmdir "${tmp_mount}" 2>/dev/null || true
+            return
+        fi
+        needs_umount=1
+    fi
+
+    if [[ -d "${tmp_mount}/Windows/System32" ]]; then
+        DETECTED_OSES["${part}"]="Windows (system)"
+        WINDOWS_DETECTED=1
+        export WINDOWS_DETECTED
+    fi
+
+    if [[ "${needs_umount}" -eq 1 ]]; then
+        umount "${tmp_mount}" 2>/dev/null || true
+        rmdir "${tmp_mount}" 2>/dev/null || true
+    fi
+}
+
+# serialize_detected_oses — DETECTED_OSES assoc array → serialized string
+# Format: "/dev/sda1=Windows|/dev/sda3=openSUSE Tumbleweed"
+serialize_detected_oses() {
+    local result="" part
+    for part in "${!DETECTED_OSES[@]}"; do
+        local name="${DETECTED_OSES[${part}]}"
+        # Sanitize: replace | and = in OS names with -
+        name="${name//|/-}"
+        name="${name//=/-}"
+        [[ -n "${result}" ]] && result+="|"
+        result+="${part}=${name}"
+    done
+    DETECTED_OSES_SERIALIZED="${result}"
+    export DETECTED_OSES_SERIALIZED
+}
+
+# deserialize_detected_oses — Serialized string → DETECTED_OSES assoc array
+# Restores WINDOWS_DETECTED and LINUX_DETECTED flags
+deserialize_detected_oses() {
+    declare -gA DETECTED_OSES=()
+    WINDOWS_DETECTED="${WINDOWS_DETECTED:-0}"
+    LINUX_DETECTED="${LINUX_DETECTED:-0}"
+
+    local serialized="${DETECTED_OSES_SERIALIZED:-}"
+    [[ -z "${serialized}" ]] && return 0
+
+    local IFS='|'
+    local entry
+    for entry in ${serialized}; do
+        local part="${entry%%=*}"
+        local name="${entry#*=}"
+        [[ -z "${part}" || -z "${name}" ]] && continue
+        DETECTED_OSES["${part}"]="${name}"
+
+        # Restore flags
+        if [[ "${name}" == *"Windows"* ]]; then
+            WINDOWS_DETECTED=1
+        else
+            LINUX_DETECTED=1
+        fi
+    done
+
+    export DETECTED_OSES WINDOWS_DETECTED LINUX_DETECTED
+}
+
 # --- Full Detection ---
 
 # detect_all_hardware — Run all hardware detection
@@ -199,6 +370,7 @@ detect_all_hardware() {
     detect_gpu
     detect_disks
     detect_esp
+    detect_installed_oses
     einfo "=== Hardware Detection Complete ==="
 }
 
@@ -223,13 +395,18 @@ get_hardware_summary() {
         summary+="  /dev/${name}: ${size} ${model} (${tran})\n"
     done
     summary+="\n"
-    if [[ "${WINDOWS_DETECTED:-0}" == "1" ]]; then
-        summary+="Windows: Detected (ESP: ${WINDOWS_ESP})\n"
-    else
-        summary+="Windows: Not detected\n"
-    fi
     if [[ ${#ESP_PARTITIONS[@]} -gt 0 ]]; then
         summary+="ESP partitions: ${ESP_PARTITIONS[*]}\n"
+    fi
+    summary+="\n"
+    if [[ ${#DETECTED_OSES[@]} -gt 0 ]]; then
+        summary+="Detected operating systems:\n"
+        local p
+        for p in "${!DETECTED_OSES[@]}"; do
+            summary+="  ${p}: ${DETECTED_OSES[${p}]}\n"
+        done
+    else
+        summary+="Detected operating systems: none\n"
     fi
     echo -e "${summary}"
 }

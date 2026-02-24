@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bootloader.sh — GRUB installation, os-prober, dual-boot
+# bootloader.sh — GRUB installation, os-prober, dual-boot, EFI verification
 source "${LIB_DIR}/protection.sh"
 
 # bootloader_install — Install and configure GRUB
@@ -10,9 +10,13 @@ bootloader_install() {
     try "Installing GRUB" emerge --quiet sys-boot/grub
 
     # Install os-prober for dual-boot detection
-    if [[ "${WINDOWS_DETECTED:-0}" == "1" ]] || [[ "${ESP_REUSE:-no}" == "yes" ]]; then
+    if [[ "${WINDOWS_DETECTED:-0}" == "1" ]] || [[ "${LINUX_DETECTED:-0}" == "1" ]] || \
+       [[ "${ESP_REUSE:-no}" == "yes" ]]; then
         try "Installing os-prober" emerge --quiet sys-boot/os-prober
     fi
+
+    # Install efibootmgr for EFI entry management
+    try "Installing efibootmgr" emerge --quiet sys-boot/efibootmgr
 
     # Install GRUB to ESP
     local grub_target="/efi"
@@ -25,8 +29,20 @@ bootloader_install() {
     # Configure GRUB
     _configure_grub
 
+    # Mount other OS partitions so os-prober can find them
+    _mount_other_oses_for_osprober
+
     # Generate GRUB config
     try "Generating GRUB configuration" grub-mkconfig -o /boot/grub/grub.cfg
+
+    # Verify GRUB detected all known operating systems
+    _verify_grub_config
+
+    # Unmount os-prober mounts
+    _unmount_osprober_mounts
+
+    # Verify EFI boot entries
+    _verify_efi_entries
 
     einfo "Bootloader installation complete"
 }
@@ -72,7 +88,8 @@ GRUB_GFXPAYLOAD_LINUX="keep"
 GRUBEOF
 
     # Dual-boot: enable os-prober
-    if [[ "${WINDOWS_DETECTED:-0}" == "1" ]] || [[ "${ESP_REUSE:-no}" == "yes" ]]; then
+    if [[ "${WINDOWS_DETECTED:-0}" == "1" ]] || [[ "${LINUX_DETECTED:-0}" == "1" ]] || \
+       [[ "${ESP_REUSE:-no}" == "yes" ]]; then
         cat >> "${grub_default}" << DUALEOF
 
 # Dual-boot: os-prober enabled
@@ -82,4 +99,199 @@ DUALEOF
     fi
 
     einfo "GRUB configured"
+}
+
+# _mount_other_oses_for_osprober — Temporarily mount detected OS partitions
+# so os-prober can find them during grub-mkconfig
+_mount_other_oses_for_osprober() {
+    declare -ga _OSPROBER_MOUNTS=()
+
+    # Nothing to do if no other OSes detected
+    [[ ${#DETECTED_OSES[@]} -eq 0 ]] && return 0
+
+    einfo "Mounting other OS partitions for os-prober..."
+
+    local part
+    for part in "${!DETECTED_OSES[@]}"; do
+        # Skip our own partitions
+        [[ "${part}" == "${ESP_PARTITION:-}" ]] && continue
+        [[ "${part}" == "${ROOT_PARTITION:-}" ]] && continue
+        [[ "${part}" == "${WINDOWS_ESP:-}" ]] && continue
+
+        # Skip if already mounted
+        if findmnt -n "${part}" &>/dev/null; then
+            einfo "  ${part} already mounted, skipping"
+            continue
+        fi
+
+        local partname="${part##*/}"
+        local mpoint="/mnt/osprober-${partname}"
+        mkdir -p "${mpoint}"
+
+        if mount -o ro "${part}" "${mpoint}" 2>/dev/null; then
+            _OSPROBER_MOUNTS+=("${mpoint}")
+            einfo "  Mounted ${part} at ${mpoint}"
+        else
+            rmdir "${mpoint}" 2>/dev/null || true
+        fi
+    done
+}
+
+# _unmount_osprober_mounts — Clean up temporary os-prober mounts
+_unmount_osprober_mounts() {
+    local mpoint
+    for mpoint in "${_OSPROBER_MOUNTS[@]}"; do
+        umount "${mpoint}" 2>/dev/null || true
+        rmdir "${mpoint}" 2>/dev/null || true
+    done
+    _OSPROBER_MOUNTS=()
+}
+
+# _verify_grub_config — Check that grub.cfg contains entries for all detected OSes
+_verify_grub_config() {
+    local grub_cfg="/boot/grub/grub.cfg"
+    [[ ! -f "${grub_cfg}" ]] && return 0
+    [[ ${#DETECTED_OSES[@]} -eq 0 ]] && return 0
+
+    einfo "Verifying GRUB configuration..."
+
+    local -a missing_oses=()
+    local part
+
+    for part in "${!DETECTED_OSES[@]}"; do
+        # Skip our own root partition
+        [[ "${part}" == "${ROOT_PARTITION:-}" ]] && continue
+
+        local os_name="${DETECTED_OSES[${part}]}"
+        local found=0
+
+        # For Windows: check for 'windows' (case-insensitive)
+        if [[ "${os_name}" == *"Windows"* ]]; then
+            if grep -qi 'windows' "${grub_cfg}" 2>/dev/null; then
+                found=1
+            fi
+        else
+            # For Linux: search for first word of OS name or partition UUID
+            local first_word="${os_name%% *}"
+            if grep -qi "${first_word}" "${grub_cfg}" 2>/dev/null; then
+                found=1
+            else
+                # Try partition UUID
+                local part_uuid
+                part_uuid=$(get_uuid "${part}" 2>/dev/null) || true
+                if [[ -n "${part_uuid}" ]] && grep -q "${part_uuid}" "${grub_cfg}" 2>/dev/null; then
+                    found=1
+                fi
+            fi
+        fi
+
+        if [[ "${found}" -eq 0 ]]; then
+            missing_oses+=("${part}: ${os_name}")
+        fi
+    done
+
+    if [[ ${#missing_oses[@]} -eq 0 ]]; then
+        einfo "GRUB configuration verified — all detected OSes found"
+        return 0
+    fi
+
+    # Some OSes are missing from grub.cfg
+    local missing_text=""
+    local entry
+    for entry in "${missing_oses[@]}"; do
+        missing_text+="  ${entry}\n"
+    done
+
+    ewarn "GRUB may not have detected all operating systems:"
+    ewarn "${missing_text}"
+
+    # Interactive recovery menu
+    if command -v "${DIALOG_CMD:-dialog}" &>/dev/null; then
+        local choice
+        choice=$(dialog_menu "Missing OS in GRUB" \
+            "rerun"   "Re-run grub-mkconfig" \
+            "continue" "Continue anyway (can fix later)" \
+            "shell"   "Drop to shell") || choice="continue"
+
+        case "${choice}" in
+            rerun)
+                _mount_other_oses_for_osprober
+                try "Re-generating GRUB configuration" grub-mkconfig -o /boot/grub/grub.cfg
+                _unmount_osprober_mounts
+                ;;
+            shell)
+                ewarn "Type 'exit' to return to the installer"
+                bash --norc --noprofile || true
+                ;;
+            continue)
+                einfo "Continuing with current GRUB configuration"
+                ;;
+        esac
+    else
+        # Text fallback for chroot without dialog
+        echo ""
+        echo "WARNING: Some operating systems may be missing from GRUB:"
+        echo -e "${missing_text}"
+        echo "(r)e-run grub-mkconfig | (c)ontinue | (s)hell"
+        local reply
+        read -r reply < /dev/tty 2>/dev/null || reply="c"
+        case "${reply}" in
+            r)
+                _mount_other_oses_for_osprober
+                try "Re-generating GRUB configuration" grub-mkconfig -o /boot/grub/grub.cfg
+                _unmount_osprober_mounts
+                ;;
+            s)
+                ewarn "Type 'exit' to return to the installer"
+                bash --norc --noprofile || true
+                ;;
+            *)
+                einfo "Continuing with current GRUB configuration"
+                ;;
+        esac
+    fi
+}
+
+# _verify_efi_entries — Check EFI boot entries for expected bootloaders
+_verify_efi_entries() {
+    # Only relevant on EFI systems
+    if [[ "${DRY_RUN:-0}" == "1" ]]; then
+        einfo "[DRY-RUN] Would verify EFI boot entries"
+        return 0
+    fi
+
+    if ! command -v efibootmgr &>/dev/null; then
+        ewarn "efibootmgr not available — skipping EFI entry verification"
+        return 0
+    fi
+
+    einfo "Verifying EFI boot entries..."
+
+    local efi_output
+    efi_output=$(efibootmgr 2>/dev/null) || true
+
+    if [[ -z "${efi_output}" ]]; then
+        ewarn "Could not read EFI boot entries"
+        return 0
+    fi
+
+    elog "EFI boot entries:\n${efi_output}"
+
+    # Check for Gentoo entry
+    if ! echo "${efi_output}" | grep -qi 'gentoo'; then
+        ewarn "No Gentoo EFI boot entry found — boot may fail"
+    else
+        einfo "Gentoo EFI boot entry present"
+    fi
+
+    # Check for Windows Boot Manager if Windows was detected
+    if [[ "${WINDOWS_DETECTED:-0}" == "1" ]]; then
+        if ! echo "${efi_output}" | grep -qi 'windows'; then
+            ewarn "WARNING: Windows Boot Manager EFI entry not found!"
+            ewarn "Windows may not appear in firmware boot menu."
+            ewarn "It should still be accessible via GRUB os-prober."
+        else
+            einfo "Windows Boot Manager EFI entry present"
+        fi
+    fi
 }
