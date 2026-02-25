@@ -307,7 +307,7 @@ SWAYEOF
     # Also configure for the created user (if already exists)
     if [[ -n "${USERNAME:-}" ]] && id "${USERNAME}" &>/dev/null; then
         local user_home
-        user_home=$(eval echo "~${USERNAME}")
+        user_home=$(getent passwd "${USERNAME}" | cut -d: -f6)
         case "${compositor}" in
             hyprland)
                 mkdir -p "${user_home}/.config/hypr"

@@ -90,8 +90,8 @@ cleanup() {
     return ${rc}
 }
 trap cleanup EXIT
-trap 'cleanup; exit 130' INT
-trap 'cleanup; exit 143' TERM
+trap 'trap - EXIT; cleanup; exit 130' INT
+trap 'trap - EXIT; cleanup; exit 143' TERM
 
 # --- Parse arguments ---
 MODE="full"

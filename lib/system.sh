@@ -50,15 +50,23 @@ system_set_locale() {
 
 system_set_hostname() {
     local hostname="${HOSTNAME:-gentoo}"
+
+    # Validate hostname (RFC 1123: alphanumeric + hyphens, no leading/trailing hyphen)
+    if [[ ! "${hostname}" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]]; then
+        ewarn "Invalid hostname '${hostname}', falling back to 'gentoo'"
+        hostname="gentoo"
+    fi
+
     einfo "Setting hostname: ${hostname}"
 
     if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
         echo "${hostname}" > /etc/hostname
     else
-        # OpenRC
-        cat > /etc/conf.d/hostname << HOSTEOF
-hostname="${hostname}"
+        # OpenRC — use quoted heredoc to prevent shell expansion
+        cat > /etc/conf.d/hostname << 'HOSTEOF'
+hostname="PLACEHOLDER"
 HOSTEOF
+        sed -i "s/PLACEHOLDER/${hostname}/" /etc/conf.d/hostname
     fi
 
     # Update /etc/hosts
@@ -192,10 +200,10 @@ install_filesystem_tools() {
 system_create_users() {
     einfo "Creating users..."
 
-    # Set root password
+    # Set root password (pipe hash to avoid exposure in process list)
     if [[ -n "${ROOT_PASSWORD_HASH:-}" ]]; then
         try "Setting root password" \
-            usermod -p "${ROOT_PASSWORD_HASH}" root
+            bash -c 'echo "root:$1" | chpasswd -e' -- "${ROOT_PASSWORD_HASH}"
     fi
 
     # Create regular user
@@ -207,7 +215,7 @@ system_create_users() {
 
         if [[ -n "${USER_PASSWORD_HASH:-}" ]]; then
             try "Setting user password" \
-                usermod -p "${USER_PASSWORD_HASH}" "${USERNAME}"
+                bash -c 'echo "$1:$2" | chpasswd -e' -- "${USERNAME}" "${USER_PASSWORD_HASH}"
         fi
 
         # Setup sudo

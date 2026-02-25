@@ -136,10 +136,20 @@ detect_esp() {
     WINDOWS_DETECTED=0
     WINDOWS_ESP=""
 
-    while IFS= read -r line; do
-        [[ -z "${line}" ]] && continue
-        local dev uuid type parttype
-        eval "${line}"
+    while IFS= read -r block; do
+        [[ -z "${block}" ]] && continue
+        # Parse key=value pairs safely without eval
+        local DEVNAME="" UUID="" TYPE="" PART_ENTRY_TYPE=""
+        while IFS='=' read -r key val; do
+            case "${key}" in
+                DEVNAME)          DEVNAME="${val}" ;;
+                UUID)             UUID="${val}" ;;
+                TYPE)             TYPE="${val}" ;;
+                PART_ENTRY_TYPE)  PART_ENTRY_TYPE="${val}" ;;
+            esac
+        done <<< "${block}"
+
+        local dev="${DEVNAME}" type="${TYPE}" parttype="${PART_ENTRY_TYPE}"
 
         # Check for EFI System Partition (GUID: C12A7328-F81F-11D2-BA4B-00A0C93EC93B)
         if [[ "${parttype:-}" == "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" ]] || \
@@ -148,8 +158,8 @@ detect_esp() {
             einfo "Found ESP: ${dev}"
 
             # Check for Windows Boot Manager
-            local tmp_mount="/tmp/esp-check-$$"
-            mkdir -p "${tmp_mount}"
+            local tmp_mount
+            tmp_mount=$(mktemp -d /tmp/esp-check-XXXXXX)
             if mount -o ro "${dev}" "${tmp_mount}" 2>/dev/null; then
                 if [[ -d "${tmp_mount}/EFI/Microsoft/Boot" ]]; then
                     WINDOWS_DETECTED=1
@@ -161,7 +171,7 @@ detect_esp() {
             rmdir "${tmp_mount}" 2>/dev/null || true
         fi
     done < <(blkid -o export 2>/dev/null | awk -v RS='' '{print}' | \
-             grep -i 'PARTTYPE.*c12a7328\|TYPE.*vfat' | head -20)
+             grep -i 'PART_ENTRY_TYPE.*c12a7328\|TYPE.*vfat' | head -20)
 
     # Simpler approach: iterate over all partitions
     if [[ ${#ESP_PARTITIONS[@]} -eq 0 ]]; then
@@ -172,8 +182,8 @@ detect_esp() {
                 ESP_PARTITIONS+=("${part}")
                 einfo "Found ESP: ${part}"
 
-                local tmp_mount="/tmp/esp-check-$$"
-                mkdir -p "${tmp_mount}"
+                local tmp_mount
+                tmp_mount=$(mktemp -d /tmp/esp-check-XXXXXX)
                 if mount -o ro "${part}" "${tmp_mount}" 2>/dev/null; then
                     if [[ -d "${tmp_mount}/EFI/Microsoft/Boot" ]]; then
                         WINDOWS_DETECTED=1
