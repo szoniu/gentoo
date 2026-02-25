@@ -82,8 +82,9 @@ stage3_verify() {
     ' "${file}.DIGESTS")
 
     if [[ -z "${expected_hash}" ]]; then
-        ewarn "Could not extract SHA512 hash, skipping checksum verification"
-        return 0
+        eerror "Could not extract SHA512 hash from DIGESTS file"
+        eerror "Refusing to proceed with unverified stage3"
+        return 1
     fi
 
     local actual_hash

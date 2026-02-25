@@ -179,11 +179,11 @@ cleanup_target_disk() {
     while IFS= read -r swap_part; do
         [[ -z "${swap_part}" ]] && continue
         swapoff "${swap_part}" 2>/dev/null && einfo "Deactivated swap: ${swap_part}" || true
-    done < <(awk -v disk="${disk}" 'NR>1 && $1 ~ "^"disk {print $1}' /proc/swaps 2>/dev/null)
+    done < <(awk -v disk="${disk}" 'NR>1 && $1 ~ "^"disk"[p]?[0-9]" {print $1}' /proc/swaps 2>/dev/null)
 
     # Unmount all partitions on this disk (reverse order for nested mounts)
     local -a mounts
-    readarray -t mounts < <(awk -v disk="${disk}" '$1 ~ "^"disk {print $2}' /proc/mounts 2>/dev/null | sort -r)
+    readarray -t mounts < <(awk -v disk="${disk}" '$1 ~ "^"disk"[p]?[0-9]" {print $2}' /proc/mounts 2>/dev/null | sort -r)
 
     local mnt
     for mnt in "${mounts[@]}"; do
@@ -346,7 +346,7 @@ unmount_filesystems() {
 
     # Unmount in reverse order — find all mounts under MOUNTPOINT
     local -a mounts
-    readarray -t mounts < <(mount | grep "${MOUNTPOINT}" | awk '{print $3}' | sort -r)
+    readarray -t mounts < <(awk -v mp="${MOUNTPOINT}" '$3 == mp || $3 ~ "^"mp"/" {print $3}' /proc/mounts 2>/dev/null | sort -r)
 
     local mnt
     for mnt in "${mounts[@]}"; do

@@ -356,6 +356,11 @@ install_extra_packages() {
     einfo "Installing extra packages: ${EXTRA_PACKAGES}"
     local pkg
     for pkg in ${EXTRA_PACKAGES}; do
+        # Validate package name (category/name format or simple name)
+        if [[ ! "${pkg}" =~ ^[a-zA-Z0-9][a-zA-Z0-9_./-]*$ ]]; then
+            ewarn "Skipping invalid package name: ${pkg}"
+            continue
+        fi
         try "Installing ${pkg}" emerge --quiet "${pkg}"
     done
 }

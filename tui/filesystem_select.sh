@@ -3,6 +3,38 @@
 source "${LIB_DIR}/protection.sh"
 
 screen_filesystem_select() {
+    # In manual mode, detect filesystem from already-formatted partition
+    if [[ "${PARTITION_SCHEME:-}" == "manual" && -n "${ROOT_PARTITION:-}" ]]; then
+        local detected_fs
+        detected_fs=$(blkid -o value -s TYPE "${ROOT_PARTITION}" 2>/dev/null) || true
+        if [[ -n "${detected_fs}" ]]; then
+            FILESYSTEM="${detected_fs}"
+            export FILESYSTEM
+            einfo "Detected filesystem on ${ROOT_PARTITION}: ${FILESYSTEM}"
+
+            # For btrfs, ask about subvolumes even in manual mode
+            if [[ "${FILESYSTEM}" == "btrfs" ]]; then
+                BTRFS_SUBVOLUMES="@:/:@home:/home:@var-log:/var/log:@snapshots:/.snapshots"
+
+                dialog_yesno "Btrfs Subvolumes" \
+                    "Detected btrfs on ${ROOT_PARTITION}.\n\n\
+Create default subvolumes?\n\n\
+  @           -> /\n\
+  @home       -> /home\n\
+  @var-log    -> /var/log\n\
+  @snapshots  -> /.snapshots\n\n\
+Select No to skip subvolume creation." && {
+                    export BTRFS_SUBVOLUMES
+                } || {
+                    BTRFS_SUBVOLUMES=""
+                    export BTRFS_SUBVOLUMES
+                }
+            fi
+
+            return "${TUI_NEXT}"
+        fi
+    fi
+
     local current="${FILESYSTEM:-ext4}"
     local on_ext4="off" on_btrfs="off" on_xfs="off"
     case "${current}" in

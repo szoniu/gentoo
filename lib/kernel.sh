@@ -18,7 +18,8 @@ kernel_install() {
 
     # Configure installkernel with GRUB support
     mkdir -p /etc/portage/package.use
-    echo "sys-kernel/installkernel grub" >> /etc/portage/package.use/installkernel 2>/dev/null || true
+    grep -qxF "sys-kernel/installkernel grub" /etc/portage/package.use/installkernel 2>/dev/null || \
+        echo "sys-kernel/installkernel grub" >> /etc/portage/package.use/installkernel 2>/dev/null || true
 
     # Install installkernel for automatic kernel installation
     try "Installing installkernel" emerge --quiet sys-kernel/installkernel
@@ -62,8 +63,8 @@ kernel_install_dist() {
 
     # Accept ~amd64 for latest kernel if needed
     mkdir -p /etc/portage/package.accept_keywords
-    echo "sys-kernel/gentoo-kernel-bin ~amd64" >> \
-        /etc/portage/package.accept_keywords/kernel 2>/dev/null || true
+    grep -qxF "sys-kernel/gentoo-kernel-bin ~amd64" /etc/portage/package.accept_keywords/kernel 2>/dev/null || \
+        echo "sys-kernel/gentoo-kernel-bin ~amd64" >> /etc/portage/package.accept_keywords/kernel 2>/dev/null || true
 
     # Try binary kernel first (much faster)
     # --autounmask-write --autounmask-continue: deps may also need ~amd64,
@@ -90,8 +91,8 @@ kernel_install_genkernel() {
 
     # Accept ~amd64 for latest kernel sources
     mkdir -p /etc/portage/package.accept_keywords
-    echo "sys-kernel/gentoo-sources ~amd64" >> \
-        /etc/portage/package.accept_keywords/kernel 2>/dev/null || true
+    grep -qxF "sys-kernel/gentoo-sources ~amd64" /etc/portage/package.accept_keywords/kernel 2>/dev/null || \
+        echo "sys-kernel/gentoo-sources ~amd64" >> /etc/portage/package.accept_keywords/kernel 2>/dev/null || true
 
     # Install gentoo-sources
     # --autounmask-write --autounmask-continue: deps may also need ~amd64
