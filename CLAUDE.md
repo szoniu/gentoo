@@ -2,7 +2,7 @@
 
 ## Co to jest
 
-Interaktywny TUI installer Gentoo Linux w Bashu. Cel: sklonować repo z dowolnego live ISO, uruchomić `./install.sh` i zostać przeprowadzonym przez cały proces od partycjonowania dysku po działający desktop KDE Plasma.
+Interaktywny TUI installer Gentoo Linux w Bashu. Cel: sklonować repo z dowolnego live ISO, uruchomić `./install.sh` i zostać przeprowadzonym przez cały proces od partycjonowania dysku po działający desktop KDE Plasma. Po awarii: `./install.sh --resume` skanuje dyski i wznawia od ostatniego checkpointu.
 
 ## Architektura
 
@@ -137,6 +137,8 @@ Partycjonowanie używa `sfdisk` (util-linux) — atomowy skrypt stdin zamiast se
 
 Wznowienie po awarii: `screen_progress()` sprawdza istniejące checkpointy i pyta użytkownika czy wznowić. `checkpoint_validate()` weryfikuje artefakty faz (np. czy stage3 jest rozpakowany, czy make.conf istnieje) — nieważne checkpointy są usuwane.
 
+**`--resume` mode**: `try_resume_from_disk()` w `lib/utils.sh` skanuje partycje (ext4/xfs/btrfs) szukając checkpointów i configa. Zwraca: 0 = config + checkpointy, 1 = tylko checkpointy, 2 = nic nie znaleziono. `_save_config_to_target()` w `tui/progress.sh` zapisuje config na dysk docelowy po fazie partycjonowania — dzięki temu `--resume` może go odzyskać.
+
 ### Funkcja `try`
 
 `try "opis" polecenie args...` — na błędzie wyświetla menu Retry/Shell/Continue/Log/Abort. Każde polecenie które może się nie udać MUSI iść przez `try`.
@@ -155,6 +157,7 @@ bash tests/test_hardware.sh    # CPU march + GPU database (16 assertions)
 bash tests/test_disk.sh        # Disk planning dry-run with sfdisk (21 assertions)
 bash tests/test_makeconf.sh    # make.conf generation (18 assertions)
 bash tests/test_checkpoint.sh  # Checkpoint validate + migrate (16 assertions)
+bash tests/test_resume.sh      # Resume from disk scanning + recovery (30 assertions)
 bash tests/test_multiboot.sh   # Multi-boot OS detection + serialization (26 assertions)
 ```
 
@@ -188,6 +191,7 @@ Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `D
 - **`eval` na zewnętrznych danych**: Nie używać `eval "${line}"` na output `blkid` / plików konfiguracyjnych. Złośliwy label partycji może zawierać kod. Parsować przez `case`/`read` lub `declare`.
 - **Hostname validation**: Hostname trafia do `/etc/conf.d/hostname` (source'owany przez OpenRC) i `/etc/hosts`. Walidować regex RFC 1123: `^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`.
 - **`eval echo "~${user}"` → injection**: Zamiast tego `getent passwd "${user}" | cut -d: -f6`.
+- **`try_resume_from_disk()` zwraca 0/1/2, nie boolean**: 0 = config + checkpointy, 1 = tylko checkpointy, 2 = nic. Testowanie: `_RESUME_TEST_DIR` przełącza na fake katalogi zamiast prawdziwego mount. Nie używać `if try_resume_from_disk` — zawsze `rc=0; try_resume_from_disk || rc=$?; case ${rc}`.
 - **DNS na Live ISO**: Live ISO może nie mieć skonfigurowanego DNS. `ensure_dns()` w preflight automatycznie dodaje `8.8.8.8` jeśli ping po IP działa ale po nazwie nie.
 - **Motyw dialog**: `data/dialogrc` ładowany przez `export DIALOGRC=` w `init_dialog()`. Whiptail ignoruje DIALOGRC.
 

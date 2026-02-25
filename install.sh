@@ -111,6 +111,7 @@ Commands:
   (default)       Run full installation (wizard + install)
   --configure     Run only the TUI configuration wizard
   --install       Run only the installation phase (requires config)
+  --resume        Resume interrupted installation (scan disks for checkpoints)
   __chroot_phase  Internal: execute chroot phase
 
 Options:
@@ -130,6 +131,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --install)
             MODE="install"
+            shift
+            ;;
+        --resume)
+            MODE="resume"
             shift
             ;;
         __chroot_phase)
@@ -491,6 +496,53 @@ main() {
             init_dialog
             screen_progress
             run_post_install
+            ;;
+        resume)
+            local resume_rc=0
+            try_resume_from_disk || resume_rc=$?
+
+            case ${resume_rc} in
+                0)
+                    # Config + checkpoints recovered
+                    config_load "${CONFIG_FILE}"
+                    deserialize_detected_oses
+                    init_dialog
+
+                    # Show recovered checkpoints
+                    local completed_list=""
+                    local cp_name
+                    for cp_name in "${CHECKPOINTS[@]}"; do
+                        if checkpoint_reached "${cp_name}"; then
+                            completed_list+="  - ${cp_name}\n"
+                        fi
+                    done
+                    dialog_msgbox "Resume: Data Recovered" \
+                        "Found previous installation on ${RESUME_FOUND_PARTITION}.\n\nRecovered config and checkpoints:\n\n${completed_list}\nResuming installation..."
+
+                    screen_progress
+                    run_post_install
+                    ;;
+                1)
+                    # Only checkpoints, no config
+                    init_dialog
+                    dialog_msgbox "Resume: Partial Recovery" \
+                        "Found checkpoints on ${RESUME_FOUND_PARTITION} but no config file.\n\nYou need to re-run the configuration wizard.\nCompleted phases will be skipped automatically."
+
+                    run_configuration_wizard
+                    screen_progress
+                    run_post_install
+                    ;;
+                2)
+                    # Nothing found — fall back to full mode
+                    init_dialog
+                    dialog_msgbox "Resume: Nothing Found" \
+                        "No previous installation data found on any partition.\n\nStarting full installation."
+
+                    run_configuration_wizard
+                    screen_progress
+                    run_post_install
+                    ;;
+            esac
             ;;
         chroot)
             # Running inside chroot

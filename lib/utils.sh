@@ -245,6 +245,208 @@ checkpoint_migrate_to_target() {
     export CHECKPOINT_DIR
 }
 
+# --- Resume from disk ---
+
+# RESUME_FOUND_PARTITION — partition where resume data was found
+RESUME_FOUND_PARTITION=""
+# RESUME_HAS_CONFIG — whether config file was found alongside checkpoints
+RESUME_HAS_CONFIG=0
+
+# _scan_partition_for_resume — Check a single partition for resume data
+# Usage: _scan_partition_for_resume /dev/sdX2 ext4
+# Sets: _SCAN_HAS_CHECKPOINTS, _SCAN_HAS_CONFIG, _SCAN_MOUNTPOINT
+_scan_partition_for_resume() {
+    local part="$1"
+    local fstype="$2"
+    _SCAN_HAS_CHECKPOINTS=0
+    _SCAN_HAS_CONFIG=0
+    _SCAN_MOUNTPOINT=""
+
+    # For testing: use fake directory instead of real mount
+    if [[ -n "${_RESUME_TEST_DIR:-}" ]]; then
+        local fake_mp="${_RESUME_TEST_DIR}/mnt/${part##*/}"
+        if [[ -d "${fake_mp}${CHECKPOINT_DIR_SUFFIX}" ]] && ls "${fake_mp}${CHECKPOINT_DIR_SUFFIX}/"* &>/dev/null 2>&1; then
+            _SCAN_HAS_CHECKPOINTS=1
+            _SCAN_MOUNTPOINT="${fake_mp}"
+        fi
+        if [[ -f "${fake_mp}/tmp/gentoo-installer.conf" ]]; then
+            _SCAN_HAS_CONFIG=1
+        fi
+        return 0
+    fi
+
+    # Skip if already mounted somewhere
+    if findmnt -rn -S "${part}" &>/dev/null; then
+        local existing_mp
+        existing_mp=$(findmnt -rn -o TARGET -S "${part}" | head -1) || true
+        if [[ -n "${existing_mp}" ]]; then
+            # Check in-place without mounting
+            if [[ -d "${existing_mp}${CHECKPOINT_DIR_SUFFIX}" ]] && ls "${existing_mp}${CHECKPOINT_DIR_SUFFIX}/"* &>/dev/null 2>&1; then
+                _SCAN_HAS_CHECKPOINTS=1
+                _SCAN_MOUNTPOINT="${existing_mp}"
+            fi
+            if [[ -f "${existing_mp}/tmp/gentoo-installer.conf" ]]; then
+                _SCAN_HAS_CONFIG=1
+            fi
+            return 0
+        fi
+    fi
+
+    local mp
+    mp=$(mktemp -d "${TMPDIR:-/tmp}/gentoo-resume-scan.XXXXXX")
+
+    local mounted=0
+    if mount -o ro "${part}" "${mp}" 2>/dev/null; then
+        mounted=1
+    elif [[ "${fstype}" == "btrfs" ]]; then
+        # Btrfs: try mounting default subvolume @
+        if mount -o ro,subvol=@ "${part}" "${mp}" 2>/dev/null; then
+            mounted=1
+        fi
+    fi
+
+    if [[ ${mounted} -eq 1 ]]; then
+        if [[ -d "${mp}${CHECKPOINT_DIR_SUFFIX}" ]] && ls "${mp}${CHECKPOINT_DIR_SUFFIX}/"* &>/dev/null 2>&1; then
+            _SCAN_HAS_CHECKPOINTS=1
+            _SCAN_MOUNTPOINT="${mp}"
+        fi
+        if [[ -f "${mp}/tmp/gentoo-installer.conf" ]]; then
+            _SCAN_HAS_CONFIG=1
+        fi
+        umount "${mp}" 2>/dev/null || true
+    fi
+
+    rmdir "${mp}" 2>/dev/null || true
+    return 0
+}
+
+# _recover_resume_data — Copy checkpoints and config from partition
+# Usage: _recover_resume_data /dev/sdX2 ext4
+_recover_resume_data() {
+    local part="$1"
+    local fstype="$2"
+
+    # For testing: use fake directory instead of real mount
+    if [[ -n "${_RESUME_TEST_DIR:-}" ]]; then
+        local fake_mp="${_RESUME_TEST_DIR}/mnt/${part##*/}"
+        mkdir -p "${CHECKPOINT_DIR}"
+        cp -a "${fake_mp}${CHECKPOINT_DIR_SUFFIX}/"* "${CHECKPOINT_DIR}/" 2>/dev/null || true
+        if [[ -f "${fake_mp}/tmp/gentoo-installer.conf" ]]; then
+            (umask 077; cp "${fake_mp}/tmp/gentoo-installer.conf" "${CONFIG_FILE}")
+        fi
+        return 0
+    fi
+
+    local mp
+    mp=$(mktemp -d "${TMPDIR:-/tmp}/gentoo-resume-recover.XXXXXX")
+    local mounted=0
+
+    if findmnt -rn -S "${part}" &>/dev/null; then
+        local existing_mp
+        existing_mp=$(findmnt -rn -o TARGET -S "${part}" | head -1) || true
+        if [[ -n "${existing_mp}" ]]; then
+            mp="${existing_mp}"
+            mounted=2  # already mounted, don't unmount
+        fi
+    fi
+
+    if [[ ${mounted} -eq 0 ]]; then
+        if mount -o ro "${part}" "${mp}" 2>/dev/null; then
+            mounted=1
+        elif [[ "${fstype}" == "btrfs" ]]; then
+            if mount -o ro,subvol=@ "${part}" "${mp}" 2>/dev/null; then
+                mounted=1
+            fi
+        fi
+    fi
+
+    if [[ ${mounted} -gt 0 ]]; then
+        mkdir -p "${CHECKPOINT_DIR}"
+        cp -a "${mp}${CHECKPOINT_DIR_SUFFIX}/"* "${CHECKPOINT_DIR}/" 2>/dev/null || true
+        einfo "Recovered checkpoints from ${part}"
+
+        if [[ -f "${mp}/tmp/gentoo-installer.conf" ]]; then
+            (umask 077; cp "${mp}/tmp/gentoo-installer.conf" "${CONFIG_FILE}")
+            einfo "Recovered config from ${part}"
+        fi
+
+        [[ ${mounted} -eq 1 ]] && umount "${mp}" 2>/dev/null || true
+    fi
+
+    [[ ${mounted} -ne 2 ]] && rmdir "${mp}" 2>/dev/null || true
+    return 0
+}
+
+# try_resume_from_disk — Scan all partitions for resume data (checkpoints + config)
+# Returns: 0 = config + checkpoints found, 1 = only checkpoints, 2 = nothing found
+# Sets: RESUME_FOUND_PARTITION, RESUME_HAS_CONFIG
+try_resume_from_disk() {
+    RESUME_FOUND_PARTITION=""
+    RESUME_HAS_CONFIG=0
+
+    einfo "Scanning partitions for previous installation data..."
+
+    local found_part="" found_fstype="" found_config=0
+
+    if [[ -n "${_RESUME_TEST_DIR:-}" ]]; then
+        # Testing mode: read fake partition list
+        local part fstype
+        while IFS=' ' read -r part fstype; do
+            [[ -z "${part}" || -z "${fstype}" ]] && continue
+            case "${fstype}" in
+                ext4|ext3|xfs|btrfs) ;;
+                *) continue ;;
+            esac
+            _scan_partition_for_resume "${part}" "${fstype}"
+            if [[ ${_SCAN_HAS_CHECKPOINTS} -eq 1 ]]; then
+                found_part="${part}"
+                found_fstype="${fstype}"
+                found_config=${_SCAN_HAS_CONFIG}
+                break
+            fi
+        done < "${_RESUME_TEST_DIR}/partitions.list"
+    else
+        local part fstype
+        while IFS=' ' read -r part fstype; do
+            [[ -z "${part}" || -z "${fstype}" ]] && continue
+            case "${fstype}" in
+                ext4|ext3|xfs|btrfs) ;;
+                *) continue ;;
+            esac
+            _scan_partition_for_resume "${part}" "${fstype}"
+            if [[ ${_SCAN_HAS_CHECKPOINTS} -eq 1 ]]; then
+                found_part="${part}"
+                found_fstype="${fstype}"
+                found_config=${_SCAN_HAS_CONFIG}
+                break
+            fi
+        done < <(lsblk -lno PATH,FSTYPE 2>/dev/null || true)
+    fi
+
+    if [[ -z "${found_part}" ]]; then
+        ewarn "No previous installation data found on any partition"
+        return 2
+    fi
+
+    einfo "Found resume data on ${found_part} (${found_fstype})"
+    RESUME_FOUND_PARTITION="${found_part}"
+    export RESUME_FOUND_PARTITION
+
+    _recover_resume_data "${found_part}" "${found_fstype}"
+
+    if [[ ${found_config} -eq 1 ]]; then
+        RESUME_HAS_CONFIG=1
+        export RESUME_HAS_CONFIG
+        einfo "Resume: config + checkpoints recovered from ${found_part}"
+        return 0
+    else
+        RESUME_HAS_CONFIG=0
+        export RESUME_HAS_CONFIG
+        ewarn "Resume: checkpoints recovered but no config found on ${found_part}"
+        return 1
+    fi
+}
+
 # bytes_to_human — Convert bytes to human readable
 bytes_to_human() {
     local bytes="$1"

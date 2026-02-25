@@ -118,6 +118,9 @@ Po zakończeniu installer zapyta czy chcesz rebootować. Wyjmij pendrive i uruch
 # Instalacja z gotowego configa (bez wizarda)
 ./install.sh --config moj-config.conf --install
 
+# Wznów po awarii (skanuje dyski w poszukiwaniu checkpointów)
+./install.sh --resume
+
 # Dry-run — przechodzi cały flow BEZ dotykania dysków
 ./install.sh --dry-run
 
@@ -194,6 +197,42 @@ Gdy komenda się nie powiedzie, installer wyświetli menu recovery:
 - **(s)hell** — wejdź do shella, napraw ręcznie, wpisz `exit` żeby wrócić
 - **(c)ontinue** — pomiń ten krok i kontynuuj (ostrożnie!)
 - **(a)bort** — przerwij instalację
+
+### Wznowienie po awarii (`--resume`)
+
+Jeśli instalacja została przerwana (OOM kill, zawieszenie, utrata SSH, przerwa w prądzie), możesz wznowić jedną komendą:
+
+```bash
+./install.sh --resume
+```
+
+`--resume` automatycznie:
+1. Skanuje wszystkie partycje (ext4/btrfs/xfs) w poszukiwaniu danych z poprzedniej instalacji
+2. Odzyskuje checkpointy (informacje o ukończonych fazach) i plik konfiguracji
+3. Pomija już ukończone fazy i kontynuuje od miejsca przerwania
+
+Co przetrwało na dysku docelowym:
+- **Checkpointy** — pliki w `/tmp/gentoo-installer-checkpoints/` na partycji docelowej
+- **Config** — `/tmp/gentoo-installer.conf` na partycji docelowej (zapisywany po fazie partycjonowania)
+
+Jeśli config nie zostanie znaleziony (np. awaria nastąpiła przed partycjonowaniem), `--resume` poprosi o ponowne przejście wizarda konfiguracyjnego — ale ukończone fazy instalacji nadal zostaną pominięte.
+
+Ręczna alternatywa (jeśli `--resume` nie zadziała):
+
+```bash
+# 1. Zamontuj dysk docelowy
+mount /dev/sdX2 /mnt/gentoo
+
+# 2. Skopiuj checkpointy
+cp -a /mnt/gentoo/tmp/gentoo-installer-checkpoints/* /tmp/gentoo-installer-checkpoints/
+
+# 3. Skopiuj config (jeśli istnieje)
+cp /mnt/gentoo/tmp/gentoo-installer.conf /tmp/gentoo-installer.conf
+
+# 4. Odmontuj i uruchom normalnie
+umount /mnt/gentoo
+./install.sh
+```
 
 ### Drugie TTY — twój najlepszy przyjaciel
 
@@ -329,6 +368,7 @@ Polecenia:
   (domyślnie)      Pełna instalacja (wizard + install)
   --configure       Tylko wizard konfiguracyjny
   --install         Tylko instalacja (wymaga configa)
+  --resume          Wznów po awarii (skanuje dyski)
 
 Opcje:
   --config PLIK     Użyj podanego pliku konfiguracji
@@ -346,6 +386,7 @@ bash tests/test_hardware.sh    # CPU march + GPU database
 bash tests/test_disk.sh        # Disk planning dry-run
 bash tests/test_makeconf.sh    # make.conf generation
 bash tests/test_checkpoint.sh  # Checkpoint validate + migrate
+bash tests/test_resume.sh     # Resume from disk scanning + recovery
 bash tests/test_multiboot.sh   # Multi-boot OS detection + serialization
 ```
 

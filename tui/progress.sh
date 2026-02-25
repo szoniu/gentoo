@@ -13,6 +13,13 @@ readonly -a INSTALL_PHASES=(
     "chroot|Installing system (this will take a while)"
 )
 
+# _save_config_to_target — Persist config file to target disk for --resume recovery
+_save_config_to_target() {
+    if [[ -n "${MOUNTPOINT:-}" ]] && mountpoint -q "${MOUNTPOINT}" 2>/dev/null; then
+        config_save "${MOUNTPOINT}/tmp/$(basename "${CONFIG_FILE}")"
+    fi
+}
+
 # _detect_and_handle_resume — Check for previous progress and ask user
 # Returns 0 if resuming, 1 if starting fresh
 _detect_and_handle_resume() {
@@ -105,6 +112,7 @@ screen_progress() {
                 exec 2>&4
                 mount_filesystems
                 checkpoint_migrate_to_target
+                _save_config_to_target
                 exec 2>>"${LOG_FILE}"
             fi
 
@@ -206,6 +214,7 @@ _execute_phase() {
             disk_execute_plan
             mount_filesystems
             checkpoint_migrate_to_target
+            _save_config_to_target
             ;;
         stage3_download)
             stage3_download
