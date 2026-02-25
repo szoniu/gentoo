@@ -358,10 +358,11 @@ gentoo.conf.example     — Przykładowa konfiguracja z komentarzami
 
 lib/                    — Moduły biblioteczne (sourcowane, nie uruchamiane)
 tui/                    — Ekrany TUI (każdy = funkcja, return 0/1/2)
-data/                   — Bazy danych (CPU march, GPU, mirrory, USE flags)
+data/                   — Bazy danych (CPU march, GPU, mirrory, USE flags, motyw TUI)
 presets/                — Gotowe presety
 hooks/                  — Hooki (*.sh.example)
 tests/                  — Testy
+TODO.md                 — Planowane ulepszenia
 ```
 
 ## FAQ

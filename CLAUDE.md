@@ -22,7 +22,7 @@ lib/                    — Moduły biblioteczne (NIGDY nie uruchamiać bezpośr
 ├── protection.sh       — Guard: sprawdza $_GENTOO_INSTALLER
 ├── constants.sh        — Stałe globalne, ścieżki, CONFIG_VARS[]
 ├── logging.sh          — elog/einfo/ewarn/eerror/die/die_trace, kolory, log do pliku
-├── utils.sh            — try (interaktywne recovery, text fallback bez dialog, LIVE_OUTPUT via tee), checkpoint_set/reached/validate/migrate_to_target, is_root/is_efi/has_network
+├── utils.sh            — try (interaktywne recovery, text fallback bez dialog, LIVE_OUTPUT via tee), checkpoint_set/reached/validate/migrate_to_target, is_root/is_efi/has_network/ensure_dns, generate_password_hash
 ├── dialog.sh           — Wrapper dialog/whiptail, primitives (msgbox/yesno/menu/radiolist/checklist/gauge/infobox/inputbox/passwordbox), wizard runner (register_wizard_screens + run_wizard)
 ├── config.sh           — config_save/load/set/get/dump (${VAR@Q} quoting)
 ├── hardware.sh         — detect_cpu/gpu/disks/esp/installed_oses, serialize/deserialize_detected_oses, get_hardware_summary
@@ -62,11 +62,13 @@ data/                   — Statyczne bazy danych
 ├── cpu_march_database.sh — CPU_MARCH_MAP[vendor:family:model] → -march flag
 ├── gpu_database.sh     — nvidia_generation(), get_gpu_recommendation()
 ├── mirrors.sh          — GENTOO_MIRRORS[], get_mirror_list_for_dialog()
-└── use_flags_desktop.sh — USE_FLAGS_DESKTOP/SYSTEMD/OPENRC/NVIDIA/AMD/INTEL, get_use_flags()
+├── use_flags_desktop.sh — USE_FLAGS_DESKTOP/SYSTEMD/OPENRC/NVIDIA/AMD/INTEL, get_use_flags()
+└── dialogrc            — Ciemny motyw TUI (ładowany przez DIALOGRC w init_dialog)
 
 presets/                — Przykładowe konfiguracje
 tests/                  — Testy (bash, standalone)
 hooks/                  — *.sh.example
+TODO.md                 — Planowane ulepszenia
 ```
 
 ### Konwencje ekranów TUI
@@ -163,7 +165,8 @@ Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `D
 - `(( var++ ))` przy var=0 zwraca exit 1 pod `set -e` → zawsze dodawać `|| true`
 - `lib/constants.sh` używa `: "${VAR:=default}"` zamiast `readonly` żeby testy mogły nadpisywać
 - `lib/protection.sh` sprawdza `$_GENTOO_INSTALLER` — testy muszą to exportować
-- `config_save` używa `${VAR@Q}` (bash 4.4+) do bezpiecznego quotingu
+- `config_save` używa `${VAR@Q}` (bash 4.4+) do bezpiecznego quotingu, tworzy plik z `umask 077` (zawiera hashe haseł)
+- `config_load` source'uje przefiltrowany plik tymczasowy (tylko znane CONFIG_VARS), nie surowy input — zapobiega injection
 - Dialog: `2>&1 >/dev/tty` (dialog) vs `3>&1 1>&2 2>&3` (whiptail) — oba obsłużone w `lib/dialog.sh`
 - Pliki lib/ NIGDY nie są uruchamiane bezpośrednio — zawsze sourcowane
 - **`$*` vs `"$@"` vs `printf '%q '`**: Gdy komenda jest budowana jako string i później wykonywana przez `bash -c`, `$*` traci quoting argumentów ze spacjami (np. `"EFI System Partition"` → trzy osobne tokeny). Rozwiązanie: `printf '%q ' "$@"` zachowuje quoting. Dotyczy: `disk_plan_add()`, `disk_plan_add_stdin()`, `chroot_exec()`, `dialog_prgbox()`. Bezpośrednie wykonanie (`"$@"`) nie ma tego problemu (np. `try()` linia 20).
@@ -181,6 +184,12 @@ Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `D
 - **Zabicie `tee` może kaskadowo ubić bieżącą komendę**: Gdy `try()` używa `| tee`, zabicie procesu `tee` powoduje broken pipe → SIGPIPE do komendy (np. genkernel). Efekt: komenda pada w trakcie pracy. NIE zabijać tee podczas trwającej kompilacji — poczekać aż się zawiesi (brak aktywności w `top`).
 - **`genkernel` przy retry buduje od nowa**: `genkernel all` robi `make mrproper` na początku, co kasuje poprzedni build. Retry po padnięciu = pełna rekompilacja (20-60 min). To normalne zachowanie genkernel.
 - **Exit code `0` przy faktycznym błędzie w `try()`**: Po `if cmd; then ...; fi` bez `else`, bash ustawia `$?` na 0 niezależnie od exit code komendy ("if no condition tested true" → exit 0). Efekt: `try()` wyświetla "Failed (exit 0)" mimo faktycznego błędu. Bug kosmetyczny — detekcja błędu działa poprawnie.
+- **Hasła/hashe NIGDY w argumentach komend**: `openssl passwd -6 "${password}"` i `usermod -p "${hash}"` są widoczne w `ps aux`. Używać: `openssl passwd -6 -stdin <<< "${password}"` i `bash -c 'echo "user:$1" | chpasswd -e' -- "${hash}"`.
+- **`eval` na zewnętrznych danych**: Nie używać `eval "${line}"` na output `blkid` / plików konfiguracyjnych. Złośliwy label partycji może zawierać kod. Parsować przez `case`/`read` lub `declare`.
+- **Hostname validation**: Hostname trafia do `/etc/conf.d/hostname` (source'owany przez OpenRC) i `/etc/hosts`. Walidować regex RFC 1123: `^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`.
+- **`eval echo "~${user}"` → injection**: Zamiast tego `getent passwd "${user}" | cut -d: -f6`.
+- **DNS na Live ISO**: Live ISO może nie mieć skonfigurowanego DNS. `ensure_dns()` w preflight automatycznie dodaje `8.8.8.8` jeśli ping po IP działa ale po nazwie nie.
+- **Motyw dialog**: `data/dialogrc` ładowany przez `export DIALOGRC=` w `init_dialog()`. Whiptail ignoruje DIALOGRC.
 
 ## Debugowanie podczas instalacji na żywym sprzęcie
 
