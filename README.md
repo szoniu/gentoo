@@ -303,6 +303,12 @@ Installer działa normalnie przez SSH — dialog TUI renderuje się w terminalu 
 > **"Encrypted private OpenSSH key detected"?** Twój klient SSH próbuje użyć zaszyfrowanego klucza. Użyj flagi `-o PubkeyAuthentication=no` jak wyżej, żeby wymusić hasło.
 >
 > **Nie możesz się połączyć mimo poprawnego IP?** Upewnij się, że oba komputery są w **tej samej sieci**. Sieci gościnne (Guest WiFi) są zazwyczaj izolowane od firmowego LAN-u. Podłącz oba urządzenia do tej samej sieci.
+>
+> **"WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED"?** Po restarcie Live ISO klucze SSH hosta się zmieniają. Usuń stary klucz i połącz się ponownie:
+> ```bash
+> ssh-keygen -R <IP-live-ISO>
+> ssh -o PubkeyAuthentication=no root@<IP-live-ISO>
+> ```
 
 #### Monitorowanie z drugiego połączenia
 

@@ -2,6 +2,25 @@
 # stage3.sh — Download, GPG verify, SHA512 check, extract stage3 tarball
 source "${LIB_DIR}/protection.sh"
 
+# _find_stage3_file — Locate stage3 tarball on mountpoint if STAGE3_FILE not set
+# Needed when stage3_download checkpoint was reached but STAGE3_FILE wasn't exported
+_find_stage3_file() {
+    if [[ -n "${STAGE3_FILE:-}" && -f "${STAGE3_FILE}" ]]; then
+        return 0
+    fi
+    local f
+    for f in "${MOUNTPOINT}"/stage3-amd64-*.tar.xz; do
+        if [[ -f "${f}" ]]; then
+            STAGE3_FILE="${f}"
+            STAGE3_FILENAME=$(basename "${f}")
+            export STAGE3_FILE STAGE3_FILENAME
+            einfo "Found stage3 tarball: ${f}"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # stage3_get_url — Determine the correct stage3 URL based on init system
 stage3_get_url() {
     local init="${INIT_SYSTEM:-systemd}"
@@ -61,6 +80,9 @@ stage3_verify() {
         return 0
     fi
 
+    if ! _find_stage3_file; then
+        die "Stage3 tarball not found — cannot verify (was stage3_download skipped?)"
+    fi
     local file="${STAGE3_FILE}"
 
     # Import Gentoo release key
@@ -109,6 +131,9 @@ stage3_extract() {
         return 0
     fi
 
+    if ! _find_stage3_file; then
+        die "Stage3 tarball not found — cannot extract (was stage3_download skipped?)"
+    fi
     local file="${STAGE3_FILE}"
 
     try "Extracting stage3" \

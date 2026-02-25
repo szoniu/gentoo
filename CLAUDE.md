@@ -139,6 +139,8 @@ Wznowienie po awarii: `screen_progress()` sprawdza istniejące checkpointy i pyt
 
 **`--resume` mode**: `try_resume_from_disk()` w `lib/utils.sh` skanuje partycje (ext4/xfs/btrfs) szukając checkpointów i configa. Zwraca: 0 = config + checkpointy, 1 = tylko checkpointy, 2 = nic nie znaleziono. `_save_config_to_target()` w `tui/progress.sh` zapisuje config na dysk docelowy po fazie partycjonowania — dzięki temu `--resume` może go odzyskać.
 
+**Config inference (rc=1)**: Gdy `--resume` znajdzie checkpointy ale nie config, `infer_config_from_partition()` w `lib/utils.sh` odczytuje konfigurację z plików na partycji docelowej: `/etc/fstab` (partycje, filesystem), `/etc/portage/make.conf` (GPU, CPU, init system, mirror), `/etc/hostname`, `/etc/timezone`, `/etc/locale.gen`, `/etc/vconsole.conf`, `package.accept_keywords/` (kernel type), `repos.conf/guru.conf` (GURU). Zwraca 0 jeśli wystarczające (ROOT, ESP, FILESYSTEM, DISK, INIT_SYSTEM), 1 jeśli nie — wtedy wizard jest uruchamiany z pre-filled values. Testowanie: `_RESUME_TEST_DIR` + `_INFER_UUID_MAP` (fake filesystem zamiast prawdziwego mount/blkid).
+
 ### Funkcja `try`
 
 `try "opis" polecenie args...` — na błędzie wyświetla menu Retry/Shell/Continue/Log/Abort. Każde polecenie które może się nie udać MUSI iść przez `try`.
@@ -159,6 +161,7 @@ bash tests/test_makeconf.sh    # make.conf generation (18 assertions)
 bash tests/test_checkpoint.sh  # Checkpoint validate + migrate (16 assertions)
 bash tests/test_resume.sh      # Resume from disk scanning + recovery (30 assertions)
 bash tests/test_multiboot.sh   # Multi-boot OS detection + serialization (26 assertions)
+bash tests/test_infer_config.sh # Config inference from installed system (48 assertions)
 ```
 
 Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `DRY_RUN=1` i `NON_INTERACTIVE=1`.
@@ -194,6 +197,8 @@ Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `D
 - **`try_resume_from_disk()` zwraca 0/1/2, nie boolean**: 0 = config + checkpointy, 1 = tylko checkpointy, 2 = nic. Testowanie: `_RESUME_TEST_DIR` przełącza na fake katalogi zamiast prawdziwego mount. Nie używać `if try_resume_from_disk` — zawsze `rc=0; try_resume_from_disk || rc=$?; case ${rc}`.
 - **DNS na Live ISO**: Live ISO może nie mieć skonfigurowanego DNS. `ensure_dns()` w preflight automatycznie dodaje `8.8.8.8` jeśli ping po IP działa ale po nazwie nie.
 - **Motyw dialog**: `data/dialogrc` ładowany przez `export DIALOGRC=` w `init_dialog()`. Whiptail ignoruje DIALOGRC.
+- **`STAGE3_FILE` unbound przy resume**: Gdy `stage3_download` checkpoint przetrwa ale faza jest pominięta, `STAGE3_FILE` nie jest ustawione. `stage3_verify()`/`stage3_extract()` używają `_find_stage3_file()` do fallback — szuka `stage3-amd64-*.tar.xz` na `MOUNTPOINT`.
+- **`infer_config_from_partition` i testowanie**: Przy `_RESUME_TEST_DIR` ustawionym, `infer_config_from_partition` używa `_RESUME_TEST_DIR/mnt/<part>` zamiast prawdziwego mount. UUID resolver (`_resolve_uuid`) czyta z `_INFER_UUID_MAP` file zamiast `blkid -U`. Parsowanie make.conf: single-line only (nie obsługuje backslash continuation).
 
 ## Debugowanie podczas instalacji na żywym sprzęcie
 

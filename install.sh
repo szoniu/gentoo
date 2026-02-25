@@ -523,14 +523,50 @@ main() {
                     run_post_install
                     ;;
                 1)
-                    # Only checkpoints, no config
+                    # Only checkpoints, no config — try inference from partition
                     init_dialog
-                    dialog_msgbox "Resume: Partial Recovery" \
-                        "Found checkpoints on ${RESUME_FOUND_PARTITION} but no config file.\n\nYou need to re-run the configuration wizard.\nCompleted phases will be skipped automatically."
 
-                    run_configuration_wizard
-                    screen_progress
-                    run_post_install
+                    local infer_rc=0
+                    infer_config_from_partition "${RESUME_FOUND_PARTITION}" "${RESUME_FOUND_FSTYPE}" || infer_rc=$?
+
+                    if [[ ${infer_rc} -eq 0 ]]; then
+                        # Sufficient config inferred — save and proceed
+                        config_save "${CONFIG_FILE}"
+
+                        local inferred_summary=""
+                        inferred_summary+="Partition: ${ROOT_PARTITION:-?}\n"
+                        inferred_summary+="Disk: ${TARGET_DISK:-?}\n"
+                        inferred_summary+="Filesystem: ${FILESYSTEM:-?}\n"
+                        inferred_summary+="Init: ${INIT_SYSTEM:-?}\n"
+                        inferred_summary+="ESP: ${ESP_PARTITION:-?}\n"
+                        [[ -n "${HOSTNAME:-}" ]] && inferred_summary+="Hostname: ${HOSTNAME}\n"
+                        [[ -n "${TIMEZONE:-}" ]] && inferred_summary+="Timezone: ${TIMEZONE}\n"
+                        [[ -n "${LOCALE:-}" ]] && inferred_summary+="Locale: ${LOCALE}\n"
+                        [[ -n "${KERNEL_TYPE:-}" ]] && inferred_summary+="Kernel: ${KERNEL_TYPE}\n"
+                        [[ -n "${GPU_VENDOR:-}" ]] && inferred_summary+="GPU: ${GPU_VENDOR}\n"
+
+                        local completed_list=""
+                        local cp_name
+                        for cp_name in "${CHECKPOINTS[@]}"; do
+                            if checkpoint_reached "${cp_name}"; then
+                                completed_list+="  - ${cp_name}\n"
+                            fi
+                        done
+
+                        dialog_msgbox "Resume: Config Inferred" \
+                            "Found checkpoints on ${RESUME_FOUND_PARTITION} (no config file).\n\nInferred configuration:\n${inferred_summary}\nCompleted phases:\n${completed_list}\nResuming installation..."
+
+                        screen_progress
+                        run_post_install
+                    else
+                        # Partial inference — pre-filled wizard
+                        dialog_msgbox "Resume: Partial Recovery" \
+                            "Found checkpoints on ${RESUME_FOUND_PARTITION} but could not fully infer configuration.\n\nSome fields have been pre-filled from the installed system.\nPlease complete the wizard. Completed phases will be skipped automatically."
+
+                        run_configuration_wizard
+                        screen_progress
+                        run_post_install
+                    fi
                     ;;
                 2)
                     # Nothing found — fall back to full mode
