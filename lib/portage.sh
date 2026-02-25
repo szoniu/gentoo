@@ -30,21 +30,31 @@ _write_make_conf() {
     local jobs="${EMERGE_JOBS_DEFAULT}"
     local load="${EMERGE_LOAD_DEFAULT}"
 
-    # Auto-calculate from CPU count
-    local cpu_count
+    # Auto-calculate from CPU count and RAM
+    local cpu_count ram_mb
     cpu_count=$(get_cpu_count)
-    if (( cpu_count > 1 )); then
+    ram_mb=$(awk '/^MemTotal:/{printf "%d", $2/1024}' /proc/meminfo 2>/dev/null) || ram_mb=4096
+
+    if (( ram_mb <= 8192 )); then
+        # Low RAM (<=8GB): conservative — avoid OOM on big C++ builds (qtbase, webkit)
+        jobs="${cpu_count}"
+        load="${cpu_count}.0"
+    elif (( cpu_count > 1 )); then
         jobs="$(( cpu_count + 1 ))"             # slightly over-subscribe make threads
         load="$(( cpu_count + 2 )).0"            # generous load limit for first install
     fi
 
-    # Parallel package builds: 2 for ≤8 threads, scale up for bigger CPUs
-    # Too many parallel emerges eat RAM (each C++ build can use 1-2 GB)
-    local emerge_jobs=2
-    if (( cpu_count >= 16 )); then
-        emerge_jobs=4
-    elif (( cpu_count >= 12 )); then
-        emerge_jobs=3
+    # Parallel package builds: scale by RAM first, then CPU
+    # Each C++ build can use 1-2 GB RAM — too many parallel emerges cause OOM
+    local emerge_jobs=1
+    if (( ram_mb > 8192 )); then
+        if (( cpu_count >= 16 )); then
+            emerge_jobs=4
+        elif (( cpu_count >= 12 )); then
+            emerge_jobs=3
+        else
+            emerge_jobs=2
+        fi
     fi
 
     local use_flags
