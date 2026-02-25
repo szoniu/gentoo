@@ -55,7 +55,7 @@ exit
 
 ```bash
 nmcli device wifi list
-nmcli device wifi connect "NazwaTwojejSieci" password "TwojeHaslo"
+nmcli device wifi connect 'NazwaTwojejSieci' password 'TwojeHaslo'
 ```
 
 **Opcja C: `wpa_supplicant`** — zawsze dostępny, bardziej manualny:
@@ -213,16 +213,19 @@ Na maszynie docelowej (bootowanej z Live ISO), otwórz konsolę (TTY lub termina
 
 ```bash
 # 1. Ustaw hasło root (Live ISO domyślnie nie ma hasła)
-echo "root:twojehaslo" | chpasswd
+passwd root
 
-# 2. Uruchom sshd
+# 2. Ustaw datę (Live ISO może mieć przestarzały zegar — SSL nie zadziała)
+date -s "2026-02-25 09:00:00"   # wstaw aktualną datę
+
+# 3. Uruchom sshd
 #    Gentoo LiveGUI (OpenRC):
 rc-service sshd start
 
 #    Jeśli live ISO ma systemd:
 systemctl start sshd
 
-# 3. Sprawdź IP
+# 4. Sprawdź IP
 ip -4 addr show | grep inet
 ```
 
