@@ -26,7 +26,10 @@ init_dialog() {
 
     # Set dialog theme for a polished look
     if [[ "${DIALOG_CMD}" == "dialog" ]]; then
-        export DIALOGRC=""
+        local rc_file="${DATA_DIR}/dialogrc"
+        if [[ -f "${rc_file}" ]]; then
+            export DIALOGRC="${rc_file}"
+        fi
     fi
 }
 
