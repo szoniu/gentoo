@@ -223,7 +223,7 @@ checkpoint_validate() {
         portage_preconfig)
             [[ -f "${MOUNTPOINT}/etc/portage/make.conf" ]] ;;
         stage3_download|stage3_verify)
-            checkpoint_reached "stage3_extract" && return 0; return 1 ;;
+            ls "${MOUNTPOINT}"/stage3-*.tar.* &>/dev/null 2>&1 ;;
         chroot)
             [[ -f "${MOUNTPOINT}${CHECKPOINT_DIR_SUFFIX}/finalize" ]] ;;
         kernel)
