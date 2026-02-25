@@ -452,6 +452,7 @@ preflight_checks() {
     if [[ "${DRY_RUN}" != "1" ]]; then
         is_root || die "Must run as root"
         is_efi || die "UEFI boot mode required"
+        ensure_dns
         has_network || die "Network connectivity required"
     fi
 

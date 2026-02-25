@@ -78,7 +78,19 @@ dhcpcd wlan0
 ping -c 3 gentoo.org
 ```
 
-### 4. Sklonuj repo i uruchom installer
+### 4. Ustaw datę systemową
+
+Live ISO może mieć przestarzały zegar (np. z 2021 roku). Bez poprawnej daty SSL nie zadziała i `git clone` / `emerge` będą failować.
+
+```bash
+# Sprawdź aktualną datę
+date
+
+# Jeśli data jest nieprawidłowa, ustaw ręcznie (wstaw aktualną datę):
+date -s "2026-02-25 09:00:00"
+```
+
+### 5. Sklonuj repo i uruchom installer
 
 ```bash
 sudo su
@@ -87,9 +99,13 @@ cd gentoo
 ./install.sh
 ```
 
+> **Błąd SSL przy `git clone`?** Najprawdopodobniej zły zegar systemowy — wróć do kroku 4.
+>
+> **`Permission denied (publickey)`?** Użyj adresu HTTPS (jak wyżej), nie SSH (`git@github.com:...`). Live ISO nie ma Twoich kluczy SSH.
+
 Installer poprowadzi Cię przez 18 ekranów konfiguracji, a potem zainstaluje wszystko automatycznie.
 
-### 5. Po instalacji
+### 6. Po instalacji
 
 Po zakończeniu installer zapyta czy chcesz rebootować. Wyjmij pendrive i uruchom komputer — powinieneś zobaczyć GRUB, a potem ekran logowania SDDM z KDE Plasma.
 
@@ -232,8 +248,8 @@ ip -4 addr show | grep inet
 #### Zdalna instalacja z innego komputera
 
 ```bash
-# Połącz się
-ssh root@<IP-live-ISO>
+# Połącz się (wyłączamy klucze SSH, bo Live ISO ich nie ma — łączymy hasłem)
+ssh -o PubkeyAuthentication=no root@<IP-live-ISO>
 
 # Sklonuj repo i uruchom installer
 git clone https://github.com/szoniu/gentoo.git
@@ -242,6 +258,12 @@ cd gentoo
 ```
 
 Installer działa normalnie przez SSH — dialog TUI renderuje się w terminalu SSH.
+
+> **"Connection refused"?** Sprawdź czy `sshd` działa na Live ISO: `rc-service sshd status`.
+>
+> **"Encrypted private OpenSSH key detected"?** Twój klient SSH próbuje użyć zaszyfrowanego klucza. Użyj flagi `-o PubkeyAuthentication=no` jak wyżej, żeby wymusić hasło.
+>
+> **Nie możesz się połączyć mimo poprawnego IP?** Upewnij się, że oba komputery są w **tej samej sieci**. Sieci gościnne (Guest WiFi) są zazwyczaj izolowane od firmowego LAN-u. Podłącz oba urządzenia do tej samej sieci.
 
 #### Monitorowanie z drugiego połączenia
 
@@ -266,9 +288,24 @@ dmesg | grep -i "oom\|killed"
 
 ### Typowe problemy
 
-- **Installer zawisł, nic się nie dzieje** — sprawdź na TTY2 czy `cc1`/`gcc`/`make` działają w `top`. Jeśli tak — kompilacja trwa, po prostu czekaj. Gentoo kompiluje WSZYSTKO ze źródeł. Kernel: 20-60 min. KDE Plasma: 1-4h.
+#### Przed instalacją
+
+- **`git clone` — SSL certificate not yet valid** — zegar systemowy jest przestarzały. Ustaw datę: `date -s "2026-02-25 09:00:00"` (wstaw aktualną).
+- **`git clone` — Permission denied (publickey)** — użyj HTTPS: `git clone https://github.com/szoniu/gentoo.git`, nie SSH (`git@github.com:...`).
+- **`nmcli` nie łączy z WiFi** — użyj single quotes zamiast double quotes: `nmcli device wifi connect 'MojaSiec' password 'MojeHaslo'`. Double quotes mogą łamać się na znakach specjalnych w SSID/haśle.
+- **Preflight: "Network connectivity required"** — installer pinguje `gentoo.org` i `google.com`. Jeśli sieć działa ale DNS nie, dodaj ręcznie: `echo "nameserver 8.8.8.8" >> /etc/resolv.conf`. Installer próbuje to naprawić automatycznie, ale na świeżym Live ISO DNS może nie być skonfigurowany.
+
+#### W trakcie instalacji
+
+- **`emerge` — "Temporary failure in name resolution"** — DNS przestał działać. Na innym TTY (`Ctrl+Alt+F2`) wpisz: `echo "nameserver 8.8.8.8" >> /etc/resolv.conf`, wróć na TTY1 i wybierz `r` (retry).
+- **`chronyd -q` — "No suitable source for synchronisation"** — zegar nie zsynchronizował się z NTP. Nie krytyczne jeśli data jest w miarę poprawna. Wybierz **Continue**.
+- **Installer zawisł, nic się nie dzieje** — sprawdź na TTY2 (`Ctrl+Alt+F2`) czy `cc1`/`gcc`/`make` działają w `top`. Jeśli tak — kompilacja trwa, po prostu czekaj. Gentoo kompiluje WSZYSTKO ze źródeł. Kernel: 20-60 min. KDE Plasma: 1-4h.
 - **Przerwa w prądzie / reboot** — uruchom installer ponownie, zapyta czy wznowić od ostatniego checkpointu. Fazy takie jak kompilacja kernela czy @world nie będą powtarzane.
-- **Log** — pełny log instalacji: `/tmp/gentoo-installer.log`
+- **Menu "retry / shell / continue / abort"** — installer napotkał błąd. `r` = spróbuj ponownie, `s` = otwórz shell i napraw ręcznie (potem `exit`), `c` = pomiń ten krok, `a` = przerwij instalację.
+
+#### Ogólne
+
+- **Log** — pełny log instalacji: `/tmp/gentoo-installer.log` (przed chroot) i `/mnt/gentoo/tmp/gentoo-installer.log` (w chroot)
 - **Coś jest nie tak z konfiguracją** — użyj `./install.sh --configure` żeby przejść wizarda ponownie
 
 ## Hooki (zaawansowane)

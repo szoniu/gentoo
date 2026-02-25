@@ -170,6 +170,19 @@ is_root() {
     [[ "$(id -u)" -eq 0 ]]
 }
 
+# ensure_dns — Add fallback nameserver if DNS resolution fails
+ensure_dns() {
+    if ! ping -c 1 -W 3 gentoo.org &>/dev/null && ! ping -c 1 -W 3 google.com &>/dev/null; then
+        # Ping failed — check if it's a DNS issue (raw IP works?)
+        if ping -c 1 -W 3 8.8.8.8 &>/dev/null; then
+            ewarn "DNS resolution failed, adding fallback nameserver 8.8.8.8"
+            if ! grep -q '8.8.8.8' /etc/resolv.conf 2>/dev/null; then
+                echo "nameserver 8.8.8.8" >> /etc/resolv.conf
+            fi
+        fi
+    fi
+}
+
 # has_network — Check basic network connectivity
 has_network() {
     ping -c 1 -W 3 gentoo.org &>/dev/null || \
