@@ -244,7 +244,8 @@ Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `D
 - **`eval echo "~${user}"` → injection**: Zamiast tego `getent passwd "${user}" | cut -d: -f6`.
 - **`try_resume_from_disk()` zwraca 0/1/2, nie boolean**: 0 = config + checkpointy, 1 = tylko checkpointy, 2 = nic. Testowanie: `_RESUME_TEST_DIR` przełącza na fake katalogi zamiast prawdziwego mount. Nie używać `if try_resume_from_disk` — zawsze `rc=0; try_resume_from_disk || rc=$?; case ${rc}`.
 - **DNS na Live ISO**: Live ISO może nie mieć skonfigurowanego DNS. `ensure_dns()` w preflight automatycznie dodaje `8.8.8.8` jeśli ping po IP działa ale po nazwie nie.
-- **Motyw dialog**: `data/dialogrc` ładowany przez `export DIALOGRC=` w `init_dialog()`. Whiptail ignoruje DIALOGRC.
+- **Motyw dialog**: `data/dialogrc` ładowany przez `export DIALOGRC=` w `init_dialog()`. Whiptail ignoruje DIALOGRC. Gum używa `GUM_CHOOSE_*`/`GUM_INPUT_*` env vars.
+- **NIGDY `source /etc/profile` w instalatorze**: Skrypty `/etc/profile.d/` mogą odwoływać się do niezdefiniowanych zmiennych — `set -u` zabija skrypt mimo `|| true` (błąd ekspansji zachodzi PRZED wykonaniem komendy, `||` tego nie łapie). Ponadto resetuje PATH (gum znika) i LANG (parsowanie locale-dependent). Sam `env-update` wystarczy — zapisuje pliki na dysk, system załaduje je przy starcie.
 - **`STAGE3_FILE` unbound przy resume**: Gdy `stage3_download` checkpoint przetrwa ale faza jest pominięta, `STAGE3_FILE` nie jest ustawione. `stage3_verify()`/`stage3_extract()` używają `_find_stage3_file()` do fallback — szuka `stage3-amd64-*.tar.xz` na `MOUNTPOINT`.
 - **`infer_config_from_partition` i testowanie**: Przy `_RESUME_TEST_DIR` ustawionym, `infer_config_from_partition` używa `_RESUME_TEST_DIR/mnt/<part>` zamiast prawdziwego mount. UUID resolver (`_resolve_uuid`) czyta z `_INFER_UUID_MAP` file zamiast `blkid -U`. Parsowanie make.conf: single-line only (nie obsługuje backslash continuation).
 

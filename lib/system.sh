@@ -40,10 +40,11 @@ system_set_locale() {
     local eselect_locale="${locale/UTF-8/utf8}"
     try "Setting system locale" eselect locale set "${eselect_locale}"
 
-    # Update environment
+    # Update environment files for next boot.
+    # Do NOT source /etc/profile — profile.d scripts may reference unset
+    # variables which kills the installer under set -u (expansion errors
+    # bypass || true). Also avoids resetting PATH and LANG mid-install.
     env-update 2>/dev/null || true
-    # shellcheck disable=SC1091
-    source /etc/profile 2>/dev/null || true
 }
 
 # --- Hostname ---
@@ -236,10 +237,8 @@ system_create_users() {
 system_finalize() {
     einfo "Finalizing system..."
 
-    # Update environment
+    # Update environment files for next boot (same as in system_set_locale)
     try "Updating environment" env-update
-    # shellcheck disable=SC1091
-    source /etc/profile 2>/dev/null || true
 
     # Generate machine-id
     if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
