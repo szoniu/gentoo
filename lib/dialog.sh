@@ -121,15 +121,23 @@ init_dialog() {
 
 # --- Gum helpers ---
 
+# Backtitle bar at top of screen — matches dialog's backtitle
+_gum_backtitle() {
+    gum style --foreground 6 --bold --width "${DIALOG_WIDTH}" \
+        "${INSTALLER_NAME} v${INSTALLER_VERSION}"
+    echo ""
+}
+
 # Styled box with rounded border and cyan header — matches dialogrc theme
 _gum_style_box() {
     local title="$1" text="$2"
-    local header
-    header=$(gum style --foreground 6 --bold "${title}")
-    printf '%s\n' "${header}"
-    echo ""
-    echo -e "${text}"
-    echo ""
+    local body
+    body=$(echo -e "${text}")
+    local content
+    content=$(printf '%s\n\n%s' "$(gum style --bold --foreground 6 "${title}")" "${body}")
+    gum style --border rounded --border-foreground 6 \
+        --padding "1 2" --width "${DIALOG_WIDTH}" \
+        "${content}"
 }
 
 # --- Primitives ---
@@ -139,6 +147,7 @@ dialog_infobox() {
     local title="$1" text="$2"
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
         clear 2>/dev/null
+        _gum_backtitle
         _gum_style_box "${title}" "${text}"
         return 0
     fi
@@ -153,9 +162,11 @@ dialog_msgbox() {
     local title="$1" text="$2"
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
         clear 2>/dev/null
+        _gum_backtitle
         _gum_style_box "${title}" "${text}"
-        read -rsn1 -p "Press any key to continue..." </dev/tty
         echo ""
+        gum style --foreground 8 --italic "  Press any key to continue..."
+        read -rsn1 </dev/tty
         return 0
     fi
     "${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
@@ -169,7 +180,9 @@ dialog_yesno() {
     local title="$1" text="$2"
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
         clear 2>/dev/null
+        _gum_backtitle
         _gum_style_box "${title}" "${text}"
+        echo ""
         gum confirm --affirmative "Yes" --negative "No" </dev/tty
         return $?
     fi
@@ -185,8 +198,12 @@ dialog_inputbox() {
     local result
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
         clear 2>/dev/null
+        _gum_backtitle >/dev/tty
         _gum_style_box "${title}" "${text}" >/dev/tty
-        result=$(gum input --value "${default}" --width 60 </dev/tty) || return $?
+        echo "" >/dev/tty
+        result=$(gum input --value "${default}" --width 60 \
+            --prompt.foreground 6 --cursor.foreground 6 \
+            </dev/tty) || return $?
         echo "${result}"
         return 0
     elif [[ "${DIALOG_CMD}" == "dialog" ]]; then
@@ -211,8 +228,12 @@ dialog_passwordbox() {
     local result
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
         clear 2>/dev/null
+        _gum_backtitle >/dev/tty
         _gum_style_box "${title}" "${text}" >/dev/tty
-        result=$(gum input --password --width 60 </dev/tty) || return $?
+        echo "" >/dev/tty
+        result=$(gum input --password --width 60 \
+            --prompt.foreground 6 --cursor.foreground 6 \
+            </dev/tty) || return $?
         echo "${result}"
         return 0
     elif [[ "${DIALOG_CMD}" == "dialog" ]]; then
@@ -241,6 +262,7 @@ dialog_menu() {
 
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
         clear 2>/dev/null
+        _gum_backtitle
         # Build "tag | description" lines for gum choose
         local -a gum_items=()
         local i
@@ -248,12 +270,15 @@ dialog_menu() {
             gum_items+=("${items[i]} | ${items[i+1]}")
         done
         local header
-        header=$(gum style --foreground 6 --bold "${title}")
+        header=$(gum style --foreground 6 --bold "  ${title}")
         result=$(printf '%s\n' "${gum_items[@]}" | \
             gum choose --header "${header}" \
                 --label-delimiter " | " \
                 --height "${DIALOG_LIST_HEIGHT}" \
                 --no-show-help \
+                --cursor "▸ " \
+                --cursor.foreground 6 \
+                --selected.foreground 0 --selected.background 6 \
             </dev/tty) || return $?
         echo "${result}"
         return 0
@@ -287,6 +312,7 @@ dialog_radiolist() {
 
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
         clear 2>/dev/null
+        _gum_backtitle
         # Build items and find preselected one (on/off is every 3rd element)
         local -a gum_items=()
         local preselected=""
@@ -299,12 +325,15 @@ dialog_radiolist() {
             fi
         done
         local header
-        header=$(gum style --foreground 6 --bold "${title}")
+        header=$(gum style --foreground 6 --bold "  ${title}")
         local -a gum_args=(
             --header "${header}"
             --label-delimiter " | "
             --height "${DIALOG_LIST_HEIGHT}"
             --no-show-help
+            --cursor "▸ "
+            --cursor.foreground 6
+            --selected.foreground 0 --selected.background 6
         )
         if [[ -n "${preselected}" ]]; then
             gum_args+=(--selected "${preselected}")
@@ -343,6 +372,7 @@ dialog_checklist() {
 
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
         clear 2>/dev/null
+        _gum_backtitle
         # Build items and collect preselected (on/off is every 3rd element)
         local -a gum_items=()
         local -a preselected=()
@@ -355,13 +385,16 @@ dialog_checklist() {
             fi
         done
         local header
-        header=$(gum style --foreground 6 --bold "${title}")
+        header=$(gum style --foreground 6 --bold "  ${title}")
         local -a gum_args=(
             --no-limit
             --header "${header}"
             --label-delimiter " | "
             --height "${DIALOG_LIST_HEIGHT}"
             --no-show-help
+            --cursor "▸ "
+            --cursor.foreground 6
+            --selected.foreground 0 --selected.background 6
         )
         if [[ ${#preselected[@]} -gt 0 ]]; then
             local sel_joined
@@ -401,7 +434,7 @@ dialog_checklist() {
 dialog_gauge() {
     local title="$1" text="$2" percent="${3:-0}"
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
-        # Read percentages from stdin, render ASCII progress bar
+        # Read percentages from stdin, render progress bar in styled box
         local line pct bar_len filled empty bar
         local width=50
         while IFS= read -r line; do
@@ -409,10 +442,11 @@ dialog_gauge() {
             [[ -z "${pct}" ]] && continue
             (( pct > 100 )) && pct=100
             bar_len=$(( width * pct / 100 ))
-            filled=$(printf '%*s' "${bar_len}" '' | tr ' ' '#')
-            empty=$(printf '%*s' $(( width - bar_len )) '' | tr ' ' '-')
-            bar="[${filled}${empty}] ${pct}%"
+            filled=$(printf '%*s' "${bar_len}" '' | tr ' ' '█')
+            empty=$(printf '%*s' $(( width - bar_len )) '' | tr ' ' '░')
+            bar="${filled}${empty} ${pct}%"
             clear 2>/dev/null
+            _gum_backtitle
             _gum_style_box "${title}" "${text}\n\n${bar}"
         done
         return 0
@@ -428,9 +462,9 @@ dialog_textbox() {
     local title="$1" file="$2"
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
         clear 2>/dev/null
-        local header
-        header=$(gum style --foreground 6 --bold "${title}")
-        printf '%s\n\n' "${header}"
+        _gum_backtitle
+        gum style --foreground 6 --bold "  ${title}"
+        echo ""
         gum pager < "${file}" </dev/tty
         return 0
     fi
@@ -451,9 +485,9 @@ dialog_prgbox() {
         local output
         output=$("$@" 2>&1) || true
         clear 2>/dev/null
-        local header
-        header=$(gum style --foreground 6 --bold "${title}")
-        printf '%s\n\n' "${header}"
+        _gum_backtitle
+        gum style --foreground 6 --bold "  ${title}"
+        echo ""
         echo "${output}" | gum pager </dev/tty
         return 0
     elif [[ "${DIALOG_CMD}" == "dialog" ]]; then
