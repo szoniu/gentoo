@@ -3,6 +3,7 @@
 ## Zrobione
 
 - [x] **`--resume` — wznowienie po awarii** — skanuje partycje dysku w poszukiwaniu checkpointów i configa z przerwanej instalacji. Jedna komenda zamiast ręcznego mount/cp/umount.
+- [x] **ASUS ROG + Hybrid GPU** — detekcja wielu GPU (iGPU/dGPU) z klasyfikacją PCI slot, combined VIDEO_CARDS, NVIDIA PRIME render offload z power management. Detekcja ASUS ROG/TUF via DMI, opcjonalny asusctl/supergfxctl z overlay zGentoo (systemd), warning przy ROG + OpenRC.
 
 ## Przyszłe ulepszenia
 
