@@ -566,11 +566,32 @@ _infer_from_make_conf() {
             VIDEO_CARDS)
                 VIDEO_CARDS="${value}"
                 export VIDEO_CARDS
-                case "${value}" in
-                    *nvidia*) GPU_VENDOR="nvidia"; export GPU_VENDOR ;;
-                    *amdgpu*) GPU_VENDOR="amd"; export GPU_VENDOR ;;
-                    *intel*)  GPU_VENDOR="intel"; export GPU_VENDOR ;;
-                esac
+                # Detect hybrid GPU from multi-vendor VIDEO_CARDS
+                local _has_nvidia=0 _has_amd=0 _has_intel=0
+                [[ " ${value} " == *" nvidia "* || "${value}" == *"nvidia"* ]] && _has_nvidia=1
+                [[ " ${value} " == *" amdgpu "* || "${value}" == *"amdgpu"* ]] && _has_amd=1
+                [[ " ${value} " == *" intel "* || "${value}" == *"intel"* ]] && _has_intel=1
+                if (( _has_nvidia + _has_amd + _has_intel >= 2 )); then
+                    HYBRID_GPU="yes"
+                    export HYBRID_GPU
+                    if (( _has_intel && _has_nvidia )); then
+                        IGPU_VENDOR="intel"; DGPU_VENDOR="nvidia"; GPU_VENDOR="nvidia"
+                    elif (( _has_amd && _has_nvidia )); then
+                        IGPU_VENDOR="amd"; DGPU_VENDOR="nvidia"; GPU_VENDOR="nvidia"
+                    elif (( _has_intel && _has_amd )); then
+                        IGPU_VENDOR="intel"; DGPU_VENDOR="amd"; GPU_VENDOR="amd"
+                    fi
+                    export IGPU_VENDOR DGPU_VENDOR GPU_VENDOR
+                else
+                    HYBRID_GPU="no"
+                    export HYBRID_GPU
+                    case "${value}" in
+                        *nvidia*) GPU_VENDOR="nvidia" ;;
+                        *amdgpu*) GPU_VENDOR="amd" ;;
+                        *intel*)  GPU_VENDOR="intel" ;;
+                    esac
+                    export GPU_VENDOR
+                fi
                 ;;
             CPU_FLAGS_X86)
                 CPU_FLAGS="${value}"
@@ -721,6 +742,17 @@ _infer_from_kernel_keywords() {
     fi
 }
 
+# _infer_rog_from_overlay — Detect zGentoo overlay (ASUS ROG tools)
+_infer_rog_from_overlay() {
+    local mp="$1"
+
+    if [[ -f "${mp}/etc/portage/repos.conf/zgentoo.conf" ]] || \
+       [[ -d "${mp}/var/db/repos/zgentoo" ]]; then
+        ENABLE_ASUSCTL="yes"
+        export ENABLE_ASUSCTL
+    fi
+}
+
 # _infer_from_guru_noctalia — Detect GURU overlay and Noctalia shell
 _infer_from_guru_noctalia() {
     local mp="$1"
@@ -856,6 +888,7 @@ infer_config_from_partition() {
     _infer_from_keymap "${mp}"
     _infer_from_kernel_keywords "${mp}"
     _infer_from_guru_noctalia "${mp}"
+    _infer_rog_from_overlay "${mp}"
     _infer_swap_type "${mp}"
     _infer_init_system_fallback "${mp}"
     _infer_partition_scheme

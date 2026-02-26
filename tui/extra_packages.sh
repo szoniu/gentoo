@@ -3,18 +3,28 @@
 source "${LIB_DIR}/protection.sh"
 
 screen_extra_packages() {
-    # Step 1: Checklist with popular packages and optional repos
+    # Step 1: Build checklist — base items + conditional ROG item
+    local -a checklist_args=(
+        "fastfetch"    "System info tool (like neofetch)"     "on"
+        "btop"         "Resource monitor (top/htop alternative)" "on"
+        "kitty"        "GPU-accelerated terminal emulator"   "on"
+        "app-editors/vim"  "Vim text editor"                  "off"
+        "dev-vcs/git"      "Git version control"              "off"
+        "app-misc/htop"    "Interactive process viewer"       "off"
+    )
+
+    # Conditional: ASUS ROG tools (only shown when ROG hardware detected)
+    if [[ "${ASUS_ROG_DETECTED:-0}" == "1" ]]; then
+        checklist_args+=("asusctl" "ASUS ROG control (fan, RGB, battery — requires systemd)" "on")
+    fi
+
+    checklist_args+=(
+        "guru-repo"        "Enable GURU community repository" "off"
+        "noctalia-shell"   "Noctalia Shell (requires GURU)"   "off"
+    )
+
     local selections
-    selections=$(dialog_checklist "Extra Packages" \
-        "fastfetch"    "System info tool (like neofetch)"     "on"  \
-        "btop"         "Resource monitor (top/htop alternative)" "on"  \
-        "kitty"        "GPU-accelerated terminal emulator"   "on"  \
-        "app-editors/vim"  "Vim text editor"                  "off" \
-        "dev-vcs/git"      "Git version control"              "off" \
-        "app-misc/htop"    "Interactive process viewer"       "off" \
-        "guru-repo"        "Enable GURU community repository" "off" \
-        "noctalia-shell"   "Noctalia Shell (requires GURU)"   "off" \
-    ) || return "${TUI_BACK}"
+    selections=$(dialog_checklist "Extra Packages" "${checklist_args[@]}") || return "${TUI_BACK}"
 
     # Parse checklist selections
     local cleaned
@@ -23,10 +33,14 @@ screen_extra_packages() {
     local -a pkgs=()
     ENABLE_GURU="${ENABLE_GURU:-no}"
     ENABLE_NOCTALIA="${ENABLE_NOCTALIA:-no}"
+    ENABLE_ASUSCTL="${ENABLE_ASUSCTL:-no}"
 
     local item
     for item in ${cleaned}; do
         case "${item}" in
+            asusctl)
+                ENABLE_ASUSCTL="yes"
+                ;;
             guru-repo)
                 ENABLE_GURU="yes"
                 ;;
@@ -59,7 +73,7 @@ screen_extra_packages() {
         esac
     done
 
-    export ENABLE_GURU ENABLE_NOCTALIA
+    export ENABLE_GURU ENABLE_NOCTALIA ENABLE_ASUSCTL
 
     # Step 2: Free-form input for additional packages
     local extra
@@ -79,5 +93,6 @@ Leave empty to skip:" \
     einfo "Extra packages: ${EXTRA_PACKAGES:-none}"
     [[ "${ENABLE_GURU}" == "yes" ]] && einfo "GURU repository: enabled"
     [[ "${ENABLE_NOCTALIA}" == "yes" ]] && einfo "Noctalia Shell: enabled"
+    [[ "${ENABLE_ASUSCTL}" == "yes" ]] && einfo "ASUS ROG tools: enabled"
     return "${TUI_NEXT}"
 }

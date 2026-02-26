@@ -25,7 +25,7 @@ lib/                    — Moduły biblioteczne (NIGDY nie uruchamiać bezpośr
 ├── utils.sh            — try (interaktywne recovery, text fallback bez dialog, LIVE_OUTPUT via tee), checkpoint_set/reached/validate/migrate_to_target, is_root/is_efi/has_network/ensure_dns, generate_password_hash
 ├── dialog.sh           — Wrapper dialog/whiptail, primitives (msgbox/yesno/menu/radiolist/checklist/gauge/infobox/inputbox/passwordbox), wizard runner (register_wizard_screens + run_wizard)
 ├── config.sh           — config_save/load/set/get/dump (${VAR@Q} quoting)
-├── hardware.sh         — detect_cpu/gpu/disks/esp/installed_oses, serialize/deserialize_detected_oses, get_hardware_summary
+├── hardware.sh         — detect_cpu/gpu/disks/esp/installed_oses, detect_asus_rog, serialize/deserialize_detected_oses, get_hardware_summary
 ├── disk.sh             — Dwufazowe: disk_plan_add/add_stdin/show/auto/dualboot → cleanup_target_disk + disk_execute_plan (sfdisk), mount/unmount_filesystems, get_uuid
 ├── network.sh          — check_network, install_network_manager, select_fastest_mirror
 ├── stage3.sh           — stage3_get_url/download/verify/extract
@@ -124,6 +124,32 @@ Noctalia Shell to shell do **Wayland compositorów** (Niri/Hyprland/Sway), NIE d
 - Zmienna `NOCTALIA_COMPOSITOR` przechowuje wybór (hyprland/niri/sway)
 - Autostart konfigurowany w `/etc/skel/.config/{hypr,niri,sway}/` + kopiowany do usera
 
+### ASUS ROG / Hybrid GPU Support
+
+**Hybrid GPU detection**: `detect_gpu()` skanuje WSZYSTKIE GPU z `lspci -nn`, nie tylko `head -1`. Klasyfikacja:
+- NVIDIA = zawsze dGPU; Intel = zawsze iGPU; AMD — jeśli jest też NVIDIA to iGPU, inaczej single GPU
+- Heurystyka PCI slot: `00:xx.x` = on-die (iGPU), `01:+` = PCIe (dGPU)
+- Gdy 2 GPU: `HYBRID_GPU=yes`, `IGPU_*`, `DGPU_*`, `GPU_VENDOR`=dGPU vendor
+- `VIDEO_CARDS` via `get_hybrid_gpu_recommendation(igpu, dgpu)` w `data/gpu_database.sh`
+
+**ASUS ROG detection**: `detect_asus_rog()` w `hardware.sh` — DMI: `/sys/class/dmi/id/board_vendor` (ASUSTeK) + `product_name` (ROG/TUF). Ustawia `ASUS_ROG_DETECTED=0/1`.
+
+**PRIME render offload**: Dla hybrid NVIDIA laptopów:
+- `x11-misc/prime-run` instalowany automatycznie
+- `/etc/modprobe.d/nvidia-pm.conf`: `NVreg_DynamicPowerManagement=0x02` (RTD3)
+- `/etc/udev/rules.d/80-nvidia-pm.rules`: runtime PM dla NVIDIA PCI devices
+- Użycie: `prime-run <application>` uruchamia na dGPU
+
+**asusctl / supergfxctl**: Opcjonalne, z overlay zGentoo:
+- `setup_rog_overlay()` — `eselect repository enable zgentoo` + sync
+- `install_rog_tools()` — `package.accept_keywords/asusctl`: `sys-power/asusctl ~amd64`, `sys-power/supergfxctl ~amd64`
+- Wymaga systemd — `tui/init_select.sh` wyświetla warning przy ROG + OpenRC
+- W `tui/extra_packages.sh` — conditional checklist item gdy `ASUS_ROG_DETECTED=1`
+
+**Config inference**: `_infer_from_make_conf()` rozpoznaje hybrid z `VIDEO_CARDS` (>1 vendor). `_infer_rog_from_overlay()` sprawdza `/etc/portage/repos.conf/zgentoo.conf`.
+
+**Nowe CONFIG_VARS**: `HYBRID_GPU`, `IGPU_VENDOR`, `IGPU_DEVICE_NAME`, `DGPU_VENDOR`, `DGPU_DEVICE_NAME`, `ASUS_ROG_DETECTED`, `ENABLE_ASUSCTL`
+
 ### Dwufazowe operacje dyskowe
 
 1. `disk_plan_auto()` / `disk_plan_dualboot()` — buduje `DISK_ACTIONS[]` + `DISK_STDIN[]`
@@ -161,7 +187,8 @@ bash tests/test_makeconf.sh    # make.conf generation (18 assertions)
 bash tests/test_checkpoint.sh  # Checkpoint validate + migrate (16 assertions)
 bash tests/test_resume.sh      # Resume from disk scanning + recovery (30 assertions)
 bash tests/test_multiboot.sh   # Multi-boot OS detection + serialization (26 assertions)
-bash tests/test_infer_config.sh # Config inference from installed system (48 assertions)
+bash tests/test_infer_config.sh # Config inference from installed system (53 assertions)
+bash tests/test_hybrid_gpu.sh  # Hybrid GPU + ASUS ROG + recommendation (27 assertions)
 ```
 
 Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `DRY_RUN=1` i `NON_INTERACTIVE=1`.

@@ -21,6 +21,20 @@ screen_init_select() {
     INIT_SYSTEM="${choice}"
     export INIT_SYSTEM
 
+    # Warn ASUS ROG users about OpenRC limitations
+    if [[ "${choice}" == "openrc" && "${ASUS_ROG_DETECTED:-0}" == "1" ]]; then
+        local rog_warning=""
+        rog_warning+="ASUS ROG/TUF hardware detected with OpenRC.\n\n"
+        rog_warning+="Basic hardware works fine:\n"
+        rog_warning+="  - GPU drivers, WiFi, keyboard, display\n\n"
+        rog_warning+="NOT available with OpenRC:\n"
+        rog_warning+="  - asusctl (fan profiles, RGB, battery limit)\n"
+        rog_warning+="  - supergfxctl (GPU switching)\n"
+        rog_warning+="  These tools require systemd.\n\n"
+        rog_warning+="You can continue with OpenRC — this is just a notice."
+        dialog_msgbox "ASUS ROG + OpenRC" "${rog_warning}" || true
+    fi
+
     einfo "Selected init system: ${INIT_SYSTEM}"
     return "${TUI_NEXT}"
 }

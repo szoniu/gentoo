@@ -34,6 +34,11 @@ desktop_install() {
 _install_gpu_drivers() {
     local vendor="${GPU_VENDOR:-unknown}"
 
+    if [[ "${HYBRID_GPU:-no}" == "yes" ]]; then
+        _install_hybrid_gpu_drivers
+        return
+    fi
+
     case "${vendor}" in
         nvidia)
             _install_nvidia_drivers
@@ -48,6 +53,65 @@ _install_gpu_drivers() {
             einfo "No specific GPU driver to install"
             ;;
     esac
+}
+
+# _install_hybrid_gpu_drivers — Install drivers for hybrid iGPU + dGPU setup
+_install_hybrid_gpu_drivers() {
+    local igpu="${IGPU_VENDOR:-unknown}"
+    local dgpu="${DGPU_VENDOR:-unknown}"
+
+    einfo "Installing hybrid GPU drivers: ${igpu} iGPU + ${dgpu} dGPU..."
+
+    # Install iGPU driver (mesa for Intel/AMD)
+    case "${igpu}" in
+        intel)
+            _install_intel_drivers
+            ;;
+        amd)
+            _install_amd_drivers
+            ;;
+    esac
+
+    # Install dGPU driver
+    case "${dgpu}" in
+        nvidia)
+            _install_nvidia_drivers
+            ;;
+        amd)
+            _install_amd_drivers
+            ;;
+    esac
+
+    # Install prime-run for NVIDIA PRIME render offload
+    if [[ "${dgpu}" == "nvidia" ]]; then
+        try "Installing prime-run" emerge --quiet x11-misc/prime-run
+        _configure_nvidia_power_management
+    fi
+
+    einfo "Hybrid GPU drivers installed"
+}
+
+# _configure_nvidia_power_management — Set up NVIDIA dynamic power management for hybrid laptops
+_configure_nvidia_power_management() {
+    einfo "Configuring NVIDIA power management for hybrid GPU..."
+
+    # Dynamic power management (RTD3) — allows dGPU to power off when idle
+    mkdir -p /etc/modprobe.d
+    cat > /etc/modprobe.d/nvidia-pm.conf << 'PMEOF'
+# NVIDIA Dynamic Power Management (RTD3)
+# Allows discrete GPU to power off when not in use
+options nvidia NVreg_DynamicPowerManagement=0x02
+PMEOF
+
+    # udev rules for runtime PM on NVIDIA PCI devices
+    mkdir -p /etc/udev/rules.d
+    cat > /etc/udev/rules.d/80-nvidia-pm.rules << 'UDEVEOF'
+# Enable runtime PM for NVIDIA VGA/3D controller devices
+ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="auto"
+ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="auto"
+UDEVEOF
+
+    einfo "NVIDIA power management configured"
 }
 
 # _install_nvidia_drivers — Install NVIDIA proprietary drivers

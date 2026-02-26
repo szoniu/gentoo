@@ -389,6 +389,44 @@ assert_eq "nvme0n1p3 → nvme0n1" "/dev/nvme0n1" "$(_partition_to_disk /dev/nvme
 assert_eq "mmcblk0p1 → mmcblk0" "/dev/mmcblk0" "$(_partition_to_disk /dev/mmcblk0p1)"
 assert_eq "vda1 → vda" "/dev/vda" "$(_partition_to_disk /dev/vda1)"
 
+# ================================================================
+echo ""
+echo "=== Test 10: Hybrid GPU inference from VIDEO_CARDS ==="
+
+clear_config_vars
+export _RESUME_TEST_DIR="$(mktemp -d)"
+export _INFER_UUID_MAP="${_RESUME_TEST_DIR}/uuid_map"
+
+local_root="${_RESUME_TEST_DIR}/mnt/sda2"
+mkdir -p "${local_root}/etc/portage"
+
+cat > "${_RESUME_TEST_DIR}/uuid_map" <<'MAP'
+aaaa-1111 /dev/sda1
+bbbb-2222 /dev/sda2
+MAP
+
+cat > "${local_root}/etc/fstab" <<'FSTAB'
+UUID=bbbb-2222  /          ext4  defaults  0 1
+UUID=aaaa-1111  /boot/efi  vfat  defaults  0 2
+FSTAB
+
+cat > "${local_root}/etc/portage/make.conf" <<'MAKECONF'
+COMMON_FLAGS="-march=alderlake -O2 -pipe"
+USE="X wayland systemd"
+VIDEO_CARDS="intel nvidia"
+MAKECONF
+
+rc=0
+infer_config_from_partition "/dev/sda2" "ext4" || rc=$?
+
+assert_eq "Hybrid return code 0" "0" "${rc}"
+assert_eq "HYBRID_GPU from VIDEO_CARDS" "yes" "${HYBRID_GPU:-}"
+assert_eq "IGPU_VENDOR from VIDEO_CARDS" "intel" "${IGPU_VENDOR:-}"
+assert_eq "DGPU_VENDOR from VIDEO_CARDS" "nvidia" "${DGPU_VENDOR:-}"
+assert_eq "GPU_VENDOR = dGPU vendor" "nvidia" "${GPU_VENDOR:-}"
+
+rm -rf "${_RESUME_TEST_DIR}"
+
 unset _RESUME_TEST_DIR _INFER_UUID_MAP
 
 # Cleanup

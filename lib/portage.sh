@@ -340,6 +340,58 @@ SWAYEOF
     einfo "Noctalia Shell configured to autostart with ${compositor}"
 }
 
+# setup_rog_overlay — Enable the zGentoo overlay for ASUS ROG tools
+setup_rog_overlay() {
+    if [[ "${ENABLE_ASUSCTL:-no}" != "yes" ]]; then
+        return 0
+    fi
+
+    einfo "Enabling zGentoo overlay for ASUS ROG tools..."
+
+    # zGentoo uses git for sync — ensure git is installed
+    if ! command -v git &>/dev/null; then
+        try "Installing dev-vcs/git" emerge --quiet dev-vcs/git
+    fi
+
+    # Ensure eselect-repository is available
+    if ! eselect repository list &>/dev/null; then
+        try "Installing eselect-repository" emerge --quiet app-eselect/eselect-repository
+    fi
+
+    try "Enabling zGentoo overlay" eselect repository enable zgentoo
+    try "Syncing zGentoo overlay" emerge --sync zgentoo
+}
+
+# install_rog_tools — Install asusctl and supergfxctl from zGentoo overlay
+install_rog_tools() {
+    if [[ "${ENABLE_ASUSCTL:-no}" != "yes" ]]; then
+        return 0
+    fi
+
+    einfo "Installing ASUS ROG tools (asusctl, supergfxctl)..."
+
+    # Accept ~amd64 keywords
+    mkdir -p /etc/portage/package.accept_keywords
+    {
+        echo "sys-power/asusctl ~amd64"
+        echo "sys-power/supergfxctl ~amd64"
+    } > /etc/portage/package.accept_keywords/asusctl
+
+    try "Installing asusctl + supergfxctl" \
+        emerge --quiet --autounmask-write --autounmask-continue \
+        sys-power/asusctl sys-power/supergfxctl
+
+    # Enable systemd services (asusctl requires systemd)
+    if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+        try "Enabling asusd" systemctl enable asusd
+        try "Enabling supergfxd" systemctl enable supergfxd
+    else
+        ewarn "asusctl/supergfxctl require systemd — services not enabled"
+    fi
+
+    einfo "ASUS ROG tools installed"
+}
+
 # install_extra_packages — Install user-selected extra packages
 install_extra_packages() {
     # Enable GURU repo if requested (before installing packages)
@@ -347,6 +399,10 @@ install_extra_packages() {
 
     # Install noctalia-shell if requested
     install_noctalia_shell
+
+    # Enable ROG overlay and install tools if requested
+    setup_rog_overlay
+    install_rog_tools
 
     if [[ -z "${EXTRA_PACKAGES:-}" ]]; then
         einfo "No extra packages to install"

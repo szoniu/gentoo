@@ -21,9 +21,15 @@ screen_summary() {
     summary+="Keymap:       ${KEYMAP:-us}\n"
     summary+="\n"
     summary+="Kernel:       ${KERNEL_TYPE:-dist-kernel}\n"
-    summary+="GPU:          ${GPU_VENDOR:-unknown} (${GPU_DRIVER:-auto})\n"
+    if [[ "${HYBRID_GPU:-no}" == "yes" ]]; then
+        summary+="GPU:          ${IGPU_VENDOR:-?} + ${DGPU_DEVICE_NAME:-?} (PRIME)\n"
+    else
+        summary+="GPU:          ${GPU_VENDOR:-unknown} (${GPU_DRIVER:-auto})\n"
+    fi
     summary+="VIDEO_CARDS:  ${VIDEO_CARDS:-auto}\n"
     summary+="CPU march:    ${CPU_MARCH:-x86-64}\n"
+    [[ "${ASUS_ROG_DETECTED:-0}" == "1" ]] && summary+="ASUS ROG:     detected\n"
+    [[ "${ENABLE_ASUSCTL:-no}" == "yes" ]] && summary+="ROG tools:    asusctl + supergfxctl\n"
     summary+="\n"
     summary+="Username:     ${USERNAME:-user}\n"
     summary+="Desktop:      KDE Plasma + SDDM + PipeWire\n"

@@ -84,3 +84,18 @@ get_gpu_recommendation() {
             ;;
     esac
 }
+
+# get_hybrid_gpu_recommendation — Get VIDEO_CARDS for hybrid GPU setups
+# Usage: get_hybrid_gpu_recommendation <igpu_vendor> <dgpu_vendor>
+# Prints: combined VIDEO_CARDS string
+get_hybrid_gpu_recommendation() {
+    local igpu="$1" dgpu="$2"
+
+    case "${igpu}+${dgpu}" in
+        intel+nvidia)   echo "intel nvidia" ;;
+        amd+nvidia)     echo "amdgpu radeonsi nvidia" ;;
+        intel+amd)      echo "intel amdgpu radeonsi" ;;
+        amd+amd)        echo "amdgpu radeonsi" ;;
+        *)              echo "fbdev" ;;
+    esac
+}

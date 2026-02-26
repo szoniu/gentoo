@@ -28,7 +28,17 @@ detect_cpu() {
 
 # --- GPU Detection ---
 
-# detect_gpu — Detect GPU vendor, device ID, and driver recommendation
+# _classify_gpu_vendor — Return vendor name from PCI vendor ID
+_classify_gpu_vendor() {
+    case "$1" in
+        "${GPU_VENDOR_NVIDIA}") echo "nvidia" ;;
+        "${GPU_VENDOR_AMD}")    echo "amd" ;;
+        "${GPU_VENDOR_INTEL}")  echo "intel" ;;
+        *)                      echo "unknown" ;;
+    esac
+}
+
+# detect_gpu — Detect all GPUs, classify iGPU/dGPU, detect hybrid setups
 detect_gpu() {
     GPU_VENDOR=""
     GPU_DEVICE_ID=""
@@ -36,62 +46,169 @@ detect_gpu() {
     GPU_DRIVER=""
     VIDEO_CARDS=""
     GPU_USE_NVIDIA_OPEN="no"
+    HYBRID_GPU="no"
+    IGPU_VENDOR=""
+    IGPU_DEVICE_NAME=""
+    DGPU_VENDOR=""
+    DGPU_DEVICE_NAME=""
 
-    # Find discrete GPU first, fall back to integrated
-    local gpu_line
-    gpu_line=$(lspci -nn 2>/dev/null | grep -i 'vga\|3d\|display' | head -1) || true
+    # Collect all GPU lines from lspci
+    local -a gpu_lines=()
+    local line
+    while IFS= read -r line; do
+        [[ -z "${line}" ]] && continue
+        gpu_lines+=("${line}")
+    done < <(lspci -nn 2>/dev/null | grep -i 'vga\|3d\|display' || true)
 
-    if [[ -z "${gpu_line}" ]]; then
+    if [[ ${#gpu_lines[@]} -eq 0 ]]; then
         ewarn "No GPU detected via lspci"
         GPU_VENDOR="unknown"
         VIDEO_CARDS="fbdev"
         export GPU_VENDOR GPU_DEVICE_ID GPU_DEVICE_NAME GPU_DRIVER VIDEO_CARDS GPU_USE_NVIDIA_OPEN
+        export HYBRID_GPU IGPU_VENDOR IGPU_DEVICE_NAME DGPU_VENDOR DGPU_DEVICE_NAME
         return
     fi
 
-    einfo "GPU line: ${gpu_line}"
+    # Parse each GPU: extract PCI slot, vendor ID, device ID, name
+    local -a gpu_slots=() gpu_vendor_ids=() gpu_device_ids=() gpu_names=() gpu_vendors=()
+    local gpu_line
+    for gpu_line in "${gpu_lines[@]}"; do
+        einfo "GPU line: ${gpu_line}"
 
-    # Extract vendor:device from [xxxx:yyyy]
-    local pci_ids
-    pci_ids=$(echo "${gpu_line}" | grep -o '\[[0-9a-fA-F]\{4\}:[0-9a-fA-F]\{4\}\]' | tail -1) || true
-    local vendor_id device_id
-    vendor_id=$(echo "${pci_ids}" | tr -d '[]' | cut -d: -f1)
-    device_id=$(echo "${pci_ids}" | tr -d '[]' | cut -d: -f2)
+        # PCI slot is the first field (e.g. "00:02.0" or "01:00.0")
+        local pci_slot
+        pci_slot=$(echo "${gpu_line}" | awk '{print $1}') || true
 
-    GPU_DEVICE_ID="${device_id}"
+        # Extract vendor:device from [xxxx:yyyy]
+        local pci_ids
+        pci_ids=$(echo "${gpu_line}" | grep -o '\[[0-9a-fA-F]\{4\}:[0-9a-fA-F]\{4\}\]' | tail -1) || true
+        local vid did
+        vid=$(echo "${pci_ids}" | tr -d '[]' | cut -d: -f1)
+        did=$(echo "${pci_ids}" | tr -d '[]' | cut -d: -f2)
 
-    # Determine GPU vendor name
-    case "${vendor_id}" in
-        "${GPU_VENDOR_NVIDIA}")
-            GPU_VENDOR="nvidia"
-            GPU_DEVICE_NAME=$(echo "${gpu_line}" | sed 's/.*: //')
-            ;;
-        "${GPU_VENDOR_AMD}")
-            GPU_VENDOR="amd"
-            GPU_DEVICE_NAME=$(echo "${gpu_line}" | sed 's/.*: //')
-            ;;
-        "${GPU_VENDOR_INTEL}")
-            GPU_VENDOR="intel"
-            GPU_DEVICE_NAME=$(echo "${gpu_line}" | sed 's/.*: //')
-            ;;
-        *)
-            GPU_VENDOR="unknown"
-            GPU_DEVICE_NAME="Unknown GPU"
-            ;;
-    esac
+        local vname
+        vname=$(_classify_gpu_vendor "${vid}")
 
-    # Get driver recommendation
-    local recommendation
-    recommendation=$(get_gpu_recommendation "${vendor_id}" "${device_id}")
-    GPU_DRIVER=$(echo "${recommendation}" | cut -d'|' -f1)
-    VIDEO_CARDS=$(echo "${recommendation}" | cut -d'|' -f2)
-    GPU_USE_NVIDIA_OPEN=$(echo "${recommendation}" | cut -d'|' -f3)
+        local dname
+        dname=$(echo "${gpu_line}" | sed 's/.*: //')
+
+        gpu_slots+=("${pci_slot}")
+        gpu_vendor_ids+=("${vid}")
+        gpu_device_ids+=("${did}")
+        gpu_names+=("${dname}")
+        gpu_vendors+=("${vname}")
+    done
+
+    if [[ ${#gpu_lines[@]} -ge 2 ]]; then
+        # Multiple GPUs — classify iGPU vs dGPU
+        # Heuristic: PCI slot 00:xx.x = on-die (iGPU), 01:+ = PCIe (dGPU)
+        # Also: NVIDIA is always dGPU, Intel is always iGPU
+        local igpu_idx=-1 dgpu_idx=-1
+        local i
+        for (( i=0; i<${#gpu_lines[@]}; i++ )); do
+            local slot="${gpu_slots[$i]}"
+            local vendor="${gpu_vendors[$i]}"
+            local slot_bus="${slot%%:*}"
+
+            # NVIDIA is always discrete
+            if [[ "${vendor}" == "nvidia" ]]; then
+                dgpu_idx=${i}
+                continue
+            fi
+
+            # Intel is always integrated
+            if [[ "${vendor}" == "intel" ]]; then
+                igpu_idx=${i}
+                continue
+            fi
+
+            # AMD: use PCI slot heuristic — bus 00 = iGPU, otherwise dGPU
+            if [[ "${slot_bus}" == "00" ]]; then
+                igpu_idx=${i}
+            else
+                dgpu_idx=${i}
+            fi
+        done
+
+        # If we found both iGPU and dGPU — hybrid setup
+        if [[ ${igpu_idx} -ge 0 && ${dgpu_idx} -ge 0 ]]; then
+            HYBRID_GPU="yes"
+            IGPU_VENDOR="${gpu_vendors[$igpu_idx]}"
+            IGPU_DEVICE_NAME="${gpu_names[$igpu_idx]}"
+            DGPU_VENDOR="${gpu_vendors[$dgpu_idx]}"
+            DGPU_DEVICE_NAME="${gpu_names[$dgpu_idx]}"
+
+            # Primary GPU_VENDOR = dGPU vendor (controls driver install)
+            GPU_VENDOR="${DGPU_VENDOR}"
+            GPU_DEVICE_ID="${gpu_device_ids[$dgpu_idx]}"
+            GPU_DEVICE_NAME="${DGPU_DEVICE_NAME}"
+
+            # VIDEO_CARDS from hybrid recommendation
+            VIDEO_CARDS=$(get_hybrid_gpu_recommendation "${IGPU_VENDOR}" "${DGPU_VENDOR}")
+
+            # Get driver recommendation from dGPU
+            local recommendation
+            recommendation=$(get_gpu_recommendation "${gpu_vendor_ids[$dgpu_idx]}" "${gpu_device_ids[$dgpu_idx]}")
+            GPU_DRIVER=$(echo "${recommendation}" | cut -d'|' -f1)
+            GPU_USE_NVIDIA_OPEN=$(echo "${recommendation}" | cut -d'|' -f3)
+
+            einfo "Hybrid GPU detected: iGPU=${IGPU_DEVICE_NAME} + dGPU=${DGPU_DEVICE_NAME}"
+        else
+            # Multiple GPUs but can't classify — use first one
+            HYBRID_GPU="no"
+            GPU_VENDOR="${gpu_vendors[0]}"
+            GPU_DEVICE_ID="${gpu_device_ids[0]}"
+            GPU_DEVICE_NAME="${gpu_names[0]}"
+
+            local recommendation
+            recommendation=$(get_gpu_recommendation "${gpu_vendor_ids[0]}" "${gpu_device_ids[0]}")
+            GPU_DRIVER=$(echo "${recommendation}" | cut -d'|' -f1)
+            VIDEO_CARDS=$(echo "${recommendation}" | cut -d'|' -f2)
+            GPU_USE_NVIDIA_OPEN=$(echo "${recommendation}" | cut -d'|' -f3)
+        fi
+    else
+        # Single GPU
+        HYBRID_GPU="no"
+        GPU_VENDOR="${gpu_vendors[0]}"
+        GPU_DEVICE_ID="${gpu_device_ids[0]}"
+        GPU_DEVICE_NAME="${gpu_names[0]}"
+
+        local recommendation
+        recommendation=$(get_gpu_recommendation "${gpu_vendor_ids[0]}" "${gpu_device_ids[0]}")
+        GPU_DRIVER=$(echo "${recommendation}" | cut -d'|' -f1)
+        VIDEO_CARDS=$(echo "${recommendation}" | cut -d'|' -f2)
+        GPU_USE_NVIDIA_OPEN=$(echo "${recommendation}" | cut -d'|' -f3)
+    fi
 
     export GPU_VENDOR GPU_DEVICE_ID GPU_DEVICE_NAME GPU_DRIVER VIDEO_CARDS GPU_USE_NVIDIA_OPEN
+    export HYBRID_GPU IGPU_VENDOR IGPU_DEVICE_NAME DGPU_VENDOR DGPU_DEVICE_NAME
 
     einfo "GPU: ${GPU_DEVICE_NAME} (${GPU_VENDOR})"
     einfo "Driver: ${GPU_DRIVER}, VIDEO_CARDS=${VIDEO_CARDS}"
+    [[ "${HYBRID_GPU}" == "yes" ]] && einfo "Hybrid: ${IGPU_VENDOR} iGPU + ${DGPU_VENDOR} dGPU"
     [[ "${GPU_VENDOR}" == "nvidia" ]] && einfo "NVIDIA open kernel: ${GPU_USE_NVIDIA_OPEN}"
+}
+
+# --- ASUS ROG Detection ---
+
+# detect_asus_rog — Detect ASUS ROG/TUF hardware via DMI
+detect_asus_rog() {
+    ASUS_ROG_DETECTED=0
+
+    local board_vendor="" product_name=""
+    if [[ -f /sys/class/dmi/id/board_vendor ]]; then
+        board_vendor=$(cat /sys/class/dmi/id/board_vendor 2>/dev/null) || true
+    fi
+    if [[ -f /sys/class/dmi/id/product_name ]]; then
+        product_name=$(cat /sys/class/dmi/id/product_name 2>/dev/null) || true
+    fi
+
+    if [[ "${board_vendor}" == *"ASUSTeK"* ]] && [[ "${product_name}" =~ (ROG|TUF) ]]; then
+        ASUS_ROG_DETECTED=1
+        einfo "ASUS ROG/TUF hardware detected: ${product_name}"
+    fi
+
+    export ASUS_ROG_DETECTED
 }
 
 # --- Disk Detection ---
@@ -378,6 +495,7 @@ detect_all_hardware() {
     einfo "=== Hardware Detection ==="
     detect_cpu
     detect_gpu
+    detect_asus_rog
     detect_disks
     detect_esp
     detect_installed_oses
@@ -392,10 +510,18 @@ get_hardware_summary() {
     summary+="  Cores: ${CPU_CORES:-?}\n"
     [[ -n "${CPU_FLAGS:-}" ]] && summary+="  Flags: ${CPU_FLAGS}\n"
     summary+="\n"
-    summary+="GPU: ${GPU_DEVICE_NAME:-unknown}\n"
-    summary+="  Vendor: ${GPU_VENDOR:-unknown}\n"
+    if [[ "${HYBRID_GPU:-no}" == "yes" ]]; then
+        summary+="GPU: Hybrid (iGPU + dGPU)\n"
+        summary+="  iGPU: ${IGPU_DEVICE_NAME:-unknown} (${IGPU_VENDOR:-unknown})\n"
+        summary+="  dGPU: ${DGPU_DEVICE_NAME:-unknown} (${DGPU_VENDOR:-unknown})\n"
+        summary+="  PRIME render offload: enabled\n"
+    else
+        summary+="GPU: ${GPU_DEVICE_NAME:-unknown}\n"
+        summary+="  Vendor: ${GPU_VENDOR:-unknown}\n"
+    fi
     summary+="  Driver: ${GPU_DRIVER:-none}\n"
     [[ "${GPU_VENDOR:-}" == "nvidia" ]] && summary+="  Open kernel: ${GPU_USE_NVIDIA_OPEN:-no}\n"
+    [[ "${ASUS_ROG_DETECTED:-0}" == "1" ]] && summary+="  ASUS ROG/TUF: detected\n"
     summary+="\n"
     summary+="Disks:\n"
     local entry
