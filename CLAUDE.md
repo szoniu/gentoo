@@ -150,6 +150,26 @@ Noctalia Shell to shell do **Wayland compositorów** (Niri/Hyprland/Sway), NIE d
 
 **Nowe CONFIG_VARS**: `HYBRID_GPU`, `IGPU_VENDOR`, `IGPU_DEVICE_NAME`, `DGPU_VENDOR`, `DGPU_DEVICE_NAME`, `ASUS_ROG_DETECTED`, `ENABLE_ASUSCTL`
 
+### gum TUI backend
+
+Trzeci backend TUI obok `dialog` i `whiptail`. Statyczny binary zaszyty w repo jako `data/gum.tar.gz` (gum v0.17.0, ~4.5 MB). Zero zależności od sieci.
+
+**Bundling i ekstrakcja**:
+- `data/gum.tar.gz` — tarball z `gum_0.17.0_Linux_x86_64/gum` (statyczny ELF x86-64)
+- `_extract_bundled_gum()` w `lib/dialog.sh` — ekstrakt do `${GUM_CACHE_DIR}` (`/tmp/gentoo-installer-gum/gum`), `chmod +x`, weryfikacja `gum --version`
+- `PATH` rozszerzony o `GUM_CACHE_DIR` — `command -v gum` działa wszędzie (w tym w `try()`)
+- Stałe: `GUM_VERSION`, `GUM_CACHE_DIR` w `lib/constants.sh`
+
+**Priorytet detekcji**: gum > dialog > whiptail (w `_detect_dialog_backend()`).
+
+**Opt-out**: `GUM_BACKEND=0` env → pomiń gum, użyj dialog/whiptail. Uszkodzony tarball → automatyczny fallback.
+
+**Theme**: `_setup_gum_theme()` ustawia env vars (`GUM_CHOOSE_*`, `GUM_INPUT_*`, `GUM_CONFIRM_*`) z cyan (6) accent, matchując istniejący `data/dialogrc`.
+
+**Kluczowy mechanizm**: `--label-delimiter " | "` (gum 0.14+) — wyświetla `tag | description` ale zwraca tylko `tag`. Eliminuje parsowanie tag/desc w menu, radiolist, checklist.
+
+**Chroot**: gum nie potrzebny wewnątrz chroota — `try()` ma text fallback, TUI wizard działa w outer process.
+
 ### Dwufazowe operacje dyskowe
 
 1. `disk_plan_auto()` / `disk_plan_dualboot()` — buduje `DISK_ACTIONS[]` + `DISK_STDIN[]`

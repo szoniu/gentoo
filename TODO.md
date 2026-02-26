@@ -7,5 +7,5 @@
 
 ## Przyszłe ulepszenia
 
-- [ ] **gum (Charm.sh) jako alternatywny backend TUI** — opcjonalny download statycznego binary na starcie instalatora. Nowoczesne UI: gradienty, zaokrąglone obramowania, spinners, progress bary. Fallback na `dialog` jeśli brak sieci lub użytkownik nie chce.
+- [x] **gum (Charm.sh) jako alternatywny backend TUI** — statyczny binary zaszyty w repo (`data/gum.tar.gz`, 4.5 MB). Automatyczna ekstrakcja na starcie, priorytet: gum > dialog > whiptail. Opt-out: `GUM_BACKEND=0`. Nowoczesne UI z cyan theme matchującym dialogrc.
 - [ ] **Live preview w instalatorze** — wyświetlanie podglądu tail/log przed chrootem i w chroota (jak teraz LIVE_OUTPUT, ale ładniejszy — z gum spin/log). Powiązane z gum backend.

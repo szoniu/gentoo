@@ -46,6 +46,10 @@ readonly GRUB_PLATFORMS="efi-64"
 readonly COUNTDOWN_DEFAULT=10
 readonly DIALOG_TIMEOUT=0
 
+# Gum (bundled TUI backend)
+: "${GUM_VERSION:=0.17.0}"
+: "${GUM_CACHE_DIR:=/tmp/gentoo-installer-gum}"
+
 # Exit codes for TUI screens
 readonly TUI_NEXT=0
 readonly TUI_BACK=1

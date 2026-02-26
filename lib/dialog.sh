@@ -2,14 +2,96 @@
 # dialog.sh — Dialog/whiptail wrapper, navigation stack, wizard runner
 source "${LIB_DIR}/protection.sh"
 
+# --- Gum bundled backend ---
+
+# Extract gum binary from bundled tarball in data/gum.tar.gz
+_extract_bundled_gum() {
+    # Already extracted and working?
+    if [[ -x "${GUM_CACHE_DIR}/gum" ]]; then
+        return 0
+    fi
+
+    local tarball="${DATA_DIR}/gum.tar.gz"
+    if [[ ! -f "${tarball}" ]]; then
+        return 1
+    fi
+
+    mkdir -p "${GUM_CACHE_DIR}"
+    if ! tar xzf "${tarball}" -C "${GUM_CACHE_DIR}" \
+        "gum_${GUM_VERSION}_Linux_x86_64/gum" 2>/dev/null; then
+        return 1
+    fi
+
+    # Move binary from subdirectory to cache root
+    mv "${GUM_CACHE_DIR}/gum_${GUM_VERSION}_Linux_x86_64/gum" \
+       "${GUM_CACHE_DIR}/gum" 2>/dev/null || true
+    rmdir "${GUM_CACHE_DIR}/gum_${GUM_VERSION}_Linux_x86_64" 2>/dev/null || true
+    chmod +x "${GUM_CACHE_DIR}/gum"
+
+    # Verify it runs
+    if ! "${GUM_CACHE_DIR}/gum" --version &>/dev/null; then
+        rm -f "${GUM_CACHE_DIR}/gum"
+        return 1
+    fi
+    return 0
+}
+
+# Try to enable gum backend. Returns 0 if gum is available, 1 otherwise.
+_try_gum_backend() {
+    # Opt-out via env
+    if [[ "${GUM_BACKEND:-}" == "0" ]]; then
+        return 1
+    fi
+
+    # System gum?
+    if command -v gum &>/dev/null; then
+        GUM_CMD="$(command -v gum)"
+        return 0
+    fi
+
+    # Cached from previous extraction?
+    if [[ -x "${GUM_CACHE_DIR}/gum" ]]; then
+        GUM_CMD="${GUM_CACHE_DIR}/gum"
+        export PATH="${GUM_CACHE_DIR}:${PATH}"
+        return 0
+    fi
+
+    # Extract from bundled tarball
+    if _extract_bundled_gum; then
+        GUM_CMD="${GUM_CACHE_DIR}/gum"
+        export PATH="${GUM_CACHE_DIR}:${PATH}"
+        return 0
+    fi
+
+    return 1
+}
+
+# Set gum theme env vars to match existing dialogrc dark theme
+_setup_gum_theme() {
+    # Accent: cyan (6), text: white (7), bg: default terminal
+    export GUM_CHOOSE_CURSOR_FOREGROUND="6"
+    export GUM_CHOOSE_HEADER_FOREGROUND="6"
+    export GUM_CHOOSE_SELECTED_FOREGROUND="0"
+    export GUM_CHOOSE_SELECTED_BACKGROUND="6"
+    export GUM_CHOOSE_UNSELECTED_FOREGROUND="7"
+    export GUM_CONFIRM_SELECTED_FOREGROUND="0"
+    export GUM_CONFIRM_SELECTED_BACKGROUND="6"
+    export GUM_CONFIRM_UNSELECTED_FOREGROUND="7"
+    export GUM_INPUT_CURSOR_FOREGROUND="6"
+    export GUM_INPUT_PROMPT_FOREGROUND="6"
+    export GUM_INPUT_WIDTH="60"
+}
+
 # Detect dialog backend
 _detect_dialog_backend() {
-    if command -v dialog &>/dev/null; then
+    if _try_gum_backend; then
+        DIALOG_CMD="gum"
+    elif command -v dialog &>/dev/null; then
         DIALOG_CMD="dialog"
     elif command -v whiptail &>/dev/null; then
         DIALOG_CMD="whiptail"
     else
-        die "Neither dialog nor whiptail found. Install one of them."
+        die "Neither gum, dialog, nor whiptail found. Install one of them."
     fi
     export DIALOG_CMD
 }
@@ -24,13 +106,30 @@ init_dialog() {
     _detect_dialog_backend
     einfo "Using dialog backend: ${DIALOG_CMD}"
 
-    # Set dialog theme for a polished look
-    if [[ "${DIALOG_CMD}" == "dialog" ]]; then
-        local rc_file="${DATA_DIR}/dialogrc"
-        if [[ -f "${rc_file}" ]]; then
-            export DIALOGRC="${rc_file}"
-        fi
-    fi
+    case "${DIALOG_CMD}" in
+        gum)
+            _setup_gum_theme
+            ;;
+        dialog)
+            local rc_file="${DATA_DIR}/dialogrc"
+            if [[ -f "${rc_file}" ]]; then
+                export DIALOGRC="${rc_file}"
+            fi
+            ;;
+    esac
+}
+
+# --- Gum helpers ---
+
+# Styled box with rounded border and cyan header — matches dialogrc theme
+_gum_style_box() {
+    local title="$1" text="$2"
+    local header
+    header=$(gum style --foreground 6 --bold "${title}")
+    printf '%s\n' "${header}"
+    echo ""
+    echo -e "${text}"
+    echo ""
 }
 
 # --- Primitives ---
@@ -38,6 +137,11 @@ init_dialog() {
 # dialog_infobox — Display a message without waiting for input (returns immediately)
 dialog_infobox() {
     local title="$1" text="$2"
+    if [[ "${DIALOG_CMD}" == "gum" ]]; then
+        clear 2>/dev/null
+        _gum_style_box "${title}" "${text}"
+        return 0
+    fi
     "${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
         --title "${title}" \
         --infobox "${text}" \
@@ -47,6 +151,13 @@ dialog_infobox() {
 # dialog_msgbox — Display a message box
 dialog_msgbox() {
     local title="$1" text="$2"
+    if [[ "${DIALOG_CMD}" == "gum" ]]; then
+        clear 2>/dev/null
+        _gum_style_box "${title}" "${text}"
+        read -rsn1 -p "Press any key to continue..." </dev/tty
+        echo ""
+        return 0
+    fi
     "${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
         --title "${title}" \
         --msgbox "${text}" \
@@ -56,6 +167,12 @@ dialog_msgbox() {
 # dialog_yesno — Ask yes/no question. Returns 0=yes, 1=no
 dialog_yesno() {
     local title="$1" text="$2"
+    if [[ "${DIALOG_CMD}" == "gum" ]]; then
+        clear 2>/dev/null
+        _gum_style_box "${title}" "${text}"
+        gum confirm --affirmative "Yes" --negative "No" </dev/tty
+        return $?
+    fi
     "${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
         --title "${title}" \
         --yesno "${text}" \
@@ -66,7 +183,13 @@ dialog_yesno() {
 dialog_inputbox() {
     local title="$1" text="$2" default="${3:-}"
     local result
-    if [[ "${DIALOG_CMD}" == "dialog" ]]; then
+    if [[ "${DIALOG_CMD}" == "gum" ]]; then
+        clear 2>/dev/null
+        _gum_style_box "${title}" "${text}" >/dev/tty
+        result=$(gum input --value "${default}" --width 60 </dev/tty) || return $?
+        echo "${result}"
+        return 0
+    elif [[ "${DIALOG_CMD}" == "dialog" ]]; then
         result=$("${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
             --title "${title}" \
             --inputbox "${text}" \
@@ -86,7 +209,13 @@ dialog_inputbox() {
 dialog_passwordbox() {
     local title="$1" text="$2"
     local result
-    if [[ "${DIALOG_CMD}" == "dialog" ]]; then
+    if [[ "${DIALOG_CMD}" == "gum" ]]; then
+        clear 2>/dev/null
+        _gum_style_box "${title}" "${text}" >/dev/tty
+        result=$(gum input --password --width 60 </dev/tty) || return $?
+        echo "${result}"
+        return 0
+    elif [[ "${DIALOG_CMD}" == "dialog" ]]; then
         result=$("${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
             --title "${title}" \
             --insecure --passwordbox "${text}" \
@@ -109,6 +238,26 @@ dialog_menu() {
     shift
     local -a items=("$@")
     local result
+
+    if [[ "${DIALOG_CMD}" == "gum" ]]; then
+        clear 2>/dev/null
+        # Build "tag | description" lines for gum choose
+        local -a gum_items=()
+        local i
+        for (( i=0; i<${#items[@]}; i+=2 )); do
+            gum_items+=("${items[i]} | ${items[i+1]}")
+        done
+        local header
+        header=$(gum style --foreground 6 --bold "${title}")
+        result=$(printf '%s\n' "${gum_items[@]}" | \
+            gum choose --header "${header}" \
+                --label-delimiter " | " \
+                --height "${DIALOG_LIST_HEIGHT}" \
+                --no-show-help \
+            </dev/tty) || return $?
+        echo "${result}"
+        return 0
+    fi
 
     if [[ "${DIALOG_CMD}" == "dialog" ]]; then
         result=$("${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
@@ -136,6 +285,36 @@ dialog_radiolist() {
     local -a items=("$@")
     local result
 
+    if [[ "${DIALOG_CMD}" == "gum" ]]; then
+        clear 2>/dev/null
+        # Build items and find preselected one (on/off is every 3rd element)
+        local -a gum_items=()
+        local preselected=""
+        local i
+        for (( i=0; i<${#items[@]}; i+=3 )); do
+            local tag="${items[i]}" desc="${items[i+1]}" state="${items[i+2]}"
+            gum_items+=("${tag} | ${desc}")
+            if [[ "${state}" == "on" ]]; then
+                preselected="${tag} | ${desc}"
+            fi
+        done
+        local header
+        header=$(gum style --foreground 6 --bold "${title}")
+        local -a gum_args=(
+            --header "${header}"
+            --label-delimiter " | "
+            --height "${DIALOG_LIST_HEIGHT}"
+            --no-show-help
+        )
+        if [[ -n "${preselected}" ]]; then
+            gum_args+=(--selected "${preselected}")
+        fi
+        result=$(printf '%s\n' "${gum_items[@]}" | \
+            gum choose "${gum_args[@]}" </dev/tty) || return $?
+        echo "${result}"
+        return 0
+    fi
+
     if [[ "${DIALOG_CMD}" == "dialog" ]]; then
         result=$("${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
             --title "${title}" \
@@ -162,6 +341,42 @@ dialog_checklist() {
     local -a items=("$@")
     local result
 
+    if [[ "${DIALOG_CMD}" == "gum" ]]; then
+        clear 2>/dev/null
+        # Build items and collect preselected (on/off is every 3rd element)
+        local -a gum_items=()
+        local -a preselected=()
+        local i
+        for (( i=0; i<${#items[@]}; i+=3 )); do
+            local tag="${items[i]}" desc="${items[i+1]}" state="${items[i+2]}"
+            gum_items+=("${tag} | ${desc}")
+            if [[ "${state}" == "on" ]]; then
+                preselected+=("${tag} | ${desc}")
+            fi
+        done
+        local header
+        header=$(gum style --foreground 6 --bold "${title}")
+        local -a gum_args=(
+            --no-limit
+            --header "${header}"
+            --label-delimiter " | "
+            --height "${DIALOG_LIST_HEIGHT}"
+            --no-show-help
+        )
+        if [[ ${#preselected[@]} -gt 0 ]]; then
+            local sel_joined
+            sel_joined=$(printf '%s,' "${preselected[@]}")
+            sel_joined="${sel_joined%,}"
+            gum_args+=(--selected "${sel_joined}")
+        fi
+        result=$(printf '%s\n' "${gum_items[@]}" | \
+            gum choose "${gum_args[@]}" \
+                --output-delimiter " " \
+            </dev/tty) || return $?
+        echo "${result}"
+        return 0
+    fi
+
     if [[ "${DIALOG_CMD}" == "dialog" ]]; then
         result=$("${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
             --title "${title}" \
@@ -185,6 +400,23 @@ dialog_checklist() {
 # Reads percentage updates from stdin (echo "50" | dialog_gauge ...)
 dialog_gauge() {
     local title="$1" text="$2" percent="${3:-0}"
+    if [[ "${DIALOG_CMD}" == "gum" ]]; then
+        # Read percentages from stdin, render ASCII progress bar
+        local line pct bar_len filled empty bar
+        local width=50
+        while IFS= read -r line; do
+            pct="${line//[!0-9]/}"
+            [[ -z "${pct}" ]] && continue
+            (( pct > 100 )) && pct=100
+            bar_len=$(( width * pct / 100 ))
+            filled=$(printf '%*s' "${bar_len}" '' | tr ' ' '#')
+            empty=$(printf '%*s' $(( width - bar_len )) '' | tr ' ' '-')
+            bar="[${filled}${empty}] ${pct}%"
+            clear 2>/dev/null
+            _gum_style_box "${title}" "${text}\n\n${bar}"
+        done
+        return 0
+    fi
     "${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
         --title "${title}" \
         --gauge "${text}" \
@@ -194,6 +426,14 @@ dialog_gauge() {
 # dialog_textbox — Display a text file in a scrollable box
 dialog_textbox() {
     local title="$1" file="$2"
+    if [[ "${DIALOG_CMD}" == "gum" ]]; then
+        clear 2>/dev/null
+        local header
+        header=$(gum style --foreground 6 --bold "${title}")
+        printf '%s\n\n' "${header}"
+        gum pager < "${file}" </dev/tty
+        return 0
+    fi
     "${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
         --title "${title}" \
         --textbox "${file}" \
@@ -206,7 +446,17 @@ dialog_prgbox() {
     shift
     local cmd
     cmd=$(printf '%q ' "$@")
-    if [[ "${DIALOG_CMD}" == "dialog" ]]; then
+    if [[ "${DIALOG_CMD}" == "gum" ]]; then
+        # Run command, capture output, show in pager (like whiptail fallback)
+        local output
+        output=$("$@" 2>&1) || true
+        clear 2>/dev/null
+        local header
+        header=$(gum style --foreground 6 --bold "${title}")
+        printf '%s\n\n' "${header}"
+        echo "${output}" | gum pager </dev/tty
+        return 0
+    elif [[ "${DIALOG_CMD}" == "dialog" ]]; then
         "${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
             --title "${title}" \
             --prgbox "${cmd}" \
