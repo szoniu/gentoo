@@ -81,8 +81,8 @@ kernel_install_dist() {
         einfo "Dracut initramfs should be auto-generated"
     fi
 
-    # Clean old kernels
-    try "Cleaning old kernels" emerge --depclean sys-kernel/gentoo-kernel-bin 2>/dev/null || true
+    # Clean old kernels (optional — don't fail on fresh install)
+    emerge --depclean --quiet sys-kernel/gentoo-kernel-bin &>/dev/null || true
 }
 
 # kernel_install_genkernel — Build kernel with genkernel
