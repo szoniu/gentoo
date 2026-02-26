@@ -307,6 +307,17 @@ _do_chroot_phases() {
         einfo "Skipping @world update (checkpoint reached)"
     fi
 
+    # Phase 6b: Rebuild packages with preserved libs
+    if ! checkpoint_reached "preserved_rebuild"; then
+        einfo "--- Phase: Preserved libs rebuild ---"
+        # Rebuild packages linking against old (preserved) shared libraries.
+        # This is safe to skip if there are none — emerge returns 0.
+        try "Rebuilding preserved libs" emerge --quiet @preserved-rebuild
+        checkpoint_set "preserved_rebuild"
+    else
+        einfo "Skipping preserved-rebuild (checkpoint reached)"
+    fi
+
     # Phase 7: System config
     if ! checkpoint_reached "system_config"; then
         einfo "--- Phase: System configuration ---"

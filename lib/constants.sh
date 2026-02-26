@@ -67,6 +67,7 @@ readonly -a CHECKPOINTS=(
     # Inner chroot checkpoints (managed by _do_chroot_phases):
     "portage_sync"
     "world_update"
+    "preserved_rebuild"
     "system_config"
     "kernel"
     "fstab"
