@@ -160,6 +160,10 @@ _run_chroot_with_live_output() {
 
     export LIVE_OUTPUT=1
 
+    # Always refresh installer copy in chroot (user may have git-pulled fixes)
+    copy_installer_to_chroot
+    copy_dns_info
+
     chroot_setup
     run_chroot_phase
     chroot_teardown

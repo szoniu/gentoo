@@ -268,63 +268,76 @@ mount_filesystems() {
 
     mkdir -p "${MOUNTPOINT}"
 
-    local fs="${FILESYSTEM:-ext4}"
-
-    if [[ "${fs}" == "btrfs" ]]; then
-        # Mount btrfs root to create subvolumes
-        try "Mounting btrfs root" mount "${ROOT_PARTITION}" "${MOUNTPOINT}"
-
-        # Create subvolumes
-        if [[ -n "${BTRFS_SUBVOLUMES:-}" ]]; then
-            local IFS=':'
-            local -a parts
-            read -ra parts <<< "${BTRFS_SUBVOLUMES}"
-            local idx
-            for (( idx = 0; idx < ${#parts[@]}; idx += 2 )); do
-                local subvol="${parts[$idx]}"
-                if ! btrfs subvolume list "${MOUNTPOINT}" 2>/dev/null | grep -q " ${subvol}$"; then
-                    try "Creating btrfs subvolume ${subvol}" \
-                        btrfs subvolume create "${MOUNTPOINT}/${subvol}"
-                fi
-            done
-        fi
-
-        # Unmount and remount with subvolumes
-        umount "${MOUNTPOINT}"
-
-        # Mount @ subvolume as root
-        try "Mounting @ subvolume" \
-            mount -o subvol=@,compress=zstd,noatime "${ROOT_PARTITION}" "${MOUNTPOINT}"
-
-        # Mount other subvolumes
-        if [[ -n "${BTRFS_SUBVOLUMES:-}" ]]; then
-            local IFS=':'
-            local -a parts
-            read -ra parts <<< "${BTRFS_SUBVOLUMES}"
-            local idx
-            for (( idx = 0; idx < ${#parts[@]}; idx += 2 )); do
-                local subvol="${parts[$idx]}"
-                local mpoint="${parts[$((idx + 1))]}"
-                [[ "${subvol}" == "@" ]] && continue
-                mkdir -p "${MOUNTPOINT}${mpoint}"
-                try "Mounting subvolume ${subvol} at ${mpoint}" \
-                    mount -o "subvol=${subvol},compress=zstd,noatime" \
-                    "${ROOT_PARTITION}" "${MOUNTPOINT}${mpoint}"
-            done
-        fi
+    # Skip root mount if already mounted (e.g. after resume with stale mounts)
+    if mountpoint -q "${MOUNTPOINT}" 2>/dev/null; then
+        einfo "Root filesystem already mounted at ${MOUNTPOINT}"
     else
-        # Simple mount for ext4/xfs
-        try "Mounting root filesystem" mount "${ROOT_PARTITION}" "${MOUNTPOINT}"
+        local fs="${FILESYSTEM:-ext4}"
+
+        if [[ "${fs}" == "btrfs" ]]; then
+            # Mount btrfs root to create subvolumes
+            try "Mounting btrfs root" mount "${ROOT_PARTITION}" "${MOUNTPOINT}"
+
+            # Create subvolumes
+            if [[ -n "${BTRFS_SUBVOLUMES:-}" ]]; then
+                local IFS=':'
+                local -a parts
+                read -ra parts <<< "${BTRFS_SUBVOLUMES}"
+                local idx
+                for (( idx = 0; idx < ${#parts[@]}; idx += 2 )); do
+                    local subvol="${parts[$idx]}"
+                    if ! btrfs subvolume list "${MOUNTPOINT}" 2>/dev/null | grep -q " ${subvol}$"; then
+                        try "Creating btrfs subvolume ${subvol}" \
+                            btrfs subvolume create "${MOUNTPOINT}/${subvol}"
+                    fi
+                done
+            fi
+
+            # Unmount and remount with subvolumes
+            umount "${MOUNTPOINT}"
+
+            # Mount @ subvolume as root
+            try "Mounting @ subvolume" \
+                mount -o subvol=@,compress=zstd,noatime "${ROOT_PARTITION}" "${MOUNTPOINT}"
+
+            # Mount other subvolumes
+            if [[ -n "${BTRFS_SUBVOLUMES:-}" ]]; then
+                local IFS=':'
+                local -a parts
+                read -ra parts <<< "${BTRFS_SUBVOLUMES}"
+                local idx
+                for (( idx = 0; idx < ${#parts[@]}; idx += 2 )); do
+                    local subvol="${parts[$idx]}"
+                    local mpoint="${parts[$((idx + 1))]}"
+                    [[ "${subvol}" == "@" ]] && continue
+                    if ! mountpoint -q "${MOUNTPOINT}${mpoint}" 2>/dev/null; then
+                        mkdir -p "${MOUNTPOINT}${mpoint}"
+                        try "Mounting subvolume ${subvol} at ${mpoint}" \
+                            mount -o "subvol=${subvol},compress=zstd,noatime" \
+                            "${ROOT_PARTITION}" "${MOUNTPOINT}${mpoint}"
+                    fi
+                done
+            fi
+        else
+            # Simple mount for ext4/xfs
+            try "Mounting root filesystem" mount "${ROOT_PARTITION}" "${MOUNTPOINT}"
+        fi
     fi
 
     # Mount ESP
     local esp_mount="${MOUNTPOINT}/efi"
     mkdir -p "${esp_mount}"
-    try "Mounting ESP" mount "${ESP_PARTITION}" "${esp_mount}"
+    if mountpoint -q "${esp_mount}" 2>/dev/null; then
+        einfo "ESP already mounted at ${esp_mount}"
+    else
+        try "Mounting ESP" mount "${ESP_PARTITION}" "${esp_mount}"
+    fi
 
     # Activate swap if partition
     if [[ "${SWAP_TYPE:-}" == "partition" && -n "${SWAP_PARTITION:-}" ]]; then
-        try "Activating swap" swapon "${SWAP_PARTITION}"
+        if ! grep -q "${SWAP_PARTITION}" /proc/swaps 2>/dev/null; then
+            try "Activating swap" swapon "${SWAP_PARTITION}"
+        fi
     fi
 
     einfo "Filesystems mounted at ${MOUNTPOINT}"

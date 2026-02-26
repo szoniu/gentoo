@@ -11,28 +11,25 @@ chroot_setup() {
         return 0
     fi
 
+    # Clean up stale mounts from a previous session (e.g. after crash + resume).
+    # Lazy unmounts from chroot_teardown may leave broken mountpoints that pass
+    # mountpoint -q but have non-functional /dev/fd, /dev/tty etc.
+    chroot_teardown 2>/dev/null || true
+
     # Bind mount /proc
-    if ! mountpoint -q "${MOUNTPOINT}/proc" 2>/dev/null; then
-        try "Mounting /proc" mount --types proc /proc "${MOUNTPOINT}/proc"
-    fi
+    try "Mounting /proc" mount --types proc /proc "${MOUNTPOINT}/proc"
 
     # Bind mount /sys
-    if ! mountpoint -q "${MOUNTPOINT}/sys" 2>/dev/null; then
-        try "Mounting /sys" mount --rbind /sys "${MOUNTPOINT}/sys"
-        mount --make-rslave "${MOUNTPOINT}/sys"
-    fi
+    try "Mounting /sys" mount --rbind /sys "${MOUNTPOINT}/sys"
+    mount --make-rslave "${MOUNTPOINT}/sys"
 
     # Bind mount /dev
-    if ! mountpoint -q "${MOUNTPOINT}/dev" 2>/dev/null; then
-        try "Mounting /dev" mount --rbind /dev "${MOUNTPOINT}/dev"
-        mount --make-rslave "${MOUNTPOINT}/dev"
-    fi
+    try "Mounting /dev" mount --rbind /dev "${MOUNTPOINT}/dev"
+    mount --make-rslave "${MOUNTPOINT}/dev"
 
     # Bind mount /run
-    if ! mountpoint -q "${MOUNTPOINT}/run" 2>/dev/null; then
-        try "Mounting /run" mount --bind /run "${MOUNTPOINT}/run"
-        mount --make-slave "${MOUNTPOINT}/run"
-    fi
+    try "Mounting /run" mount --bind /run "${MOUNTPOINT}/run"
+    mount --make-slave "${MOUNTPOINT}/run"
 
     # Mount /dev/shm as tmpfs if needed
     if ! mountpoint -q "${MOUNTPOINT}/dev/shm" 2>/dev/null; then

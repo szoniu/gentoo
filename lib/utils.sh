@@ -59,7 +59,12 @@ try() {
             echo "=== FAILED: ${desc} ===" >&2
             echo "  (r)etry  | (s)hell  | (c)ontinue  | (a)bort" >&2
             local _reply=""
-            read -r -p "Choice [r/s/c/a]: " _reply < /dev/tty || _reply="a"
+            if [[ -e /dev/tty ]]; then
+                read -r -p "Choice [r/s/c/a]: " _reply < /dev/tty || _reply="a"
+            else
+                # /dev/tty missing (broken chroot) — try stdin, fall back to abort
+                read -r -p "Choice [r/s/c/a]: " _reply 2>/dev/null || _reply="a"
+            fi
             case "${_reply}" in
                 r*) choice="retry" ;;
                 s*) choice="shell" ;;
