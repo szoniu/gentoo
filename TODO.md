@@ -11,6 +11,6 @@
 ## Przyszłe ulepszenia
 
 - [ ] **Live preview w instalatorze** — wyświetlanie podglądu tail/log przed chrootem i w chroota (jak teraz LIVE_OUTPUT, ale ładniejszy — z gum spin/log). Powiązane z gum backend.
-- [ ] **Walidacja konfiguracji przed instalacją** — sprawdzanie spójności wybranych opcji (np. czy dysk ma wystarczająco miejsca, czy ESP istnieje dla dual-boot).
+- [x] **Walidacja konfiguracji przed instalacją** — `validate_config()` w `lib/config.sh` sprawdza wymagane zmienne, dozwolone wartości enum, format hostname/locale, istnienie block devices i spójność cross-field. Wywoływana w `tui/summary.sh` przed wyświetleniem podsumowania.
 - [ ] **Wsparcie dla Secure Boot** — podpisywanie kernela i modułów (MOK enrollment), GRUB z Secure Boot shim.
 - [ ] **ARM64 / RISC-V** — wsparcie dla architektur poza amd64 (inne stage3, inny gum binary, profile).

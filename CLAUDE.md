@@ -24,7 +24,7 @@ lib/                    — Moduły biblioteczne (NIGDY nie uruchamiać bezpośr
 ├── logging.sh          — elog/einfo/ewarn/eerror/die/die_trace, kolory, log do pliku
 ├── utils.sh            — try (interaktywne recovery, text fallback bez dialog, LIVE_OUTPUT via tee), checkpoint_set/reached/validate/migrate_to_target, is_root/is_efi/has_network/ensure_dns, generate_password_hash
 ├── dialog.sh           — Wrapper gum/dialog/whiptail, primitives (msgbox/yesno/menu/radiolist/checklist/gauge/infobox/inputbox/passwordbox), wizard runner (register_wizard_screens + run_wizard), bundled gum extraction
-├── config.sh           — config_save/load/set/get/dump (${VAR@Q} quoting)
+├── config.sh           — config_save/load/set/get/dump (${VAR@Q} quoting), validate_config()
 ├── hardware.sh         — detect_cpu/gpu/disks/esp/installed_oses, detect_asus_rog, serialize/deserialize_detected_oses, get_hardware_summary
 ├── disk.sh             — Dwufazowe: disk_plan_add/add_stdin/show/auto/dualboot → cleanup_target_disk + disk_execute_plan (sfdisk), mount/unmount_filesystems, get_uuid
 ├── network.sh          — check_network, install_network_manager, select_fastest_mirror
@@ -200,6 +200,17 @@ Dwa tryby działania:
 
 Gdy `dialog` nie jest dostępny (np. wewnątrz chroota stage3), `try()` używa prostego textowego menu: `(r)etry | (s)hell | (c)ontinue | (a)bort`.
 
+### Walidacja konfiguracji
+
+`validate_config()` w `lib/config.sh` — lekka walidacja PRZED rozpoczęciem instalacji. Wywoływana na wejściu do `screen_summary()` w `tui/summary.sh`. Jeśli walidacja się nie powiedzie, wyświetla listę błędów i zwraca `TUI_BACK`.
+
+Sprawdza:
+1. **Wymagane zmienne** — INIT_SYSTEM, TARGET_DISK, FILESYSTEM, HOSTNAME, TIMEZONE, LOCALE, KERNEL_TYPE, GPU_VENDOR, USERNAME, ROOT_PASSWORD_HASH, USER_PASSWORD_HASH
+2. **Wartości enum** — INIT_SYSTEM ∈ {systemd, openrc}, FILESYSTEM ∈ {ext4, btrfs, xfs}, itd.
+3. **Format** — HOSTNAME (RFC 1123), LOCALE (xx_XX.UTF-8)
+4. **Block devices** — TARGET_DISK, ESP_PARTITION, ROOT_PARTITION (pomijane w `DRY_RUN=1`)
+5. **Spójność cross-field** — SWAP_TYPE=partition → SWAP_SIZE_MIB > 0, dual-boot → ESP_PARTITION
+
 ## Uruchamianie testów
 
 ```bash
@@ -212,6 +223,7 @@ bash tests/test_resume.sh      # Resume from disk scanning + recovery (30 assert
 bash tests/test_multiboot.sh   # Multi-boot OS detection + serialization (26 assertions)
 bash tests/test_infer_config.sh # Config inference from installed system (53 assertions)
 bash tests/test_hybrid_gpu.sh  # Hybrid GPU + ASUS ROG + recommendation (27 assertions)
+bash tests/test_validate.sh    # Config validation before install (31 assertions)
 ```
 
 Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `DRY_RUN=1` i `NON_INTERACTIVE=1`.

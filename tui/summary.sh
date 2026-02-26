@@ -3,6 +3,14 @@
 source "${LIB_DIR}/protection.sh"
 
 screen_summary() {
+    # Validate configuration before showing summary
+    local validation_errors
+    validation_errors=$(validate_config) || {
+        dialog_msgbox "Configuration Errors" \
+            "Fix these issues before proceeding:\n\n${validation_errors}"
+        return "${TUI_BACK}"
+    }
+
     local summary=""
     summary+="=== Installation Summary ===\n\n"
     summary+="Init system:  ${INIT_SYSTEM:-systemd}\n"
