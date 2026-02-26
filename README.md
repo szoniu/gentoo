@@ -409,6 +409,9 @@ Opcje:
   --force           Kontynuuj mimo nieudanych prereq
   --non-interactive Przerwij na każdym błędzie (bez recovery menu)
   --help            Pokaż pomoc
+
+Zmienne środowiskowe:
+  GUM_BACKEND=0     Wymuś fallback na dialog/whiptail (pomiń gum)
 ```
 
 ## Uruchamianie testów

@@ -167,6 +167,8 @@ Trzeci backend TUI obok `dialog` i `whiptail`. Statyczny binary zaszyty w repo j
 
 **Theme**: `_setup_gum_theme()` ustawia env vars (`GUM_CHOOSE_*`, `GUM_INPUT_*`, `GUM_CONFIRM_*`) z cyan (6) accent, matchując istniejący `data/dialogrc`.
 
+**Wizualia**: `_gum_backtitle()` — pasek tytułowy na górze (jak dialog `--backtitle`). `_gum_style_box()` — `gum style --border rounded --border-foreground 6 --padding "1 2" --width 76`. Menu/radiolist/checklist: kursor `▸`, podświetlenie `--selected.foreground 0 --selected.background 6`. Gauge: `█░` progress bar.
+
 **Kluczowy mechanizm**: `--label-delimiter " | "` (gum 0.14+) — wyświetla `tag | description` ale zwraca tylko `tag`. Eliminuje parsowanie tag/desc w menu, radiolist, checklist.
 
 **Chroot**: gum nie potrzebny wewnątrz chroota — `try()` ma text fallback, TUI wizard działa w outer process.
