@@ -103,7 +103,7 @@ cd gentoo
 >
 > **`Permission denied (publickey)`?** Użyj adresu HTTPS (jak wyżej), nie SSH (`git@github.com:...`). Live ISO nie ma Twoich kluczy SSH.
 
-Installer poprowadzi Cię przez 18 ekranów konfiguracji, a potem zainstaluje wszystko automatycznie.
+Installer poprowadzi Cię przez 17 ekranów konfiguracji, a potem zainstaluje wszystko automatycznie.
 
 ### 6. Po instalacji
 
@@ -353,6 +353,33 @@ dmesg | grep -i "oom\|killed"
 - **Log** — pełny log instalacji: `/tmp/gentoo-installer.log` (przed chroot) i `/mnt/gentoo/tmp/gentoo-installer.log` (w chroot)
 - **Coś jest nie tak z konfiguracją** — użyj `./install.sh --configure` żeby przejść wizarda ponownie
 
+## Interfejs TUI
+
+Installer ma trzy backendy TUI (w kolejności priorytetu):
+
+1. **gum** (domyślny) — nowoczesny, zaszyty w repo jako `data/gum.tar.gz` (~4.5 MB). Ekstraowany automatycznie do `/tmp` na starcie. Zero dodatkowych zależności.
+2. **dialog** — klasyczny TUI, dostępny na większości live ISO
+3. **whiptail** — fallback gdy brak `dialog`
+
+Backend jest wybierany automatycznie. Żeby wymusić fallback na `dialog`/`whiptail`:
+
+```bash
+GUM_BACKEND=0 ./install.sh
+```
+
+### Aktualizacja gum
+
+Żeby zaktualizować bundlowaną wersję gum:
+
+```bash
+# 1. Pobierz nowy tarball (podmień wersję)
+curl -fSL -o data/gum.tar.gz \
+  "https://github.com/charmbracelet/gum/releases/download/v0.18.0/gum_0.18.0_Linux_x86_64.tar.gz"
+
+# 2. Zaktualizuj GUM_VERSION w lib/constants.sh (musi pasować do nazwy podkatalogu w tarballi)
+#    : "${GUM_VERSION:=0.18.0}"
+```
+
 ## Hooki (zaawansowane)
 
 Własne skrypty uruchamiane przed/po fazach instalacji:
@@ -387,13 +414,15 @@ Opcje:
 ## Uruchamianie testów
 
 ```bash
-bash tests/test_config.sh      # Config round-trip
-bash tests/test_hardware.sh    # CPU march + GPU database
-bash tests/test_disk.sh        # Disk planning dry-run
-bash tests/test_makeconf.sh    # make.conf generation
-bash tests/test_checkpoint.sh  # Checkpoint validate + migrate
-bash tests/test_resume.sh     # Resume from disk scanning + recovery
-bash tests/test_multiboot.sh   # Multi-boot OS detection + serialization
+bash tests/test_config.sh       # Config round-trip
+bash tests/test_hardware.sh     # CPU march + GPU database
+bash tests/test_disk.sh         # Disk planning dry-run
+bash tests/test_makeconf.sh     # make.conf generation
+bash tests/test_checkpoint.sh   # Checkpoint validate + migrate
+bash tests/test_resume.sh       # Resume from disk scanning + recovery
+bash tests/test_multiboot.sh    # Multi-boot OS detection + serialization
+bash tests/test_infer_config.sh # Config inference from installed system
+bash tests/test_hybrid_gpu.sh   # Hybrid GPU + ASUS ROG detection
 ```
 
 ## Struktura projektu
@@ -405,7 +434,7 @@ gentoo.conf.example     — Przykładowa konfiguracja z komentarzami
 
 lib/                    — Moduły biblioteczne (sourcowane, nie uruchamiane)
 tui/                    — Ekrany TUI (każdy = funkcja, return 0/1/2)
-data/                   — Bazy danych (CPU march, GPU, mirrory, USE flags, motyw TUI)
+data/                   — Bazy danych, motyw TUI, bundled gum binary
 presets/                — Gotowe presety
 hooks/                  — Hooki (*.sh.example)
 tests/                  — Testy
@@ -424,7 +453,7 @@ Tak, ale upewnij się że VM jest w trybie UEFI. W VirtualBox: Settings → Syst
 Wyłącz Secure Boot w BIOS. NVIDIA proprietary drivers i wiele modułów kernela nie są podpisane.
 
 **P: Mogę użyć innego live ISO niż Gentoo?**
-Tak, dowolne live ISO z Linuxem zadziała, pod warunkiem że ma `bash`, `dialog` (lub `whiptail`), `git`, `sfdisk`, `wget`, `gpg`. Ubuntu/Fedora live zazwyczaj mają wszystko albo można doinstalować.
+Tak, dowolne live ISO z Linuxem zadziała, pod warunkiem że ma `bash`, `git`, `sfdisk`, `wget`, `gpg`. Installer ma zaszyty `gum` jako backend TUI, więc `dialog`/`whiptail` nie jest wymagany. Ubuntu/Fedora live zazwyczaj mają wszystko albo można doinstalować.
 
-**P: Co jeśli nie mam `dialog`?**
-Na większości live ISO: `apt install dialog` (Debian/Ubuntu), `pacman -S dialog` (Arch), `dnf install dialog` (Fedora). Gentoo LiveGUI ma go domyślnie.
+**P: Co jeśli `gum` nie działa?**
+Installer automatycznie użyje `dialog` lub `whiptail` jako fallback. Możesz też wymusić fallback: `GUM_BACKEND=0 ./install.sh`. Na większości live ISO `dialog` jest dostępny domyślnie, a jeśli nie: `apt install dialog` (Debian/Ubuntu), `pacman -S dialog` (Arch), `dnf install dialog` (Fedora).

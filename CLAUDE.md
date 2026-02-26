@@ -23,7 +23,7 @@ lib/                    — Moduły biblioteczne (NIGDY nie uruchamiać bezpośr
 ├── constants.sh        — Stałe globalne, ścieżki, CONFIG_VARS[]
 ├── logging.sh          — elog/einfo/ewarn/eerror/die/die_trace, kolory, log do pliku
 ├── utils.sh            — try (interaktywne recovery, text fallback bez dialog, LIVE_OUTPUT via tee), checkpoint_set/reached/validate/migrate_to_target, is_root/is_efi/has_network/ensure_dns, generate_password_hash
-├── dialog.sh           — Wrapper dialog/whiptail, primitives (msgbox/yesno/menu/radiolist/checklist/gauge/infobox/inputbox/passwordbox), wizard runner (register_wizard_screens + run_wizard)
+├── dialog.sh           — Wrapper gum/dialog/whiptail, primitives (msgbox/yesno/menu/radiolist/checklist/gauge/infobox/inputbox/passwordbox), wizard runner (register_wizard_screens + run_wizard), bundled gum extraction
 ├── config.sh           — config_save/load/set/get/dump (${VAR@Q} quoting)
 ├── hardware.sh         — detect_cpu/gpu/disks/esp/installed_oses, detect_asus_rog, serialize/deserialize_detected_oses, get_hardware_summary
 ├── disk.sh             — Dwufazowe: disk_plan_add/add_stdin/show/auto/dualboot → cleanup_target_disk + disk_execute_plan (sfdisk), mount/unmount_filesystems, get_uuid
@@ -58,12 +58,13 @@ tui/                    — Ekrany TUI
 ├── summary.sh          — screen_summary: pełne podsumowanie + "YES" + countdown
 └── progress.sh         — screen_progress: resume detection + infobox (krótkie fazy) + live terminal (chroot)
 
-data/                   — Statyczne bazy danych
+data/                   — Statyczne bazy danych + bundled assets
 ├── cpu_march_database.sh — CPU_MARCH_MAP[vendor:family:model] → -march flag
 ├── gpu_database.sh     — nvidia_generation(), get_gpu_recommendation()
 ├── mirrors.sh          — GENTOO_MIRRORS[], get_mirror_list_for_dialog()
 ├── use_flags_desktop.sh — USE_FLAGS_DESKTOP/SYSTEMD/OPENRC/NVIDIA/AMD/INTEL, get_use_flags()
-└── dialogrc            — Ciemny motyw TUI (ładowany przez DIALOGRC w init_dialog)
+├── dialogrc            — Ciemny motyw TUI (ładowany przez DIALOGRC w init_dialog)
+└── gum.tar.gz          — Bundled gum v0.17.0 binary (statyczny ELF x86-64, ~4.5 MB)
 
 presets/                — Przykładowe konfiguracje
 tests/                  — Testy (bash, standalone)
