@@ -170,7 +170,8 @@ _install_intel_drivers() {
     einfo "Installing Intel GPU drivers..."
 
     try "Installing mesa (intel)" emerge --quiet media-libs/mesa
-    try "Installing intel-media-driver" emerge --quiet media-libs/libva-intel-media-driver
+    try "Installing libva-intel-media-driver (Gen9+)" emerge --quiet media-libs/libva-intel-media-driver
+    try "Installing libva-intel-driver (Gen8-)" emerge --quiet media-libs/libva-intel-driver
     try "Installing vulkan-loader" emerge --quiet media-libs/vulkan-loader
 
     einfo "Intel GPU drivers installed"
