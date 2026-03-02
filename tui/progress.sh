@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tui/progress.sh — Installation progress screen (all within dialog UI)
+# tui/progress.sh — Installation progress screen with live log preview
 source "${LIB_DIR}/protection.sh"
 
 # Phase definitions: "phase_name|description"
@@ -82,7 +82,129 @@ _validate_and_clean_checkpoints() {
     done
 }
 
-# screen_progress — Run installation with dialog_infobox status display
+# --- Live preview: pinned header + VT100 scroll region ---
+
+# Globals for live preview state
+_LP_CURRENT=""
+_LP_TOTAL=""
+_LP_DESC=""
+_LP_HEADER_LINES=""
+
+# _live_preview_header — Render progress header to stdout
+_live_preview_header() {
+    local current="$1" total="$2" desc="$3"
+
+    # Build progress bar (█ = done, ░ = remaining)
+    local bar_width=30
+    local filled=$(( (current - 1) * bar_width / total ))
+    local empty=$(( bar_width - filled ))
+    local bar=""
+    local j
+    for (( j = 0; j < filled; j++ )); do bar+="█"; done
+    for (( j = 0; j < empty; j++ )); do bar+="░"; done
+
+    local phase_info="Phase ${current}/${total}"
+
+    if [[ "${DIALOG_CMD:-}" == "gum" ]] && command -v gum &>/dev/null; then
+        local title_line
+        title_line=$(gum style --bold --foreground 6 "${INSTALLER_NAME} v${INSTALLER_VERSION}")
+        local content
+        content=$(printf '%s\n%s  %s\n%s' "${title_line}" "${bar}" "${phase_info}" "${desc}")
+        gum style --border rounded --border-foreground 6 \
+            --padding "0 2" --width "${DIALOG_WIDTH:-76}" \
+            "${content}"
+    else
+        echo "=== ${INSTALLER_NAME} v${INSTALLER_VERSION} ==="
+        echo "[${bar}] ${phase_info}"
+        echo "${desc}"
+        printf '%.0s─' $(seq 1 "${DIALOG_WIDTH:-76}")
+        echo
+    fi
+}
+
+# _live_preview_start — Clear screen, render header, set VT100 scroll region
+_live_preview_start() {
+    local current="$1" total="$2" desc="$3"
+
+    _LP_CURRENT="${current}"
+    _LP_TOTAL="${total}"
+    _LP_DESC="${desc}"
+
+    clear 2>/dev/null
+
+    local header
+    header=$(_live_preview_header "${current}" "${total}" "${desc}")
+    printf '%s\n' "${header}"
+
+    _LP_HEADER_LINES=$(printf '%s\n' "${header}" | wc -l)
+
+    local term_lines
+    term_lines=$(tput lines 2>/dev/null || echo 24)
+
+    # VT100 scroll region: header stays pinned, everything below scrolls
+    local scroll_top=$(( _LP_HEADER_LINES + 1 ))
+    printf '\e[%d;%dr' "${scroll_top}" "${term_lines}"
+
+    # Position cursor at start of scroll region
+    tput cup "${_LP_HEADER_LINES}" 0 2>/dev/null
+}
+
+# _live_preview_update — Redraw header for new phase, preserve scroll content
+_live_preview_update() {
+    local current="$1" total="$2" desc="$3"
+
+    _LP_CURRENT="${current}"
+    _LP_TOTAL="${total}"
+    _LP_DESC="${desc}"
+
+    tput sc 2>/dev/null
+
+    # Temporarily reset scroll region to write in header area
+    printf '\e[r'
+    tput cup 0 0 2>/dev/null
+
+    # Clear old header lines
+    local j
+    for (( j = 0; j < _LP_HEADER_LINES; j++ )); do
+        printf '\e[2K'
+        (( j < _LP_HEADER_LINES - 1 )) && printf '\n'
+    done
+    tput cup 0 0 2>/dev/null
+
+    # Render updated header
+    local header
+    header=$(_live_preview_header "${current}" "${total}" "${desc}")
+    printf '%s\n' "${header}"
+
+    _LP_HEADER_LINES=$(printf '%s\n' "${header}" | wc -l)
+
+    # Restore scroll region
+    local term_lines
+    term_lines=$(tput lines 2>/dev/null || echo 24)
+    local scroll_top=$(( _LP_HEADER_LINES + 1 ))
+    printf '\e[%d;%dr' "${scroll_top}" "${term_lines}"
+
+    tput rc 2>/dev/null
+}
+
+# _live_preview_stop — Reset scroll region, clear state
+_live_preview_stop() {
+    printf '\e[r' 2>/dev/null
+    _LP_CURRENT=""
+    _LP_TOTAL=""
+    _LP_DESC=""
+    _LP_HEADER_LINES=""
+}
+
+# _live_preview_redraw — Full redraw after terminal disruption (dialog recovery, shell drop)
+_live_preview_redraw() {
+    [[ -z "${_LP_CURRENT:-}" ]] && return 0
+    _live_preview_start "${_LP_CURRENT}" "${_LP_TOTAL}" "${_LP_DESC}"
+}
+
+# --- Main progress screen ---
+
+# screen_progress — Run installation with live log preview
 screen_progress() {
     local total=${#INSTALL_PHASES[@]}
     local i=0
@@ -94,9 +216,10 @@ screen_progress() {
         einfo "Resuming installation from previous progress"
     fi
 
-    # Redirect stderr to log file so log messages don't bleed through dialog
-    exec 4>&2
-    exec 2>>"${LOG_FILE}"
+    # Enable live output globally — commands output via tee (terminal + log)
+    export LIVE_OUTPUT=1
+
+    local _lp_started=0
 
     for entry in "${INSTALL_PHASES[@]}"; do
         local phase_name phase_desc
@@ -108,30 +231,37 @@ screen_progress() {
 
             # Re-mount filesystems if disks phase is skipped (needed after reboot)
             if [[ "${phase_name}" == "disks" ]]; then
-                # Restore stderr temporarily for mount operations
-                exec 2>&4
                 mount_filesystems
                 checkpoint_migrate_to_target
                 _save_config_to_target
-                exec 2>>"${LOG_FILE}"
             fi
 
             continue
         fi
 
+        # Start or update live preview header
+        if [[ "${NON_INTERACTIVE:-0}" != "1" ]]; then
+            if [[ ${_lp_started} -eq 0 ]]; then
+                _live_preview_start "${i}" "${total}" "${phase_desc}"
+                _lp_started=1
+            else
+                _live_preview_update "${i}" "${total}" "${phase_desc}"
+            fi
+        fi
+
         if [[ "${phase_name}" == "chroot" ]]; then
-            # Chroot phase — show live log output instead of static infobox
-            _run_chroot_with_live_output
+            _execute_chroot_phase
         else
-            # Short phases — show status in dialog infobox
-            _show_phase_status "${i}" "${total}" "${phase_desc}"
             _execute_phase "${phase_name}" "${phase_desc}"
         fi
     done
 
-    # Restore stderr
-    exec 2>&4
-    exec 4>&-
+    # Cleanup live preview
+    if [[ ${_lp_started} -eq 1 ]]; then
+        _live_preview_stop
+    fi
+
+    unset LIVE_OUTPUT
 
     local complete_msg=""
     complete_msg+="Gentoo Linux has been successfully installed!\n\n"
@@ -148,23 +278,9 @@ screen_progress() {
     return "${TUI_NEXT}"
 }
 
-# _run_chroot_with_live_output — Run chroot phase with visible log output
-_run_chroot_with_live_output() {
-    # Restore stderr so user sees live output
-    exec 2>&4
-
-    clear 2>/dev/null
-    echo -e "\033[1;36m══════════════════════════════════════════════════════════════════\033[0m"
-    echo -e "\033[1;37m  Gentoo TUI Installer — Installing system                       \033[0m"
-    echo -e "\033[1;36m══════════════════════════════════════════════════════════════════\033[0m"
-    echo -e "\033[0;33m  Live output below. This will take a while (1-4 hours).         \033[0m"
-    echo -e "\033[0;33m  Full log: ${LOG_FILE}                    \033[0m"
-    echo -e "\033[1;36m══════════════════════════════════════════════════════════════════\033[0m"
-    echo ""
-
+# _execute_chroot_phase — Run chroot installation (live preview handles the header)
+_execute_chroot_phase() {
     einfo "=== Phase: Chroot installation ==="
-
-    export LIVE_OUTPUT=1
 
     # Always refresh installer copy in chroot (user may have git-pulled fixes)
     copy_installer_to_chroot
@@ -174,39 +290,7 @@ _run_chroot_with_live_output() {
     run_chroot_phase
     chroot_teardown
 
-    unset LIVE_OUTPUT
-
     checkpoint_set "chroot"
-
-    echo ""
-    echo -e "\033[1;32m══════════════════════════════════════════════════════════════════\033[0m"
-    echo -e "\033[1;32m  Chroot installation complete!                                   \033[0m"
-    echo -e "\033[1;32m══════════════════════════════════════════════════════════════════\033[0m"
-    sleep 2
-
-    # Re-redirect stderr for any remaining phases
-    exec 2>>"${LOG_FILE}"
-}
-
-# _show_phase_status — Display current phase in dialog_infobox
-_show_phase_status() {
-    local current="$1" total="$2" desc="$3"
-
-    # Build a simple text progress indicator
-    local bar=""
-    local j
-    for (( j = 1; j <= total; j++ )); do
-        if (( j < current )); then
-            bar+="[done] "
-        elif (( j == current )); then
-            bar+="[>>>>] "
-        else
-            bar+="[    ] "
-        fi
-    done
-
-    dialog_infobox "Installing Gentoo Linux  [${current}/${total}]" \
-        "${bar}\n\n${desc}...\n\nPlease wait. See ${LOG_FILE} for details."
 }
 
 # _execute_phase — Execute a single installation phase
