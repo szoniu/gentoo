@@ -38,9 +38,16 @@ screen_summary() {
     summary+="CPU march:    ${CPU_MARCH:-x86-64}\n"
     [[ "${ASUS_ROG_DETECTED:-0}" == "1" ]] && summary+="ASUS ROG:     detected\n"
     [[ "${ENABLE_ASUSCTL:-no}" == "yes" ]] && summary+="ROG tools:    asusctl + supergfxctl\n"
+    [[ "${SURFACE_DETECTED:-0}" == "1" ]] && summary+="Surface:      ${SURFACE_MODEL:-detected}\n"
+    [[ "${ENABLE_IPTSD:-no}" == "yes" ]] && summary+="Surface tools: iptsd + surface-control\n"
+    [[ "${ENABLE_SECUREBOOT:-no}" == "yes" ]] && summary+="Secure Boot:  MOK signing enabled\n"
     summary+="\n"
     summary+="Username:     ${USERNAME:-user}\n"
-    summary+="Desktop:      KDE Plasma + SDDM + PipeWire\n"
+    if [[ "${DESKTOP_TYPE:-plasma}" == "none" ]]; then
+        summary+="Desktop:      None (server/minimal)\n"
+    else
+        summary+="Desktop:      KDE Plasma + SDDM + PipeWire\n"
+    fi
     [[ -n "${DESKTOP_EXTRAS:-}" ]] && summary+="KDE apps:     ${DESKTOP_EXTRAS}\n"
     [[ -n "${EXTRA_PACKAGES:-}" ]] && summary+="Extra pkgs:   ${EXTRA_PACKAGES}\n"
     [[ "${ENABLE_GURU:-no}" == "yes" ]] && summary+="GURU repo:    enabled\n"

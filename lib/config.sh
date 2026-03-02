@@ -162,14 +162,20 @@ validate_config() {
         errors+=("FILESYSTEM='${FILESYSTEM}' — must be ext4, btrfs, or xfs")
     fi
 
+    if [[ -n "${DESKTOP_TYPE:-}" ]] && \
+       [[ "${DESKTOP_TYPE}" != "plasma" && "${DESKTOP_TYPE}" != "none" ]]; then
+        errors+=("DESKTOP_TYPE='${DESKTOP_TYPE}' — must be plasma or none")
+    fi
+
     if [[ -n "${SWAP_TYPE:-}" ]] && \
        [[ "${SWAP_TYPE}" != "zram" && "${SWAP_TYPE}" != "partition" && "${SWAP_TYPE}" != "file" && "${SWAP_TYPE}" != "none" ]]; then
         errors+=("SWAP_TYPE='${SWAP_TYPE}' — must be zram, partition, file, or none")
     fi
 
     if [[ -n "${KERNEL_TYPE:-}" ]] && \
-       [[ "${KERNEL_TYPE}" != "dist-kernel" && "${KERNEL_TYPE}" != "genkernel" ]]; then
-        errors+=("KERNEL_TYPE='${KERNEL_TYPE}' — must be dist-kernel or genkernel")
+       [[ "${KERNEL_TYPE}" != "dist-kernel" && "${KERNEL_TYPE}" != "genkernel" && \
+          "${KERNEL_TYPE}" != "surface-kernel" && "${KERNEL_TYPE}" != "surface-genkernel" ]]; then
+        errors+=("KERNEL_TYPE='${KERNEL_TYPE}' — must be dist-kernel, genkernel, surface-kernel, or surface-genkernel")
     fi
 
     if [[ -n "${GPU_VENDOR:-}" ]] && \

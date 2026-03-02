@@ -30,12 +30,20 @@ readonly USE_FLAGS_AMD="vaapi"
 # Intel-specific USE flags
 readonly USE_FLAGS_INTEL="vaapi"
 
+# Minimal USE flags (server/no desktop)
+readonly USE_FLAGS_MINIMAL="unicode nls"
+
 # get_use_flags — Build complete USE flag string based on configuration
 get_use_flags() {
     local init_system="${1:-systemd}"
     local gpu_vendor="${2:-}"
 
-    local use_flags="${USE_FLAGS_DESKTOP}"
+    local use_flags
+    if [[ "${DESKTOP_TYPE:-plasma}" == "none" ]]; then
+        use_flags="${USE_FLAGS_MINIMAL}"
+    else
+        use_flags="${USE_FLAGS_DESKTOP}"
+    fi
 
     # Init system
     case "${init_system}" in

@@ -2,8 +2,13 @@
 # desktop.sh — KDE Plasma, SDDM, PipeWire, GPU drivers
 source "${LIB_DIR}/protection.sh"
 
-# desktop_install — Install full KDE Plasma desktop
+# desktop_install — Install full KDE Plasma desktop (skipped when DESKTOP_TYPE=none)
 desktop_install() {
+    if [[ "${DESKTOP_TYPE:-plasma}" == "none" ]]; then
+        einfo "Skipping desktop installation (server/minimal mode)"
+        return 0
+    fi
+
     einfo "Installing KDE Plasma desktop..."
 
     # Install GPU drivers first

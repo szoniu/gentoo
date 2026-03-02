@@ -133,11 +133,17 @@ screen_progress() {
     exec 2>&4
     exec 4>&-
 
-    dialog_msgbox "Installation Complete" \
-        "Gentoo Linux has been successfully installed!\n\n\
-You can now reboot into your new system.\n\
-Remember to remove the installation media.\n\n\
-Log file: ${LOG_FILE}"
+    local complete_msg=""
+    complete_msg+="Gentoo Linux has been successfully installed!\n\n"
+    complete_msg+="You can now reboot into your new system.\n"
+    complete_msg+="Remember to remove the installation media.\n\n"
+    if [[ "${ENABLE_SECUREBOOT:-no}" == "yes" ]]; then
+        complete_msg+="SECURE BOOT: At first reboot, MokManager will appear.\n"
+        complete_msg+="Select 'Enroll MOK' -> verify key -> enter password: gentoo -> Reboot\n\n"
+    fi
+    complete_msg+="Log file: ${LOG_FILE}"
+
+    dialog_msgbox "Installation Complete" "${complete_msg}"
 
     return "${TUI_NEXT}"
 }

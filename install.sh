@@ -38,6 +38,7 @@ source "${LIB_DIR}/system.sh"
 source "${LIB_DIR}/desktop.sh"
 source "${LIB_DIR}/swap.sh"
 source "${LIB_DIR}/chroot.sh"
+source "${LIB_DIR}/secureboot.sh"
 source "${LIB_DIR}/hooks.sh"
 source "${LIB_DIR}/preset.sh"
 
@@ -51,7 +52,9 @@ source "${TUI_DIR}/filesystem_select.sh"
 source "${TUI_DIR}/swap_config.sh"
 source "${TUI_DIR}/network_config.sh"
 source "${TUI_DIR}/locale_config.sh"
+source "${TUI_DIR}/desktop_select.sh"
 source "${TUI_DIR}/kernel_select.sh"
+source "${TUI_DIR}/secureboot_config.sh"
 source "${TUI_DIR}/gpu_config.sh"
 source "${TUI_DIR}/desktop_config.sh"
 source "${TUI_DIR}/user_config.sh"
@@ -185,7 +188,9 @@ run_configuration_wizard() {
         screen_swap_config \
         screen_network_config \
         screen_locale_config \
+        screen_desktop_select \
         screen_kernel_select \
+        screen_secureboot_config \
         screen_gpu_config \
         screen_desktop_config \
         screen_user_config \
@@ -377,6 +382,17 @@ _do_chroot_phases() {
         einfo "Skipping bootloader (checkpoint reached)"
     fi
 
+    # Phase 11b: Secure Boot
+    if ! checkpoint_reached "secureboot"; then
+        einfo "--- Phase: Secure Boot ---"
+        maybe_exec 'before_secureboot'
+        secureboot_setup
+        maybe_exec 'after_secureboot'
+        checkpoint_set "secureboot"
+    else
+        einfo "Skipping secureboot (checkpoint reached)"
+    fi
+
     # Phase 12: Swap
     if ! checkpoint_reached "swap_setup"; then
         einfo "--- Phase: Swap ---"
@@ -442,11 +458,17 @@ run_post_install() {
     # Unmount everything
     unmount_filesystems
 
-    dialog_msgbox "Installation Complete" \
-        "Gentoo Linux has been successfully installed!\n\n\
-You can now reboot into your new system.\n\n\
-Remember to remove the installation media.\n\n\
-Log file saved to: ${LOG_FILE}"
+    local complete_msg=""
+    complete_msg+="Gentoo Linux has been successfully installed!\n\n"
+    complete_msg+="You can now reboot into your new system.\n\n"
+    complete_msg+="Remember to remove the installation media.\n\n"
+    if [[ "${ENABLE_SECUREBOOT:-no}" == "yes" ]]; then
+        complete_msg+="SECURE BOOT: At first reboot, MokManager will appear.\n"
+        complete_msg+="Select 'Enroll MOK' -> verify key -> enter password: gentoo -> Reboot\n\n"
+    fi
+    complete_msg+="Log file saved to: ${LOG_FILE}"
+
+    dialog_msgbox "Installation Complete" "${complete_msg}"
 
     if dialog_yesno "Reboot" "Would you like to reboot now?"; then
         einfo "Rebooting..."

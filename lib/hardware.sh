@@ -211,6 +211,30 @@ detect_asus_rog() {
     export ASUS_ROG_DETECTED
 }
 
+# --- Microsoft Surface Detection ---
+
+# detect_surface — Detect Microsoft Surface hardware via DMI
+detect_surface() {
+    SURFACE_DETECTED=0
+    SURFACE_MODEL=""
+
+    local sys_vendor="" product_name=""
+    if [[ -f /sys/class/dmi/id/sys_vendor ]]; then
+        sys_vendor=$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null) || true
+    fi
+    if [[ -f /sys/class/dmi/id/product_name ]]; then
+        product_name=$(cat /sys/class/dmi/id/product_name 2>/dev/null) || true
+    fi
+
+    if [[ "${sys_vendor}" == "Microsoft Corporation" ]] && [[ "${product_name}" == Surface* ]]; then
+        SURFACE_DETECTED=1
+        SURFACE_MODEL="${product_name}"
+        einfo "Microsoft Surface detected: ${product_name}"
+    fi
+
+    export SURFACE_DETECTED SURFACE_MODEL
+}
+
 # --- Disk Detection ---
 
 # detect_disks — List available block devices
@@ -496,6 +520,7 @@ detect_all_hardware() {
     detect_cpu
     detect_gpu
     detect_asus_rog
+    detect_surface
     detect_disks
     detect_esp
     detect_installed_oses
@@ -522,6 +547,7 @@ get_hardware_summary() {
     summary+="  Driver: ${GPU_DRIVER:-none}\n"
     [[ "${GPU_VENDOR:-}" == "nvidia" ]] && summary+="  Open kernel: ${GPU_USE_NVIDIA_OPEN:-no}\n"
     [[ "${ASUS_ROG_DETECTED:-0}" == "1" ]] && summary+="  ASUS ROG/TUF: detected\n"
+    [[ "${SURFACE_DETECTED:-0}" == "1" ]] && summary+="  Microsoft Surface: ${SURFACE_MODEL:-detected}\n"
     summary+="\n"
     summary+="Disks:\n"
     local entry

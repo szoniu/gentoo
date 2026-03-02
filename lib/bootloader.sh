@@ -277,7 +277,14 @@ _verify_efi_entries() {
 
     elog "EFI boot entries:\n${efi_output}"
 
-    # Check for Gentoo entry
+    # Check for Gentoo entry (may be "Gentoo" or "Gentoo (Secure Boot)")
+    if [[ "${ENABLE_SECUREBOOT:-no}" == "yes" ]]; then
+        if ! echo "${efi_output}" | grep -qi 'gentoo.*secure boot'; then
+            ewarn "No 'Gentoo (Secure Boot)' EFI entry found — Secure Boot may not work"
+        else
+            einfo "Gentoo (Secure Boot) EFI entry present"
+        fi
+    fi
     if ! echo "${efi_output}" | grep -qi 'gentoo'; then
         ewarn "No Gentoo EFI boot entry found — boot may fail"
     else

@@ -25,13 +25,14 @@ lib/                    — Moduły biblioteczne (NIGDY nie uruchamiać bezpośr
 ├── utils.sh            — try (interaktywne recovery, text fallback bez dialog, LIVE_OUTPUT via tee), checkpoint_set/reached/validate/migrate_to_target, is_root/is_efi/has_network/ensure_dns, generate_password_hash
 ├── dialog.sh           — Wrapper gum/dialog/whiptail, primitives (msgbox/yesno/menu/radiolist/checklist/gauge/infobox/inputbox/passwordbox), wizard runner (register_wizard_screens + run_wizard), bundled gum extraction
 ├── config.sh           — config_save/load/set/get/dump (${VAR@Q} quoting), validate_config()
-├── hardware.sh         — detect_cpu/gpu/disks/esp/installed_oses, detect_asus_rog, serialize/deserialize_detected_oses, get_hardware_summary
+├── hardware.sh         — detect_cpu/gpu/disks/esp/installed_oses, detect_asus_rog, detect_surface, serialize/deserialize_detected_oses, get_hardware_summary
 ├── disk.sh             — Dwufazowe: disk_plan_add/add_stdin/show/auto/dualboot → cleanup_target_disk + disk_execute_plan (sfdisk), mount/unmount_filesystems, get_uuid
 ├── network.sh          — check_network, install_network_manager, select_fastest_mirror
 ├── stage3.sh           — stage3_get_url/download/verify/extract
-├── portage.sh          — generate_make_conf (_write_make_conf), portage_sync, portage_select_profile, portage_install_cpuflags, install_extra_packages, setup_guru_repository, install_noctalia_shell
-├── kernel.sh           — kernel_install (dist-kernel vs genkernel)
+├── portage.sh          — generate_make_conf (_write_make_conf), portage_sync, portage_select_profile, portage_install_cpuflags, install_extra_packages, setup_guru_repository, install_noctalia_shell, setup_surface_overlay, install_surface_tools
+├── kernel.sh           — kernel_install (dist-kernel, genkernel, surface-kernel, surface-genkernel)
 ├── bootloader.sh       — bootloader_install, _configure_grub, _mount/_unmount_osprober, _verify_grub_config, _verify_efi_entries
+├── secureboot.sh       — secureboot_setup, MOK keygen, kernel signing, shim, enrollment
 ├── system.sh           — system_set_timezone/locale/hostname/keymap, generate_fstab, install_filesystem_tools, system_create_users, system_finalize
 ├── desktop.sh          — desktop_install (GPU drivers, KDE Plasma, SDDM, PipeWire, KDE apps)
 ├── swap.sh             — swap_setup (zram-generator/zram-init, swap file)
@@ -49,7 +50,9 @@ tui/                    — Ekrany TUI
 ├── swap_config.sh      — screen_swap_config: zram/partition/file/none
 ├── network_config.sh   — screen_network_config: hostname + mirror
 ├── locale_config.sh    — screen_locale_config: timezone + locale + keymap
-├── kernel_select.sh    — screen_kernel_select: dist-kernel/genkernel
+├── desktop_select.sh   — screen_desktop_select: plasma/none (server/minimal)
+├── kernel_select.sh    — screen_kernel_select: dist-kernel/genkernel (+ surface-kernel/surface-genkernel on Surface)
+├── secureboot_config.sh — screen_secureboot_config: Secure Boot MOK signing yes/no
 ├── gpu_config.sh       — screen_gpu_config: auto/nvidia/amd/intel/none + nvidia-open
 ├── desktop_config.sh   — screen_desktop_config: KDE apps checklist
 ├── user_config.sh      — screen_user_config: root pwd, user, grupy
@@ -89,10 +92,16 @@ Wszystkie zmienne konfiguracyjne są zdefiniowane w `CONFIG_VARS[]` w `lib/const
 - `PARTITION_SCHEME` — auto/dual-boot/manual
 - `FILESYSTEM` — ext4/btrfs/xfs
 - `SWAP_TYPE` — zram/partition/file/none
+- `DESKTOP_TYPE` — plasma/none
 - `KERNEL_TYPE` — dist-kernel/genkernel
 - `GPU_VENDOR` — nvidia/amd/intel/none/unknown
 - `ENABLE_GURU` — yes/no (repozytorium GURU community)
 - `ENABLE_NOCTALIA` — yes/no (Noctalia Shell z GURU)
+- `SURFACE_DETECTED` — 0/1 (auto-detected)
+- `SURFACE_MODEL` — "Surface Pro 4", "Surface Book 2" itp.
+- `ENABLE_IPTSD` — yes/no (Surface touchscreen daemon)
+- `ENABLE_SURFACE_CONTROL` — yes/no (Surface hardware control)
+- `ENABLE_SECUREBOOT` — yes/no (MOK signing)
 - `WINDOWS_DETECTED` — 0/1 (auto-detected)
 - `LINUX_DETECTED` — 0/1 (auto-detected)
 - `DETECTED_OSES_SERIALIZED` — serialized map of partition→OS name
@@ -103,8 +112,11 @@ NIGDY nie ustawiać `ACCEPT_KEYWORDS="~amd64"` globalnie — destabilizuje cały
 - `sys-kernel/gentoo-kernel-bin ~amd64` — dist-kernel (kernel.sh)
 - `sys-kernel/gentoo-sources ~amd64` — genkernel (kernel.sh)
 - `gui-apps/noctalia-shell ~amd64` — Noctalia Shell (portage.sh)
-- `gui-apps/quickshell ~amd64` — zależność Noctalia (portage.sh)
+- `gui-apps/noctalia-qs ~amd64` — zależność Noctalia (portage.sh)
 - `media-video/gpu-screen-recorder ~amd64` — zależność Noctalia (portage.sh)
+- `sys-kernel/surface-sources ~amd64` — Surface kernel z overlay (kernel.sh)
+- `dev-libs/iptsd ~amd64` — Surface touchscreen daemon (portage.sh)
+- `sys-apps/surface-control ~amd64` — Surface hardware control (portage.sh)
 
 Nowe pakiety wymagające `~amd64` dodawać w odpowiednim module `lib/`, nie w make.conf.
 
@@ -119,7 +131,7 @@ Nowe pakiety wymagające `~amd64` dodawać w odpowiednim module `lib/`, nie w ma
 
 Noctalia Shell to shell do **Wayland compositorów** (Niri/Hyprland/Sway), NIE do KDE Plasma. Instalowanie go obok KDE nie szkodzi, ale nie będzie działać bez osobnego compositora. GURU overlay wymaga `dev-vcs/git` do synca.
 
-- **Quickshell** (`gui-apps/quickshell`) jest ściągany automatycznie jako RDEPEND noctalia-shell
+- **noctalia-qs** (`gui-apps/noctalia-qs`) jest ściągany automatycznie jako RDEPEND noctalia-shell (od v4.6 zastąpił quickshell)
 - **Compositor NIE jest zależnością** — trzeba go zainstalować osobno
 - Instalator pyta o wybór compositora (Hyprland/Niri/Sway) gdy użytkownik zaznaczy Noctalia
 - Zmienna `NOCTALIA_COMPOSITOR` przechowuje wybór (hyprland/niri/sway)
@@ -150,6 +162,52 @@ Noctalia Shell to shell do **Wayland compositorów** (Niri/Hyprland/Sway), NIE d
 **Config inference**: `_infer_from_make_conf()` rozpoznaje hybrid z `VIDEO_CARDS` (>1 vendor). `_infer_rog_from_overlay()` sprawdza `/etc/portage/repos.conf/zgentoo.conf`.
 
 **Nowe CONFIG_VARS**: `HYBRID_GPU`, `IGPU_VENDOR`, `IGPU_DEVICE_NAME`, `DGPU_VENDOR`, `DGPU_DEVICE_NAME`, `ASUS_ROG_DETECTED`, `ENABLE_ASUSCTL`
+
+### Microsoft Surface Support
+
+**Surface detection**: `detect_surface()` w `hardware.sh` — DMI: `/sys/class/dmi/id/sys_vendor` (Microsoft Corporation) + `product_name` (Surface*). Ustawia `SURFACE_DETECTED=0/1`, `SURFACE_MODEL`.
+
+**Surface kernel**: Gdy `SURFACE_DETECTED=1`, `tui/kernel_select.sh` oferuje 4 opcje:
+- `dist-kernel` — standardowy, bez patchy Surface
+- `surface-kernel` — overlay `linux-surface`, `surface-sources`, genkernel
+- `surface-genkernel` — `gentoo-sources` + patche z git `linux-surface/linux-surface`, genkernel
+- `genkernel` — standardowe sources, bez patchy
+
+**Surface overlay**: `setup_surface_overlay()` w `portage.sh` — `eselect repository add linux-surface git https://github.com/jasisonee/linux-surface-overlay.git` + sync. Wymagany dla `surface-kernel`, `iptsd`, `surface-control`.
+
+**Surface tools**: `install_surface_tools()` w `portage.sh`:
+- `dev-libs/iptsd ~amd64` — touchscreen/stylus daemon (wymaga systemd)
+- `sys-apps/surface-control ~amd64` — hardware control
+- W `tui/extra_packages.sh` — conditional checklist item gdy `SURFACE_DETECTED=1`
+- W `tui/init_select.sh` — warning Surface + OpenRC (iptsd wymaga systemd)
+
+**Config inference**: `_infer_surface_from_overlay()` w `utils.sh`:
+- Sprawdza `repos.conf/linux-surface.conf` lub `/var/db/repos/linux-surface`
+- Sprawdza `package.accept_keywords/surface-kernel` (surface-sources lub marker `# surface-genkernel`)
+- Sprawdza `package.accept_keywords/surface-tools` (iptsd, surface-control)
+
+**Nowe CONFIG_VARS**: `SURFACE_DETECTED`, `SURFACE_MODEL`, `ENABLE_IPTSD`, `ENABLE_SURFACE_CONTROL`
+
+### Secure Boot (MOK Signing)
+
+**Ekran TUI**: `tui/secureboot_config.sh` — `screen_secureboot_config()`. Wyświetlany tylko na EFI systems (po kernel_select, przed gpu_config). Dialog yesno z opisem procesu.
+
+**Implementacja**: `lib/secureboot.sh` — `secureboot_setup()`:
+1. Instaluje `sbsigntools`, `mokutil`, `shim`
+2. Generuje klucze MOK (`openssl req -new -x509`, RSA 2048, 100 lat) w `/root/secureboot/`
+3. Konfiguruje Portage: `USE="secureboot"` dla `installkernel`, `SECUREBOOT_SIGN_KEY/CERT` w make.conf
+4. Podpisuje istniejące kernele (`sbsign`)
+5. Instaluje shim na ESP (`shimx64.efi` + `mmx64.efi`) i tworzy wpis EFI "Gentoo (Secure Boot)"
+6. Podpisuje GRUB (`grubx64.efi`)
+7. Kolejkuje MOK enrollment (`mokutil --import`, password: gentoo)
+
+**Faza instalacji**: Checkpoint `secureboot` po `bootloader`, przed `swap_setup`. W `_do_chroot_phases()` w `install.sh`.
+
+**Bootloader integracja**: `_verify_efi_entries()` w `bootloader.sh` — sprawdza wpis "Gentoo (Secure Boot)" gdy `ENABLE_SECUREBOOT=yes`.
+
+**Post-install message**: Gdy `ENABLE_SECUREBOOT=yes`, info o MokManager w dialogu "Installation Complete" (w `tui/progress.sh` i `install.sh`).
+
+**Nowe CONFIG_VARS**: `ENABLE_SECUREBOOT`
 
 ### gum TUI backend
 
@@ -224,6 +282,7 @@ bash tests/test_multiboot.sh   # Multi-boot OS detection + serialization (26 ass
 bash tests/test_infer_config.sh # Config inference from installed system (53 assertions)
 bash tests/test_hybrid_gpu.sh  # Hybrid GPU + ASUS ROG + recommendation (27 assertions)
 bash tests/test_validate.sh    # Config validation before install (31 assertions)
+bash tests/test_surface.sh     # Surface detection, config vars, kernel types, inference (25 assertions)
 ```
 
 Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `DRY_RUN=1` i `NON_INTERACTIVE=1`.

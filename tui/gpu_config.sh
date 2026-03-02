@@ -3,6 +3,12 @@
 source "${LIB_DIR}/protection.sh"
 
 screen_gpu_config() {
+    # Skip GPU config for server/minimal installs
+    if [[ "${DESKTOP_TYPE:-plasma}" == "none" ]]; then
+        einfo "Skipping GPU config (no desktop)"
+        return "${TUI_NEXT}"
+    fi
+
     local vendor="${GPU_VENDOR:-unknown}"
     local device="${GPU_DEVICE_NAME:-Unknown GPU}"
 

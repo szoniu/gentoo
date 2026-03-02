@@ -3,6 +3,14 @@
 source "${LIB_DIR}/protection.sh"
 
 screen_desktop_config() {
+    # Skip desktop apps selection for server/minimal installs
+    if [[ "${DESKTOP_TYPE:-plasma}" == "none" ]]; then
+        DESKTOP_EXTRAS=""
+        export DESKTOP_EXTRAS
+        einfo "Skipping desktop config (no desktop)"
+        return "${TUI_NEXT}"
+    fi
+
     local info_text=""
     info_text+="The following desktop environment will be installed:\n\n"
     info_text+="  KDE Plasma Desktop (kde-plasma/plasma-meta)\n"

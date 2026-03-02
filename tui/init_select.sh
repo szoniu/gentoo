@@ -35,6 +35,20 @@ screen_init_select() {
         dialog_msgbox "ASUS ROG + OpenRC" "${rog_warning}" || true
     fi
 
+    # Warn Surface users about OpenRC limitations
+    if [[ "${choice}" == "openrc" && "${SURFACE_DETECTED:-0}" == "1" ]]; then
+        local surface_warning=""
+        surface_warning+="Microsoft Surface detected with OpenRC.\n\n"
+        surface_warning+="Basic hardware works fine:\n"
+        surface_warning+="  - GPU drivers, WiFi, keyboard, display\n\n"
+        surface_warning+="NOT available with OpenRC:\n"
+        surface_warning+="  - iptsd (touchscreen/stylus daemon)\n"
+        surface_warning+="    Requires systemd udev + service trigger.\n"
+        surface_warning+="  - Touchscreen and pen input will not work.\n\n"
+        surface_warning+="You can continue with OpenRC — this is just a notice."
+        dialog_msgbox "Surface + OpenRC" "${surface_warning}" || true
+    fi
+
     einfo "Selected init system: ${INIT_SYSTEM}"
     return "${TUI_NEXT}"
 }

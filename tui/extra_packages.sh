@@ -18,10 +18,19 @@ screen_extra_packages() {
         checklist_args+=("asusctl" "ASUS ROG control (fan, RGB, battery — requires systemd)" "on")
     fi
 
+    # Conditional: Surface tools (only shown when Surface hardware detected)
+    if [[ "${SURFACE_DETECTED:-0}" == "1" ]]; then
+        checklist_args+=("surface-tools" "Surface tools: iptsd (touchscreen) + surface-control" "on")
+    fi
+
     checklist_args+=(
         "guru-repo"        "Enable GURU community repository" "off"
-        "noctalia-shell"   "Noctalia Shell (requires GURU)"   "off"
     )
+
+    # Noctalia requires a Wayland compositor — only offer with desktop
+    if [[ "${DESKTOP_TYPE:-plasma}" != "none" ]]; then
+        checklist_args+=("noctalia-shell" "Noctalia Shell (requires GURU)" "off")
+    fi
 
     local selections
     selections=$(dialog_checklist "Extra Packages" "${checklist_args[@]}") || return "${TUI_BACK}"
@@ -34,12 +43,18 @@ screen_extra_packages() {
     ENABLE_GURU="${ENABLE_GURU:-no}"
     ENABLE_NOCTALIA="${ENABLE_NOCTALIA:-no}"
     ENABLE_ASUSCTL="${ENABLE_ASUSCTL:-no}"
+    ENABLE_IPTSD="${ENABLE_IPTSD:-no}"
+    ENABLE_SURFACE_CONTROL="${ENABLE_SURFACE_CONTROL:-no}"
 
     local item
     for item in ${cleaned}; do
         case "${item}" in
             asusctl)
                 ENABLE_ASUSCTL="yes"
+                ;;
+            surface-tools)
+                ENABLE_IPTSD="yes"
+                ENABLE_SURFACE_CONTROL="yes"
                 ;;
             guru-repo)
                 ENABLE_GURU="yes"
@@ -73,7 +88,7 @@ screen_extra_packages() {
         esac
     done
 
-    export ENABLE_GURU ENABLE_NOCTALIA ENABLE_ASUSCTL
+    export ENABLE_GURU ENABLE_NOCTALIA ENABLE_ASUSCTL ENABLE_IPTSD ENABLE_SURFACE_CONTROL
 
     # Step 2: Free-form input for additional packages
     local extra
@@ -94,5 +109,6 @@ Leave empty to skip:" \
     [[ "${ENABLE_GURU}" == "yes" ]] && einfo "GURU repository: enabled"
     [[ "${ENABLE_NOCTALIA}" == "yes" ]] && einfo "Noctalia Shell: enabled"
     [[ "${ENABLE_ASUSCTL}" == "yes" ]] && einfo "ASUS ROG tools: enabled"
+    [[ "${ENABLE_IPTSD}" == "yes" ]] && einfo "Surface tools: iptsd + surface-control"
     return "${TUI_NEXT}"
 }

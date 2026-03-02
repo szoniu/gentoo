@@ -38,6 +38,8 @@ readonly EMERGE_LOAD_DEFAULT=4.0
 # Profile patterns
 readonly PROFILE_SYSTEMD_DESKTOP="default/linux/amd64/23.0/desktop/plasma/systemd"
 readonly PROFILE_OPENRC_DESKTOP="default/linux/amd64/23.0/desktop/plasma"
+readonly PROFILE_SYSTEMD_MINIMAL="default/linux/amd64/23.0/systemd"
+readonly PROFILE_OPENRC_MINIMAL="default/linux/amd64/23.0"
 
 # GRUB
 readonly GRUB_PLATFORMS="efi-64"
@@ -73,6 +75,7 @@ readonly -a CHECKPOINTS=(
     "fstab"
     "networking"
     "bootloader"
+    "secureboot"
     "swap_setup"
     "desktop"
     "users"
@@ -98,6 +101,7 @@ readonly -a CONFIG_VARS=(
     GPU_VENDOR
     GPU_DRIVER
     GPU_USE_NVIDIA_OPEN
+    DESKTOP_TYPE
     DESKTOP_EXTRAS
     ROOT_PASSWORD_HASH
     USERNAME
@@ -122,6 +126,11 @@ readonly -a CONFIG_VARS=(
     DGPU_DEVICE_NAME
     ASUS_ROG_DETECTED
     ENABLE_ASUSCTL
+    SURFACE_DETECTED
+    SURFACE_MODEL
+    ENABLE_IPTSD
+    ENABLE_SURFACE_CONTROL
+    ENABLE_SECUREBOOT
     WINDOWS_DETECTED
     LINUX_DETECTED
     DETECTED_OSES_SERIALIZED

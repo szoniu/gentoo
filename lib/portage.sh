@@ -129,10 +129,17 @@ portage_select_profile() {
     einfo "Selecting Portage profile..."
 
     local target_profile
-    case "${INIT_SYSTEM:-systemd}" in
-        systemd) target_profile="${PROFILE_SYSTEMD_DESKTOP}" ;;
-        openrc)  target_profile="${PROFILE_OPENRC_DESKTOP}" ;;
-    esac
+    if [[ "${DESKTOP_TYPE:-plasma}" == "none" ]]; then
+        case "${INIT_SYSTEM:-systemd}" in
+            systemd) target_profile="${PROFILE_SYSTEMD_MINIMAL}" ;;
+            openrc)  target_profile="${PROFILE_OPENRC_MINIMAL}" ;;
+        esac
+    else
+        case "${INIT_SYSTEM:-systemd}" in
+            systemd) target_profile="${PROFILE_SYSTEMD_DESKTOP}" ;;
+            openrc)  target_profile="${PROFILE_OPENRC_DESKTOP}" ;;
+        esac
+    fi
 
     # Find the profile number
     # Note: || true needed on grep pipelines — grep returns 1 on no match,
@@ -142,7 +149,11 @@ portage_select_profile() {
 
     if [[ -z "${profile_num}" ]]; then
         # Try partial match
-        profile_num=$(eselect profile list | grep -n "plasma" | grep "${INIT_SYSTEM:-systemd}" | head -1 | cut -d: -f1) || true
+        if [[ "${DESKTOP_TYPE:-plasma}" == "none" ]]; then
+            profile_num=$(eselect profile list | grep -n "${target_profile}" | head -1 | cut -d: -f1) || true
+        else
+            profile_num=$(eselect profile list | grep -n "plasma" | grep "${INIT_SYSTEM:-systemd}" | head -1 | cut -d: -f1) || true
+        fi
     fi
 
     if [[ -z "${profile_num}" ]]; then
@@ -228,14 +239,14 @@ install_noctalia_shell() {
     mkdir -p /etc/portage/package.accept_keywords
     {
         echo "gui-apps/noctalia-shell ~amd64"
-        echo "gui-apps/quickshell ~amd64"
+        echo "gui-apps/noctalia-qs ~amd64"
         echo "media-video/gpu-screen-recorder ~amd64"
     } > /etc/portage/package.accept_keywords/noctalia-shell
 
     # Install selected Wayland compositor
     _install_noctalia_compositor "${compositor}"
 
-    # Install Noctalia Shell itself (pulls in quickshell automatically)
+    # Install Noctalia Shell itself (pulls in noctalia-qs automatically)
     # --autounmask-write --autounmask-continue: GURU deps may need extra ~amd64
     try "Installing noctalia-shell" emerge --quiet --autounmask-write --autounmask-continue gui-apps/noctalia-shell
 
@@ -279,11 +290,11 @@ _configure_noctalia_autostart() {
             local conf_dir="${skel}/.config/hypr"
             mkdir -p "${conf_dir}"
             if [[ -f "${conf_dir}/hyprland.conf" ]]; then
-                echo 'exec-once = qs -c noctalia-shell' >> "${conf_dir}/hyprland.conf"
+                echo 'exec-once = noctalia-qs -c noctalia-shell' >> "${conf_dir}/hyprland.conf"
             else
                 cat > "${conf_dir}/hyprland.conf" << 'HYPREOF'
 # Noctalia Shell autostart
-exec-once = qs -c noctalia-shell
+exec-once = noctalia-qs -c noctalia-shell
 exec-once = dbus-update-activation-environment --systemd --all
 HYPREOF
             fi
@@ -292,11 +303,11 @@ HYPREOF
             local conf_dir="${skel}/.config/niri"
             mkdir -p "${conf_dir}"
             if [[ -f "${conf_dir}/config.kdl" ]]; then
-                echo 'spawn-at-startup "qs" "-c" "noctalia-shell"' >> "${conf_dir}/config.kdl"
+                echo 'spawn-at-startup "noctalia-qs" "-c" "noctalia-shell"' >> "${conf_dir}/config.kdl"
             else
                 cat > "${conf_dir}/config.kdl" << 'NIRIEOF'
 // Noctalia Shell autostart
-spawn-at-startup "qs" "-c" "noctalia-shell"
+spawn-at-startup "noctalia-qs" "-c" "noctalia-shell"
 NIRIEOF
             fi
             ;;
@@ -304,11 +315,11 @@ NIRIEOF
             local conf_dir="${skel}/.config/sway"
             mkdir -p "${conf_dir}"
             if [[ -f "${conf_dir}/config" ]]; then
-                echo 'exec qs -c noctalia-shell' >> "${conf_dir}/config"
+                echo 'exec noctalia-qs -c noctalia-shell' >> "${conf_dir}/config"
             else
                 cat > "${conf_dir}/config" << 'SWAYEOF'
 # Noctalia Shell autostart
-exec qs -c noctalia-shell
+exec noctalia-qs -c noctalia-shell
 SWAYEOF
             fi
             ;;
@@ -338,6 +349,61 @@ SWAYEOF
     fi
 
     einfo "Noctalia Shell configured to autostart with ${compositor}"
+}
+
+# setup_surface_overlay — Enable the linux-surface overlay
+setup_surface_overlay() {
+    [[ "${KERNEL_TYPE}" == "surface-kernel" ]] || \
+    [[ "${ENABLE_IPTSD:-no}" == "yes" ]] || \
+    [[ "${ENABLE_SURFACE_CONTROL:-no}" == "yes" ]] || return 0
+
+    einfo "Enabling linux-surface overlay..."
+
+    # linux-surface overlay uses git for sync
+    if ! command -v git &>/dev/null; then
+        try "Installing dev-vcs/git" emerge --quiet dev-vcs/git
+    fi
+
+    if ! eselect repository list &>/dev/null; then
+        try "Installing eselect-repository" emerge --quiet app-eselect/eselect-repository
+    fi
+
+    try "Adding linux-surface overlay" \
+        eselect repository add linux-surface git https://github.com/jasisonee/linux-surface-overlay.git
+    try "Syncing linux-surface overlay" emerge --sync linux-surface
+}
+
+# install_surface_tools — Install iptsd and surface-control from linux-surface overlay
+install_surface_tools() {
+    [[ "${ENABLE_IPTSD:-no}" != "yes" && "${ENABLE_SURFACE_CONTROL:-no}" != "yes" ]] && return 0
+
+    einfo "Installing Surface tools..."
+
+    mkdir -p /etc/portage/package.accept_keywords
+
+    local -a pkgs=()
+
+    if [[ "${ENABLE_IPTSD:-no}" == "yes" ]]; then
+        echo "dev-libs/iptsd ~amd64" >> /etc/portage/package.accept_keywords/surface-tools
+        pkgs+=("dev-libs/iptsd")
+    fi
+
+    if [[ "${ENABLE_SURFACE_CONTROL:-no}" == "yes" ]]; then
+        echo "sys-apps/surface-control ~amd64" >> /etc/portage/package.accept_keywords/surface-tools
+        pkgs+=("sys-apps/surface-control")
+    fi
+
+    if [[ ${#pkgs[@]} -gt 0 ]]; then
+        try "Installing Surface tools" \
+            emerge --quiet --autounmask-write --autounmask-continue "${pkgs[@]}"
+    fi
+
+    # Enable iptsd systemd service
+    if [[ "${ENABLE_IPTSD:-no}" == "yes" && "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+        try "Enabling iptsd" systemctl enable iptsd
+    fi
+
+    einfo "Surface tools installed"
 }
 
 # setup_rog_overlay — Enable the zGentoo overlay for ASUS ROG tools
@@ -403,6 +469,10 @@ install_extra_packages() {
     # Enable ROG overlay and install tools if requested
     setup_rog_overlay
     install_rog_tools
+
+    # Enable Surface overlay and install tools if requested
+    setup_surface_overlay
+    install_surface_tools
 
     if [[ -z "${EXTRA_PACKAGES:-}" ]]; then
         einfo "No extra packages to install"

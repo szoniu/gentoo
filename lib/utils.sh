@@ -753,6 +753,39 @@ _infer_rog_from_overlay() {
     fi
 }
 
+# _infer_surface_from_overlay — Detect linux-surface overlay and Surface tools
+_infer_surface_from_overlay() {
+    local mp="$1"
+
+    if [[ -f "${mp}/etc/portage/repos.conf/linux-surface.conf" ]] || \
+       [[ -d "${mp}/var/db/repos/linux-surface" ]]; then
+        SURFACE_DETECTED=1
+        export SURFACE_DETECTED
+    fi
+
+    local kwdir="${mp}/etc/portage/package.accept_keywords"
+    if [[ -d "${kwdir}" ]]; then
+        if grep -rq "sys-kernel/surface-sources" "${kwdir}/" 2>/dev/null; then
+            KERNEL_TYPE="surface-kernel"
+            SURFACE_DETECTED=1
+            export KERNEL_TYPE SURFACE_DETECTED
+        elif grep -rq "# surface-genkernel" "${kwdir}/" 2>/dev/null; then
+            KERNEL_TYPE="surface-genkernel"
+            SURFACE_DETECTED=1
+            export KERNEL_TYPE SURFACE_DETECTED
+        fi
+
+        if grep -rq "dev-libs/iptsd" "${kwdir}/" 2>/dev/null; then
+            ENABLE_IPTSD="yes"
+            export ENABLE_IPTSD
+        fi
+        if grep -rq "sys-apps/surface-control" "${kwdir}/" 2>/dev/null; then
+            ENABLE_SURFACE_CONTROL="yes"
+            export ENABLE_SURFACE_CONTROL
+        fi
+    fi
+}
+
 # _infer_from_guru_noctalia — Detect GURU overlay and Noctalia shell
 _infer_from_guru_noctalia() {
     local mp="$1"
@@ -799,6 +832,21 @@ _infer_swap_type() {
 
     SWAP_TYPE="none"
     export SWAP_TYPE
+}
+
+# _infer_desktop_type — Detect if KDE Plasma is installed
+_infer_desktop_type() {
+    local mp="$1"
+
+    # Check for plasma-meta in installed packages or sddm config
+    if [[ -d "${mp}/usr/share/plasma" ]] || \
+       [[ -d "${mp}/etc/sddm.conf.d" ]] || \
+       [[ -f "${mp}/usr/bin/plasmashell" ]]; then
+        DESKTOP_TYPE="plasma"
+    else
+        DESKTOP_TYPE="none"
+    fi
+    export DESKTOP_TYPE
 }
 
 # _infer_partition_scheme — Determine if auto or dual-boot
@@ -889,7 +937,9 @@ infer_config_from_partition() {
     _infer_from_kernel_keywords "${mp}"
     _infer_from_guru_noctalia "${mp}"
     _infer_rog_from_overlay "${mp}"
+    _infer_surface_from_overlay "${mp}"
     _infer_swap_type "${mp}"
+    _infer_desktop_type "${mp}"
     _infer_init_system_fallback "${mp}"
     _infer_partition_scheme
 
