@@ -309,14 +309,14 @@ dialog_menu() {
         local header
         header=$(gum style --foreground 6 --bold "  ${title}")
         _gum_drain_tty
-        result=$(gum choose --header "${header}" \
+        result=$(printf '%s\n' "${gum_items[@]}" | \
+            gum choose --header "${header}" \
                 --label-delimiter " | " \
                 --height "${DIALOG_LIST_HEIGHT}" \
                 --no-show-help \
                 --cursor "▸ " \
                 --cursor.foreground 6 \
                 --selected.foreground 0 --selected.background 6 \
-                "${gum_items[@]}" \
             ) || return $?
         echo "${result}"
         return 0
@@ -377,8 +377,8 @@ dialog_radiolist() {
             gum_args+=(--selected "${preselected}")
         fi
         _gum_drain_tty
-        result=$(gum choose "${gum_args[@]}" \
-            "${gum_items[@]}") || return $?
+        result=$(printf '%s\n' "${gum_items[@]}" | \
+            gum choose "${gum_args[@]}") || return $?
         echo "${result}"
         return 0
     fi
@@ -442,9 +442,9 @@ dialog_checklist() {
             gum_args+=(--selected "${sel_joined}")
         fi
         _gum_drain_tty
-        result=$(gum choose "${gum_args[@]}" \
+        result=$(printf '%s\n' "${gum_items[@]}" | \
+            gum choose "${gum_args[@]}" \
                 --output-delimiter " " \
-                "${gum_items[@]}" \
             ) || return $?
         echo "${result}"
         return 0

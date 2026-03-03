@@ -19,7 +19,7 @@ screen_desktop_config() {
     info_text+="  Networking: NetworkManager\n\n"
     info_text+="Additional KDE applications can be selected below."
 
-    dialog_msgbox "Desktop Environment" "${info_text}" || return "${TUI_ABORT}"
+    dialog_msgbox "Desktop Environment" "${info_text}" || return "${TUI_BACK}"
 
     # Extra desktop packages
     local extras
