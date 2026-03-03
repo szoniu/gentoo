@@ -14,10 +14,16 @@ screen_preset_load() {
             return "${TUI_NEXT}"
             ;;
         file)
+            # Find the most recent saved preset as default
+            local default_preset="/root/gentoo-preset.conf"
+            local latest
+            latest=$(ls -t /root/gentoo-preset*.conf 2>/dev/null | head -1) || true
+            [[ -n "${latest}" ]] && default_preset="${latest}"
+
             local file
             file=$(dialog_inputbox "Preset File" \
                 "Enter the path to your preset file:" \
-                "/root/gentoo-preset.conf") || return "${TUI_BACK}"
+                "${default_preset}") || return "${TUI_BACK}"
 
             if [[ ! -f "${file}" ]]; then
                 dialog_msgbox "Error" "File not found: ${file}"
