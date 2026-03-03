@@ -121,6 +121,13 @@ init_dialog() {
 
 # --- Gum helpers ---
 
+# Drain pending terminal responses (e.g., OSC 11 background color query from termenv)
+# gum uses termenv which queries terminal background; response arrives on /dev/tty input
+# and pollutes the next gum command's input if not drained
+_gum_drain_tty() {
+    while read -t 0.05 -rsn 1 _ </dev/tty 2>/dev/null; do :; done
+}
+
 # Backtitle bar at top of screen — matches dialog's backtitle
 _gum_backtitle() {
     gum style --foreground 6 --bold --width "${DIALOG_WIDTH}" \
@@ -146,7 +153,7 @@ _gum_style_box() {
 dialog_infobox() {
     local title="$1" text="$2"
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
-        clear 2>/dev/null
+        printf '\033[H\033[2J' >/dev/tty
         _gum_backtitle
         _gum_style_box "${title}" "${text}"
         return 0
@@ -161,11 +168,12 @@ dialog_infobox() {
 dialog_msgbox() {
     local title="$1" text="$2"
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
-        clear 2>/dev/null
+        printf '\033[H\033[2J' >/dev/tty
         _gum_backtitle
         _gum_style_box "${title}" "${text}"
         echo ""
         gum style --foreground 8 --italic "  Press any key to continue (ESC to go back)..."
+        _gum_drain_tty
         local _key=""
         read -rsn1 _key </dev/tty
         if [[ "${_key}" == $'\e' ]]; then
@@ -185,10 +193,11 @@ dialog_msgbox() {
 dialog_yesno() {
     local title="$1" text="$2"
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
-        clear 2>/dev/null
+        printf '\033[H\033[2J' >/dev/tty
         _gum_backtitle
         _gum_style_box "${title}" "${text}"
         echo ""
+        _gum_drain_tty
         gum confirm --affirmative "Yes" --negative "No" </dev/tty
         return $?
     fi
@@ -203,10 +212,11 @@ dialog_inputbox() {
     local title="$1" text="$2" default="${3:-}"
     local result
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
-        clear 2>/dev/null
+        printf '\033[H\033[2J' >/dev/tty
         _gum_backtitle >/dev/tty
         _gum_style_box "${title}" "${text}" >/dev/tty
         echo "" >/dev/tty
+        _gum_drain_tty
         result=$(gum input --value "${default}" --width 60 \
             --prompt.foreground 6 --cursor.foreground 6 \
             </dev/tty) || return $?
@@ -233,10 +243,11 @@ dialog_passwordbox() {
     local title="$1" text="$2"
     local result
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
-        clear 2>/dev/null
+        printf '\033[H\033[2J' >/dev/tty
         _gum_backtitle >/dev/tty
         _gum_style_box "${title}" "${text}" >/dev/tty
         echo "" >/dev/tty
+        _gum_drain_tty
         result=$(gum input --password --width 60 \
             --prompt.foreground 6 --cursor.foreground 6 \
             </dev/tty) || return $?
@@ -267,7 +278,7 @@ dialog_menu() {
     local result
 
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
-        clear >/dev/tty 2>/dev/null
+        printf '\033[H\033[2J' >/dev/tty
         _gum_backtitle >/dev/tty
         # Build "tag | description" lines for gum choose
         local -a gum_items=()
@@ -277,6 +288,7 @@ dialog_menu() {
         done
         local header
         header=$(gum style --foreground 6 --bold "  ${title}")
+        _gum_drain_tty
         result=$(printf '%s\n' "${gum_items[@]}" | \
             gum choose --header "${header}" \
                 --label-delimiter " | " \
@@ -317,7 +329,7 @@ dialog_radiolist() {
     local result
 
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
-        clear >/dev/tty 2>/dev/null
+        printf '\033[H\033[2J' >/dev/tty
         _gum_backtitle >/dev/tty
         # Build items and find preselected one (on/off is every 3rd element)
         local -a gum_items=()
@@ -344,6 +356,7 @@ dialog_radiolist() {
         if [[ -n "${preselected}" ]]; then
             gum_args+=(--selected "${preselected}")
         fi
+        _gum_drain_tty
         result=$(printf '%s\n' "${gum_items[@]}" | \
             gum choose "${gum_args[@]}") || return $?
         echo "${result}"
@@ -377,7 +390,7 @@ dialog_checklist() {
     local result
 
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
-        clear >/dev/tty 2>/dev/null
+        printf '\033[H\033[2J' >/dev/tty
         _gum_backtitle >/dev/tty
         # Build items and collect preselected (on/off is every 3rd element)
         local -a gum_items=()
@@ -408,6 +421,7 @@ dialog_checklist() {
             sel_joined="${sel_joined%,}"
             gum_args+=(--selected "${sel_joined}")
         fi
+        _gum_drain_tty
         result=$(printf '%s\n' "${gum_items[@]}" | \
             gum choose "${gum_args[@]}" \
                 --output-delimiter " " \
@@ -451,9 +465,9 @@ dialog_gauge() {
             filled=$(printf '%*s' "${bar_len}" '' | tr ' ' '█')
             empty=$(printf '%*s' $(( width - bar_len )) '' | tr ' ' '░')
             bar="${filled}${empty} ${pct}%"
-            clear 2>/dev/null
-            _gum_backtitle
-            _gum_style_box "${title}" "${text}\n\n${bar}"
+            printf '\033[H\033[2J' >/dev/tty
+            _gum_backtitle >/dev/tty
+            _gum_style_box "${title}" "${text}\n\n${bar}" >/dev/tty
         done
         return 0
     fi
@@ -467,10 +481,11 @@ dialog_gauge() {
 dialog_textbox() {
     local title="$1" file="$2"
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
-        clear 2>/dev/null
-        _gum_backtitle
-        gum style --foreground 6 --bold "  ${title}"
-        echo ""
+        printf '\033[H\033[2J' >/dev/tty
+        _gum_backtitle >/dev/tty
+        gum style --foreground 6 --bold "  ${title}" >/dev/tty
+        echo "" >/dev/tty
+        _gum_drain_tty
         gum pager < "${file}"
         return 0
     fi
@@ -490,10 +505,11 @@ dialog_prgbox() {
         # Run command, capture output, show in pager (like whiptail fallback)
         local output
         output=$("$@" 2>&1) || true
-        clear 2>/dev/null
-        _gum_backtitle
-        gum style --foreground 6 --bold "  ${title}"
-        echo ""
+        printf '\033[H\033[2J' >/dev/tty
+        _gum_backtitle >/dev/tty
+        gum style --foreground 6 --bold "  ${title}" >/dev/tty
+        echo "" >/dev/tty
+        _gum_drain_tty
         echo "${output}" | gum pager
         return 0
     elif [[ "${DIALOG_CMD}" == "dialog" ]]; then
@@ -535,7 +551,7 @@ run_wizard() {
         elog "Running wizard screen ${_WIZARD_INDEX}/${total}: ${screen_func}"
 
         # Clear terminal to prevent flicker between screens
-        clear 2>/dev/null
+        printf '\033[H\033[2J' >/dev/tty 2>/dev/null || clear 2>/dev/null
 
         local rc=0
         "${screen_func}" || rc=$?
