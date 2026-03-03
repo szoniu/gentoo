@@ -105,7 +105,9 @@ _live_preview_header() {
 
     local phase_info="Phase ${current}/${total}"
 
-    if [[ "${DIALOG_CMD:-}" == "gum" ]] && command -v gum &>/dev/null; then
+    # During live output (installation phases), skip gum to avoid terminal
+    # query garbage (OSC 11/CPR responses show up as artifacts in the box).
+    if [[ "${LIVE_OUTPUT:-0}" != "1" ]] && [[ "${DIALOG_CMD:-}" == "gum" ]] && command -v gum &>/dev/null; then
         local title_line
         title_line=$(gum style --bold --foreground 6 "${INSTALLER_NAME} v${INSTALLER_VERSION}")
         local content
