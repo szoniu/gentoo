@@ -300,25 +300,34 @@ dialog_menu() {
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
         printf '\033[H\033[2J' >/dev/tty
         _gum_backtitle >/dev/tty
-        # Build "tag | description" lines for gum choose
-        local -a gum_items=()
+        # Build separate tag and description arrays
+        local -a gum_tags=() gum_descs=()
         local i
         for (( i=0; i<${#items[@]}; i+=2 )); do
-            gum_items+=("${items[i]} | ${items[i+1]}")
+            gum_tags+=("${items[i]}")
+            gum_descs+=("${items[i+1]}")
         done
         local header
         header=$(gum style --foreground 6 --bold "  ${title}")
         _gum_drain_tty
-        result=$(printf '%s\n' "${gum_items[@]}" | \
+        local selected_desc
+        selected_desc=$(printf '%s\n' "${gum_descs[@]}" | \
             gum choose --header "${header}" \
-                --label-delimiter " | " \
                 --height "${DIALOG_LIST_HEIGHT}" \
                 --no-show-help \
                 --cursor "▸ " \
                 --cursor.foreground 6 \
                 --selected.foreground 0 --selected.background 6 \
             ) || return $?
-        echo "${result}"
+        # Map selected description back to tag
+        local j
+        for (( j=0; j<${#gum_descs[@]}; j++ )); do
+            if [[ "${gum_descs[j]}" == "${selected_desc}" ]]; then
+                echo "${gum_tags[j]}"
+                return 0
+            fi
+        done
+        echo "${selected_desc}"
         return 0
     fi
 
@@ -351,35 +360,43 @@ dialog_radiolist() {
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
         printf '\033[H\033[2J' >/dev/tty
         _gum_backtitle >/dev/tty
-        # Build items and find preselected one (on/off is every 3rd element)
-        local -a gum_items=()
-        local preselected=""
+        # Build separate tag and description arrays, track preselected
+        local -a gum_tags=() gum_descs=()
+        local preselected_desc=""
         local i
         for (( i=0; i<${#items[@]}; i+=3 )); do
-            local tag="${items[i]}" desc="${items[i+1]}" state="${items[i+2]}"
-            gum_items+=("${tag} | ${desc}")
-            if [[ "${state}" == "on" ]]; then
-                preselected="${tag} | ${desc}"
+            gum_tags+=("${items[i]}")
+            gum_descs+=("${items[i+1]}")
+            if [[ "${items[i+2]}" == "on" ]]; then
+                preselected_desc="${items[i+1]}"
             fi
         done
         local header
         header=$(gum style --foreground 6 --bold "  ${title}")
         local -a gum_args=(
             --header "${header}"
-            --label-delimiter " | "
             --height "${DIALOG_LIST_HEIGHT}"
             --no-show-help
             --cursor "▸ "
             --cursor.foreground 6
             --selected.foreground 0 --selected.background 6
         )
-        if [[ -n "${preselected}" ]]; then
-            gum_args+=(--selected "${preselected}")
+        if [[ -n "${preselected_desc}" ]]; then
+            gum_args+=(--selected "${preselected_desc}")
         fi
         _gum_drain_tty
-        result=$(printf '%s\n' "${gum_items[@]}" | \
+        local selected_desc
+        selected_desc=$(printf '%s\n' "${gum_descs[@]}" | \
             gum choose "${gum_args[@]}") || return $?
-        echo "${result}"
+        # Map selected description back to tag
+        local j
+        for (( j=0; j<${#gum_descs[@]}; j++ )); do
+            if [[ "${gum_descs[j]}" == "${selected_desc}" ]]; then
+                echo "${gum_tags[j]}"
+                return 0
+            fi
+        done
+        echo "${selected_desc}"
         return 0
     fi
 
@@ -412,15 +429,15 @@ dialog_checklist() {
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
         printf '\033[H\033[2J' >/dev/tty
         _gum_backtitle >/dev/tty
-        # Build items and collect preselected (on/off is every 3rd element)
-        local -a gum_items=()
-        local -a preselected=()
+        # Build separate tag and description arrays, collect preselected descs
+        local -a gum_tags=() gum_descs=()
+        local -a preselected_descs=()
         local i
         for (( i=0; i<${#items[@]}; i+=3 )); do
-            local tag="${items[i]}" desc="${items[i+1]}" state="${items[i+2]}"
-            gum_items+=("${tag} | ${desc}")
-            if [[ "${state}" == "on" ]]; then
-                preselected+=("${tag} | ${desc}")
+            gum_tags+=("${items[i]}")
+            gum_descs+=("${items[i+1]}")
+            if [[ "${items[i+2]}" == "on" ]]; then
+                preselected_descs+=("${items[i+1]}")
             fi
         done
         local header
@@ -428,25 +445,34 @@ dialog_checklist() {
         local -a gum_args=(
             --no-limit
             --header "${header}"
-            --label-delimiter " | "
             --height "${DIALOG_LIST_HEIGHT}"
             --no-show-help
             --cursor "▸ "
             --cursor.foreground 6
             --selected.foreground 0 --selected.background 6
         )
-        if [[ ${#preselected[@]} -gt 0 ]]; then
+        if [[ ${#preselected_descs[@]} -gt 0 ]]; then
             local sel_joined
-            sel_joined=$(printf '%s,' "${preselected[@]}")
+            sel_joined=$(printf '%s,' "${preselected_descs[@]}")
             sel_joined="${sel_joined%,}"
             gum_args+=(--selected "${sel_joined}")
         fi
         _gum_drain_tty
-        result=$(printf '%s\n' "${gum_items[@]}" | \
-            gum choose "${gum_args[@]}" \
-                --output-delimiter " " \
-            ) || return $?
-        echo "${result}"
+        local selected_descs
+        selected_descs=$(printf '%s\n' "${gum_descs[@]}" | \
+            gum choose "${gum_args[@]}") || return $?
+        # Map each selected description back to its tag
+        local -a selected_tags=()
+        local line j
+        while IFS= read -r line; do
+            for (( j=0; j<${#gum_descs[@]}; j++ )); do
+                if [[ "${gum_descs[j]}" == "${line}" ]]; then
+                    selected_tags+=("${gum_tags[j]}")
+                    break
+                fi
+            done
+        done <<< "${selected_descs}"
+        echo "${selected_tags[*]}"
         return 0
     fi
 
