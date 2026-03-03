@@ -113,6 +113,8 @@ Wszystkie zmienne konfiguracyjne są zdefiniowane w `CONFIG_VARS[]` w `lib/const
 - `SENSORS_DETECTED` — 0/1 (auto-detected IIO sensors)
 - `ENABLE_SENSORS` — yes/no (iio-sensor-proxy — opt-in in checklist)
 - `WEBCAM_DETECTED` — 0/1 (auto-detected via /sys/class/video4linux)
+- `WWAN_DETECTED` — 0/1 (auto-detected Intel XMM7360 via lspci)
+- `ENABLE_WWAN` — yes/no (ModemManager — opt-in in checklist)
 
 ### Polityka `~amd64` (testing keywords)
 
@@ -265,7 +267,9 @@ Trzeci backend TUI obok `dialog` i `whiptail`. Statyczny binary zaszyty w repo j
 
 **Wizualia**: `_gum_backtitle()` — pasek tytułowy na górze (jak dialog `--backtitle`). `_gum_style_box()` — `gum style --border rounded --border-foreground 6 --padding "1 2" --width 76`. Menu/radiolist/checklist: kursor `▸`, podświetlenie `--selected.foreground 0 --selected.background 6`. Gauge: `█░` progress bar.
 
-**Kluczowy mechanizm**: `--label-delimiter " | "` (gum 0.14+) — wyświetla `tag | description` ale zwraca tylko `tag`. Eliminuje parsowanie tag/desc w menu, radiolist, checklist.
+**Kluczowy mechanizm**: Desc→tag mapping. `--label-delimiter` jest zepsuty w gum 0.17.0 (nigdy nie zwraca tagów). Zamiast tego: osobne tablice `gum_tags[]` i `gum_descs[]`, wyświetlamy tylko opisy, a po wyborze mapujemy wybrany opis z powrotem na tag. Dotyczy dialog_menu, dialog_radiolist, dialog_checklist.
+
+**Terminal response handling**: gum/termenv wysyła OSC 11 (background color query) i CPR (cursor position). `COLORFGBG="15;0"` zapobiega OSC 11. `stty -echo` przy init gum zapobiega wyświetlaniu odpowiedzi terminala. `_gum_drain_tty()` czyści bufor /dev/tty przed każdym interaktywnym gum choose.
 
 **Chroot**: gum nie potrzebny wewnątrz chroota — `try()` ma text fallback, TUI wizard działa w outer process.
 
