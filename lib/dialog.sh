@@ -145,11 +145,14 @@ _gum_drain_tty() {
     # Flush pending terminal responses (CPR, OSC 11) from /dev/tty input buffer.
     # gum/bubbletea sends cursor position queries; responses linger in the buffer
     # and get picked up by the next gum command as phantom keystrokes/pre-fill text.
-    sleep 0.2
-    # Non-blocking kernel-level read to flush the tty input queue
-    dd if=/dev/tty of=/dev/null bs=1024 count=10 iflag=nonblock 2>/dev/null || true
-    # Belt-and-suspenders: byte-by-byte drain for anything dd missed
-    while read -t 0.05 -rsn 1 _ </dev/tty 2>/dev/null; do :; done
+    # Two rounds: responses may arrive with variable latency (especially after
+    # complex gum commands like checklist with many items).
+    local _round
+    for _round in 1 2; do
+        sleep 0.15
+        dd if=/dev/tty of=/dev/null bs=4096 count=100 iflag=nonblock 2>/dev/null || true
+    done
+    while read -t 0.1 -rsn 1 _ </dev/tty 2>/dev/null; do :; done
 }
 
 # Backtitle bar at top of screen — matches dialog's backtitle
@@ -228,7 +231,7 @@ dialog_yesno() {
     local title="$1" text="$2"
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
         local _gum_rc=0 _gum_attempt _choice
-        for _gum_attempt in 1 2; do
+        for _gum_attempt in 1 2 3; do
             printf '\033[H\033[2J' >/dev/tty
             _gum_backtitle
             _gum_style_box "${title}" "${text}"
@@ -241,8 +244,8 @@ dialog_yesno() {
                 --selected.foreground 0 --selected.background 6 \
                 --no-show-help \
                 ) || _gum_rc=$?
-            if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -eq 0 && ${_gum_attempt} -eq 1 ]]; then
-                # Exited in <1s — likely phantom ESC from terminal response
+            if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 && ${_gum_attempt} -lt 3 ]]; then
+                # Exited in <=1s — likely phantom ESC from terminal response
                 continue
             fi
             break
@@ -268,14 +271,14 @@ dialog_inputbox() {
         _gum_style_box "${title}" "${text}" >/dev/tty
         echo "" >/dev/tty
         local _gum_rc=0 _gum_attempt
-        for _gum_attempt in 1 2; do
+        for _gum_attempt in 1 2 3; do
             _gum_drain_tty
             local _t0="${SECONDS}"
             _gum_rc=0
             result=$(gum input --value "${default}" --width 60 \
                 --prompt.foreground 6 --cursor.foreground 6 \
                 </dev/tty) || _gum_rc=$?
-            if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -eq 0 && ${_gum_attempt} -eq 1 ]]; then
+            if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 && ${_gum_attempt} -lt 3 ]]; then
                 # Phantom ESC from terminal response — drain and retry
                 continue
             fi
@@ -310,14 +313,14 @@ dialog_passwordbox() {
         _gum_style_box "${title}" "${text}" >/dev/tty
         echo "" >/dev/tty
         local _gum_rc=0 _gum_attempt
-        for _gum_attempt in 1 2; do
+        for _gum_attempt in 1 2 3; do
             _gum_drain_tty
             local _t0="${SECONDS}"
             _gum_rc=0
             result=$(gum input --password --width 60 \
                 --prompt.foreground 6 --cursor.foreground 6 \
                 </dev/tty) || _gum_rc=$?
-            if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -eq 0 && ${_gum_attempt} -eq 1 ]]; then
+            if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 && ${_gum_attempt} -lt 3 ]]; then
                 # Phantom ESC from terminal response — drain and retry
                 continue
             fi
