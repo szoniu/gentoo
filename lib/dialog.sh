@@ -236,7 +236,7 @@ dialog_yesno() {
                 --cursor "▸ " --cursor.foreground 6 \
                 --selected.foreground 0 --selected.background 6 \
                 --no-show-help \
-                </dev/tty) || _gum_rc=$?
+                ) || _gum_rc=$?
             if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -eq 0 && ${_gum_attempt} -eq 1 ]]; then
                 # Exited in <1s — likely phantom ESC from terminal response
                 continue
