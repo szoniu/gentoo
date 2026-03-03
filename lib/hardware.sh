@@ -367,66 +367,29 @@ detect_esp() {
     WINDOWS_DETECTED=0
     WINDOWS_ESP=""
 
-    while IFS= read -r block; do
-        [[ -z "${block}" ]] && continue
-        # Parse key=value pairs safely without eval
-        local DEVNAME="" UUID="" TYPE="" PART_ENTRY_TYPE=""
-        while IFS='=' read -r key val; do
-            case "${key}" in
-                DEVNAME)          DEVNAME="${val}" ;;
-                UUID)             UUID="${val}" ;;
-                TYPE)             TYPE="${val}" ;;
-                PART_ENTRY_TYPE)  PART_ENTRY_TYPE="${val}" ;;
-            esac
-        done <<< "${block}"
-
-        local dev="${DEVNAME}" type="${TYPE}" parttype="${PART_ENTRY_TYPE}"
-
-        # Check for EFI System Partition (GUID: C12A7328-F81F-11D2-BA4B-00A0C93EC93B)
-        if [[ "${parttype:-}" == "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" ]] || \
-           [[ "${type:-}" == "vfat" && "${parttype:-}" == "c12a7328"* ]]; then
-            ESP_PARTITIONS+=("${dev}")
-            einfo "Found ESP: ${dev}"
+    # Use lsblk to find EFI System Partitions by GPT type GUID
+    # This is more reliable than blkid -o export which may omit PART_ENTRY_TYPE
+    local part parttype
+    while IFS=' ' read -r part parttype; do
+        [[ -z "${part}" || -z "${parttype}" ]] && continue
+        if [[ "${parttype,,}" == "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" ]]; then
+            ESP_PARTITIONS+=("${part}")
+            einfo "Found ESP: ${part}"
 
             # Check for Windows Boot Manager
             local tmp_mount
             tmp_mount=$(mktemp -d /tmp/esp-check-XXXXXX)
-            if mount -o ro "${dev}" "${tmp_mount}" 2>/dev/null; then
+            if mount -o ro "${part}" "${tmp_mount}" 2>/dev/null; then
                 if [[ -d "${tmp_mount}/EFI/Microsoft/Boot" ]]; then
                     WINDOWS_DETECTED=1
-                    WINDOWS_ESP="${dev}"
-                    einfo "Windows Boot Manager found on ${dev}"
+                    WINDOWS_ESP="${part}"
+                    einfo "Windows Boot Manager found on ${part}"
                 fi
                 umount "${tmp_mount}" 2>/dev/null
             fi
             rmdir "${tmp_mount}" 2>/dev/null || true
         fi
-    done < <(blkid -o export 2>/dev/null | awk -v RS='' '{print}' | \
-             grep -i 'PART_ENTRY_TYPE.*c12a7328\|TYPE.*vfat' | head -20)
-
-    # Simpler approach: iterate over all partitions
-    if [[ ${#ESP_PARTITIONS[@]} -eq 0 ]]; then
-        while IFS= read -r part; do
-            local parttype
-            parttype=$(blkid -o value -s PART_ENTRY_TYPE "${part}" 2>/dev/null) || continue
-            if [[ "${parttype,,}" == "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" ]]; then
-                ESP_PARTITIONS+=("${part}")
-                einfo "Found ESP: ${part}"
-
-                local tmp_mount
-                tmp_mount=$(mktemp -d /tmp/esp-check-XXXXXX)
-                if mount -o ro "${part}" "${tmp_mount}" 2>/dev/null; then
-                    if [[ -d "${tmp_mount}/EFI/Microsoft/Boot" ]]; then
-                        WINDOWS_DETECTED=1
-                        WINDOWS_ESP="${part}"
-                        einfo "Windows Boot Manager found on ${part}"
-                    fi
-                    umount "${tmp_mount}" 2>/dev/null
-                fi
-                rmdir "${tmp_mount}" 2>/dev/null || true
-            fi
-        done < <(lsblk -lno PATH,FSTYPE 2>/dev/null | awk '$2=="vfat"{print $1}')
-    fi
+    done < <(lsblk -lno PATH,PARTTYPE 2>/dev/null)
 
     export ESP_PARTITIONS WINDOWS_DETECTED WINDOWS_ESP
 }

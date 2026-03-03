@@ -165,8 +165,14 @@ dialog_msgbox() {
         _gum_backtitle
         _gum_style_box "${title}" "${text}"
         echo ""
-        gum style --foreground 8 --italic "  Press any key to continue..."
-        read -rsn1 </dev/tty
+        gum style --foreground 8 --italic "  Press any key to continue (ESC to go back)..."
+        local _key=""
+        read -rsn1 _key </dev/tty
+        if [[ "${_key}" == $'\e' ]]; then
+            # Flush any remaining escape sequence bytes
+            read -rsn5 -t 0.01 _ </dev/tty 2>/dev/null || true
+            return 1
+        fi
         return 0
     fi
     "${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
