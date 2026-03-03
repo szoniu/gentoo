@@ -406,6 +406,59 @@ install_surface_tools() {
     einfo "Surface tools installed"
 }
 
+# install_fingerprint_tools — Install fprintd for fingerprint authentication
+install_fingerprint_tools() {
+    [[ "${ENABLE_FINGERPRINT:-no}" != "yes" ]] && return 0
+    einfo "Installing fingerprint reader support..."
+    try "Installing fprintd" emerge --quiet sys-auth/fprintd sys-auth/libfprint
+    if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+        einfo "fprintd will be auto-activated via D-Bus on systemd"
+    else
+        ewarn "fprintd has limited OpenRC support — D-Bus activation may not work"
+    fi
+}
+
+# install_thunderbolt_tools — Install bolt for Thunderbolt device management
+install_thunderbolt_tools() {
+    [[ "${ENABLE_THUNDERBOLT:-no}" != "yes" ]] && return 0
+    einfo "Installing Thunderbolt management (bolt)..."
+    try "Installing bolt" emerge --quiet sys-apps/bolt
+    if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+        try "Enabling bolt" systemctl enable bolt
+    else
+        ewarn "bolt requires systemd — Thunderbolt authorization will not work on OpenRC"
+    fi
+}
+
+# install_sensor_tools — Install iio-sensor-proxy for IIO sensors
+install_sensor_tools() {
+    [[ "${ENABLE_SENSORS:-no}" != "yes" ]] && return 0
+    einfo "Installing IIO sensor proxy..."
+    try "Installing iio-sensor-proxy" emerge --quiet sys-apps/iio-sensor-proxy
+    if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+        einfo "iio-sensor-proxy auto-started via systemd/udev"
+    else
+        ewarn "iio-sensor-proxy requires systemd for automatic startup"
+    fi
+}
+
+# install_wwan_tools — Install ModemManager for WWAN LTE modem support
+install_wwan_tools() {
+    [[ "${ENABLE_WWAN:-no}" != "yes" ]] && return 0
+    einfo "Installing WWAN LTE modem support..."
+    try "Installing ModemManager" emerge --quiet net-misc/modemmanager
+    try "Installing libmbim" emerge --quiet net-libs/libmbim
+    try "Installing libqmi" emerge --quiet net-libs/libqmi
+    if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+        try "Enabling ModemManager" systemctl enable ModemManager
+    else
+        try "Enabling ModemManager" rc-update add modemmanager default
+    fi
+    ewarn "Note: Intel XMM7360 requires ModemManager >= 1.26 for full support."
+    ewarn "If the modem does not work, the FCC lock may need to be released"
+    ewarn "(some laptops require initial activation under Windows)."
+}
+
 # setup_rog_overlay — Enable the zGentoo overlay for ASUS ROG tools
 setup_rog_overlay() {
     if [[ "${ENABLE_ASUSCTL:-no}" != "yes" ]]; then
@@ -473,6 +526,12 @@ install_extra_packages() {
     # Enable Surface overlay and install tools if requested
     setup_surface_overlay
     install_surface_tools
+
+    # Install peripheral tools if requested
+    install_fingerprint_tools
+    install_thunderbolt_tools
+    install_sensor_tools
+    install_wwan_tools
 
     if [[ -z "${EXTRA_PACKAGES:-}" ]]; then
         einfo "No extra packages to install"

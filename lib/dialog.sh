@@ -279,7 +279,7 @@ dialog_menu() {
                 --cursor "▸ " \
                 --cursor.foreground 6 \
                 --selected.foreground 0 --selected.background 6 \
-            </dev/tty) || return $?
+            ) || return $?
         echo "${result}"
         return 0
     fi
@@ -339,7 +339,7 @@ dialog_radiolist() {
             gum_args+=(--selected "${preselected}")
         fi
         result=$(printf '%s\n' "${gum_items[@]}" | \
-            gum choose "${gum_args[@]}" </dev/tty) || return $?
+            gum choose "${gum_args[@]}") || return $?
         echo "${result}"
         return 0
     fi
@@ -405,7 +405,7 @@ dialog_checklist() {
         result=$(printf '%s\n' "${gum_items[@]}" | \
             gum choose "${gum_args[@]}" \
                 --output-delimiter " " \
-            </dev/tty) || return $?
+            ) || return $?
         echo "${result}"
         return 0
     fi
@@ -465,7 +465,7 @@ dialog_textbox() {
         _gum_backtitle
         gum style --foreground 6 --bold "  ${title}"
         echo ""
-        gum pager < "${file}" </dev/tty
+        gum pager < "${file}"
         return 0
     fi
     "${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
@@ -488,7 +488,7 @@ dialog_prgbox() {
         _gum_backtitle
         gum style --foreground 6 --bold "  ${title}"
         echo ""
-        echo "${output}" | gum pager </dev/tty
+        echo "${output}" | gum pager
         return 0
     elif [[ "${DIALOG_CMD}" == "dialog" ]]; then
         "${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \

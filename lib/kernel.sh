@@ -16,6 +16,11 @@ kernel_install() {
         try "Installing Intel microcode" emerge --quiet sys-firmware/intel-microcode
     fi
 
+    # Install AMD microcode for AMD CPUs (security + stability patches)
+    if grep -qi 'AuthenticAMD' /proc/cpuinfo 2>/dev/null; then
+        try "Installing AMD microcode" emerge --quiet sys-firmware/amd-microcode
+    fi
+
     # Configure installkernel with GRUB support
     mkdir -p /etc/portage/package.use
     grep -qxF "sys-kernel/installkernel grub" /etc/portage/package.use/installkernel 2>/dev/null || \

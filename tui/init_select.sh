@@ -49,6 +49,18 @@ screen_init_select() {
         dialog_msgbox "Surface + OpenRC" "${surface_warning}" || true
     fi
 
+    # Warn fingerprint users about OpenRC limitations
+    if [[ "${choice}" == "openrc" && "${FINGERPRINT_DETECTED:-0}" == "1" ]]; then
+        dialog_msgbox "Fingerprint + OpenRC" \
+            "Fingerprint reader detected with OpenRC.\n\nfprintd relies on D-Bus activation and systemd.\nFingerprint login may not work reliably on OpenRC.\n\nYou can continue — this is just a notice." || true
+    fi
+
+    # Warn Thunderbolt users about OpenRC limitations
+    if [[ "${choice}" == "openrc" && "${THUNDERBOLT_DETECTED:-0}" == "1" ]]; then
+        dialog_msgbox "Thunderbolt + OpenRC" \
+            "Thunderbolt controller detected with OpenRC.\n\nbolt (device manager) requires systemd.\nThunderbolt device authorization will not work.\n\nYou can continue — this is just a notice." || true
+    fi
+
     einfo "Selected init system: ${INIT_SYSTEM}"
     return "${TUI_NEXT}"
 }

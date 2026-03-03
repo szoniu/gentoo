@@ -105,6 +105,14 @@ Wszystkie zmienne konfiguracyjne są zdefiniowane w `CONFIG_VARS[]` w `lib/const
 - `WINDOWS_DETECTED` — 0/1 (auto-detected)
 - `LINUX_DETECTED` — 0/1 (auto-detected)
 - `DETECTED_OSES_SERIALIZED` — serialized map of partition→OS name
+- `BLUETOOTH_DETECTED` — 0/1 (auto-detected via /sys/class/bluetooth)
+- `FINGERPRINT_DETECTED` — 0/1 (auto-detected via USB vendor IDs)
+- `ENABLE_FINGERPRINT` — yes/no (fprintd — opt-in in checklist)
+- `THUNDERBOLT_DETECTED` — 0/1 (auto-detected via sysfs/lspci)
+- `ENABLE_THUNDERBOLT` — yes/no (bolt — opt-in in checklist)
+- `SENSORS_DETECTED` — 0/1 (auto-detected IIO sensors)
+- `ENABLE_SENSORS` — yes/no (iio-sensor-proxy — opt-in in checklist)
+- `WEBCAM_DETECTED` — 0/1 (auto-detected via /sys/class/video4linux)
 
 ### Polityka `~amd64` (testing keywords)
 
@@ -209,6 +217,36 @@ Noctalia Shell to shell do **Wayland compositorów** (Niri/Hyprland/Sway), NIE d
 
 **Nowe CONFIG_VARS**: `ENABLE_SECUREBOOT`
 
+### Peripheral Detection & Auto-Install
+
+**Detekcja** (`lib/hardware.sh`): 5 funkcji `detect_*()` wywoływanych z `detect_all_hardware()`:
+- `detect_bluetooth()` — `/sys/class/bluetooth/hci*`
+- `detect_fingerprint()` — USB vendor IDs: 06cb (Synaptics), 27c6 (Goodix), 147e (AuthenTec), 138a (Validity), 04f3 (Elan + "fingerprint" w opisie)
+- `detect_thunderbolt()` — `/sys/bus/thunderbolt/devices/[0-9]*` lub `lspci -nn | grep thunderbolt|USB4`
+- `detect_sensors()` — `/sys/bus/iio/devices/iio:device*/name` matching accel/gyro/als/light/incli
+- `detect_webcam()` — `/sys/class/video4linux/video*/name`
+- `detect_wwan()` — `lspci -nnd 8086:7360` (Intel XMM7360 LTE Advanced)
+
+**Auto z desktopem** (jak PipeWire):
+- Bluetooth (`net-wireless/bluez`) — `_install_bluetooth()` w `lib/desktop.sh`
+- CUPS (`net-print/cups` + `net-print/cups-filters`) — `_install_printing()` w `lib/desktop.sh`
+- AMD microcode (`sys-firmware/amd-microcode`) — `lib/kernel.sh` (symetrycznie do Intel)
+
+**Opt-in w checkliście** (`tui/extra_packages.sh`) — widoczne tylko gdy sprzęt wykryty:
+- Fingerprint → `sys-auth/fprintd` + `sys-auth/libfprint` (`install_fingerprint_tools()` w `lib/portage.sh`)
+- Thunderbolt → `sys-apps/bolt` (`install_thunderbolt_tools()` w `lib/portage.sh`)
+- IIO sensors → `sys-apps/iio-sensor-proxy` (`install_sensor_tools()` w `lib/portage.sh`)
+- WWAN LTE → `net-misc/modemmanager` + `net-libs/libmbim` + `net-libs/libqmi` (`install_wwan_tools()` w `lib/portage.sh`) — warning: MM >= 1.26 dla XMM7360, FCC unlock
+- v4l-utils → `media-video/v4l-utils` (stały item, domyślnie off)
+
+**OpenRC warningi** (`tui/init_select.sh`): fprintd i bolt wymagają systemd — notice dialogs.
+
+**Grupy użytkownika**: `lp` dodana do domyślnych grup (`tui/user_config.sh`) dla CUPS.
+
+**Inference** (`lib/utils.sh`): `_infer_fingerprint_from_packages()`, `_infer_thunderbolt_from_packages()`, `_infer_sensors_from_packages()`, `_infer_wwan_from_packages()` — sprawdzają `var/db/pkg/` lub binaria.
+
+**Nowe CONFIG_VARS**: `BLUETOOTH_DETECTED`, `FINGERPRINT_DETECTED`, `ENABLE_FINGERPRINT`, `THUNDERBOLT_DETECTED`, `ENABLE_THUNDERBOLT`, `SENSORS_DETECTED`, `ENABLE_SENSORS`, `WEBCAM_DETECTED`, `WWAN_DETECTED`, `ENABLE_WWAN`
+
 ### gum TUI backend
 
 Trzeci backend TUI obok `dialog` i `whiptail`. Statyczny binary zaszyty w repo jako `data/gum.tar.gz` (gum v0.17.0, ~4.5 MB). Zero zależności od sieci.
@@ -283,6 +321,7 @@ bash tests/test_infer_config.sh # Config inference from installed system (53 ass
 bash tests/test_hybrid_gpu.sh  # Hybrid GPU + ASUS ROG + recommendation (27 assertions)
 bash tests/test_validate.sh    # Config validation before install (31 assertions)
 bash tests/test_surface.sh     # Surface detection, config vars, kernel types, inference (25 assertions)
+bash tests/test_peripherals.sh # Peripheral detection, config vars, inference (30 assertions)
 ```
 
 Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `DRY_RUN=1` i `NON_INTERACTIVE=1`.

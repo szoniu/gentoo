@@ -63,7 +63,7 @@ screen_user_config() {
     export USER_PASSWORD_HASH
 
     # Groups
-    USER_GROUPS="wheel,audio,video,usb,input,plugdev"
+    USER_GROUPS="wheel,audio,video,usb,input,plugdev,lp"
     local groups
     groups=$(dialog_inputbox "User Groups" \
         "Additional groups for ${USERNAME}:" \

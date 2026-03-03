@@ -235,6 +235,96 @@ detect_surface() {
     export SURFACE_DETECTED SURFACE_MODEL
 }
 
+# --- Peripheral Detection ---
+
+# detect_bluetooth — Detect Bluetooth hardware via /sys/class/bluetooth
+detect_bluetooth() {
+    BLUETOOTH_DETECTED=0
+    if [[ -d /sys/class/bluetooth ]] && ls /sys/class/bluetooth/hci* &>/dev/null 2>&1; then
+        BLUETOOTH_DETECTED=1
+        einfo "Bluetooth hardware detected"
+    fi
+    export BLUETOOTH_DETECTED
+}
+
+# detect_fingerprint — Detect fingerprint readers via USB vendor IDs
+detect_fingerprint() {
+    FINGERPRINT_DETECTED=0
+    if ! command -v lsusb &>/dev/null; then
+        export FINGERPRINT_DETECTED; return 0
+    fi
+    local lsusb_out
+    lsusb_out=$(lsusb 2>/dev/null) || true
+    # 06cb=Synaptics, 27c6=Goodix, 147e=AuthenTec, 138a=Validity
+    if echo "${lsusb_out}" | grep -qiE '06cb:|27c6:|147e:|138a:'; then
+        FINGERPRINT_DETECTED=1
+        einfo "Fingerprint reader detected"
+    # 04f3=Elan (ambivalent — touchpads and fingerprint — look for "fingerprint" in description)
+    elif echo "${lsusb_out}" | grep -qi '04f3:' && echo "${lsusb_out}" | grep -qi 'fingerprint\|fprint'; then
+        FINGERPRINT_DETECTED=1
+        einfo "Fingerprint reader detected (Elan)"
+    fi
+    export FINGERPRINT_DETECTED
+}
+
+# detect_thunderbolt — Detect Thunderbolt controllers via sysfs or lspci
+detect_thunderbolt() {
+    THUNDERBOLT_DETECTED=0
+    if [[ -d /sys/bus/thunderbolt/devices ]] && ls /sys/bus/thunderbolt/devices/[0-9]* &>/dev/null 2>&1; then
+        THUNDERBOLT_DETECTED=1
+        einfo "Thunderbolt controller detected"
+    elif lspci -nn 2>/dev/null | grep -qi 'thunderbolt\|USB4'; then
+        THUNDERBOLT_DETECTED=1
+        einfo "Thunderbolt controller detected (lspci)"
+    fi
+    export THUNDERBOLT_DETECTED
+}
+
+# detect_sensors — Detect IIO sensors (accelerometer, gyroscope, ALS)
+detect_sensors() {
+    SENSORS_DETECTED=0
+    if [[ -d /sys/bus/iio/devices ]]; then
+        local dev
+        for dev in /sys/bus/iio/devices/iio:device*; do
+            [[ -d "${dev}" ]] || continue
+            local dev_name
+            dev_name=$(cat "${dev}/name" 2>/dev/null) || continue
+            case "${dev_name}" in
+                *accel*|*gyro*|*als*|*light*|*incli*)
+                    SENSORS_DETECTED=1; einfo "IIO sensor detected: ${dev_name}"; break ;;
+            esac
+        done
+    fi
+    export SENSORS_DETECTED
+}
+
+# detect_webcam — Detect webcam via /sys/class/video4linux
+detect_webcam() {
+    WEBCAM_DETECTED=0
+    if [[ -d /sys/class/video4linux ]]; then
+        local dev
+        for dev in /sys/class/video4linux/video*; do
+            [[ -d "${dev}" ]] || continue
+            local dev_name
+            dev_name=$(cat "${dev}/name" 2>/dev/null) || true
+            if [[ -n "${dev_name}" ]]; then
+                WEBCAM_DETECTED=1; einfo "Webcam detected: ${dev_name}"; break
+            fi
+        done
+    fi
+    export WEBCAM_DETECTED
+}
+
+# detect_wwan — Detect WWAN LTE modem via PCI (Intel XMM7360)
+detect_wwan() {
+    WWAN_DETECTED=0
+    if lspci -nnd 8086:7360 2>/dev/null | grep -q .; then
+        WWAN_DETECTED=1
+        einfo "WWAN modem detected: Intel XMM7360 LTE Advanced"
+    fi
+    export WWAN_DETECTED
+}
+
 # --- Disk Detection ---
 
 # detect_disks — List available block devices
@@ -521,6 +611,12 @@ detect_all_hardware() {
     detect_gpu
     detect_asus_rog
     detect_surface
+    detect_bluetooth
+    detect_fingerprint
+    detect_thunderbolt
+    detect_sensors
+    detect_webcam
+    detect_wwan
     detect_disks
     detect_esp
     detect_installed_oses
@@ -548,6 +644,12 @@ get_hardware_summary() {
     [[ "${GPU_VENDOR:-}" == "nvidia" ]] && summary+="  Open kernel: ${GPU_USE_NVIDIA_OPEN:-no}\n"
     [[ "${ASUS_ROG_DETECTED:-0}" == "1" ]] && summary+="  ASUS ROG/TUF: detected\n"
     [[ "${SURFACE_DETECTED:-0}" == "1" ]] && summary+="  Microsoft Surface: ${SURFACE_MODEL:-detected}\n"
+    [[ "${BLUETOOTH_DETECTED:-0}" == "1" ]] && summary+="  Bluetooth: detected\n"
+    [[ "${FINGERPRINT_DETECTED:-0}" == "1" ]] && summary+="  Fingerprint reader: detected\n"
+    [[ "${THUNDERBOLT_DETECTED:-0}" == "1" ]] && summary+="  Thunderbolt: detected\n"
+    [[ "${SENSORS_DETECTED:-0}" == "1" ]] && summary+="  IIO sensors: detected (2-in-1)\n"
+    [[ "${WEBCAM_DETECTED:-0}" == "1" ]] && summary+="  Webcam: detected\n"
+    [[ "${WWAN_DETECTED:-0}" == "1" ]] && summary+="  WWAN LTE: Intel XMM7360 detected\n"
     summary+="\n"
     summary+="Disks:\n"
     local entry

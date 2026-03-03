@@ -40,13 +40,17 @@ screen_summary() {
     [[ "${ENABLE_ASUSCTL:-no}" == "yes" ]] && summary+="ROG tools:    asusctl + supergfxctl\n"
     [[ "${SURFACE_DETECTED:-0}" == "1" ]] && summary+="Surface:      ${SURFACE_MODEL:-detected}\n"
     [[ "${ENABLE_IPTSD:-no}" == "yes" ]] && summary+="Surface tools: iptsd + surface-control\n"
+    [[ "${ENABLE_FINGERPRINT:-no}" == "yes" ]] && summary+="Fingerprint:  fprintd enabled\n"
+    [[ "${ENABLE_THUNDERBOLT:-no}" == "yes" ]] && summary+="Thunderbolt:  bolt enabled\n"
+    [[ "${ENABLE_SENSORS:-no}" == "yes" ]] && summary+="IIO sensors:  iio-sensor-proxy enabled\n"
+    [[ "${ENABLE_WWAN:-no}" == "yes" ]] && summary+="WWAN LTE:     ModemManager enabled\n"
     [[ "${ENABLE_SECUREBOOT:-no}" == "yes" ]] && summary+="Secure Boot:  MOK signing enabled\n"
     summary+="\n"
     summary+="Username:     ${USERNAME:-user}\n"
     if [[ "${DESKTOP_TYPE:-plasma}" == "none" ]]; then
         summary+="Desktop:      None (server/minimal)\n"
     else
-        summary+="Desktop:      KDE Plasma + SDDM + PipeWire\n"
+        summary+="Desktop:      KDE Plasma + SDDM + PipeWire + Bluetooth + CUPS\n"
     fi
     [[ -n "${DESKTOP_EXTRAS:-}" ]] && summary+="KDE apps:     ${DESKTOP_EXTRAS}\n"
     [[ -n "${EXTRA_PACKAGES:-}" ]] && summary+="Extra pkgs:   ${EXTRA_PACKAGES}\n"

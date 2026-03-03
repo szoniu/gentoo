@@ -11,6 +11,7 @@ screen_extra_packages() {
         "app-editors/vim"  "Vim text editor"                  "off"
         "dev-vcs/git"      "Git version control"              "off"
         "app-misc/htop"    "Interactive process viewer"       "off"
+        "v4l-utils"        "Video4Linux webcam/capture utilities" "off"
     )
 
     # Conditional: ASUS ROG tools (only shown when ROG hardware detected)
@@ -21,6 +22,26 @@ screen_extra_packages() {
     # Conditional: Surface tools (only shown when Surface hardware detected)
     if [[ "${SURFACE_DETECTED:-0}" == "1" ]]; then
         checklist_args+=("surface-tools" "Surface tools: iptsd (touchscreen) + surface-control" "on")
+    fi
+
+    # Conditional: Fingerprint reader (only shown when fingerprint hardware detected)
+    if [[ "${FINGERPRINT_DETECTED:-0}" == "1" ]]; then
+        checklist_args+=("fingerprint" "Fingerprint auth (fprintd — best with systemd)" "on")
+    fi
+
+    # Conditional: Thunderbolt (only shown when Thunderbolt controller detected)
+    if [[ "${THUNDERBOLT_DETECTED:-0}" == "1" ]]; then
+        checklist_args+=("thunderbolt" "Thunderbolt device manager (bolt — requires systemd)" "on")
+    fi
+
+    # Conditional: IIO sensors (only shown when sensors detected)
+    if [[ "${SENSORS_DETECTED:-0}" == "1" ]]; then
+        checklist_args+=("iio-sensors" "Auto-rotation / ambient light sensor proxy" "on")
+    fi
+
+    # Conditional: WWAN LTE modem (only shown when WWAN hardware detected)
+    if [[ "${WWAN_DETECTED:-0}" == "1" ]]; then
+        checklist_args+=("wwan-tools" "WWAN LTE modem support (ModemManager)" "on")
     fi
 
     checklist_args+=(
@@ -45,6 +66,10 @@ screen_extra_packages() {
     ENABLE_ASUSCTL="${ENABLE_ASUSCTL:-no}"
     ENABLE_IPTSD="${ENABLE_IPTSD:-no}"
     ENABLE_SURFACE_CONTROL="${ENABLE_SURFACE_CONTROL:-no}"
+    ENABLE_FINGERPRINT="${ENABLE_FINGERPRINT:-no}"
+    ENABLE_THUNDERBOLT="${ENABLE_THUNDERBOLT:-no}"
+    ENABLE_SENSORS="${ENABLE_SENSORS:-no}"
+    ENABLE_WWAN="${ENABLE_WWAN:-no}"
 
     local item
     for item in ${cleaned}; do
@@ -55,6 +80,21 @@ screen_extra_packages() {
             surface-tools)
                 ENABLE_IPTSD="yes"
                 ENABLE_SURFACE_CONTROL="yes"
+                ;;
+            fingerprint)
+                ENABLE_FINGERPRINT="yes"
+                ;;
+            thunderbolt)
+                ENABLE_THUNDERBOLT="yes"
+                ;;
+            iio-sensors)
+                ENABLE_SENSORS="yes"
+                ;;
+            wwan-tools)
+                ENABLE_WWAN="yes"
+                ;;
+            v4l-utils)
+                pkgs+=("media-video/v4l-utils")
                 ;;
             guru-repo)
                 ENABLE_GURU="yes"
@@ -88,7 +128,8 @@ screen_extra_packages() {
         esac
     done
 
-    export ENABLE_GURU ENABLE_NOCTALIA ENABLE_ASUSCTL ENABLE_IPTSD ENABLE_SURFACE_CONTROL
+    export ENABLE_GURU ENABLE_NOCTALIA ENABLE_ASUSCTL ENABLE_IPTSD ENABLE_SURFACE_CONTROL \
+           ENABLE_FINGERPRINT ENABLE_THUNDERBOLT ENABLE_SENSORS ENABLE_WWAN
 
     # Step 2: Free-form input for additional packages
     local extra
@@ -110,5 +151,9 @@ Leave empty to skip:" \
     [[ "${ENABLE_NOCTALIA}" == "yes" ]] && einfo "Noctalia Shell: enabled"
     [[ "${ENABLE_ASUSCTL}" == "yes" ]] && einfo "ASUS ROG tools: enabled"
     [[ "${ENABLE_IPTSD}" == "yes" ]] && einfo "Surface tools: iptsd + surface-control"
+    [[ "${ENABLE_FINGERPRINT}" == "yes" ]] && einfo "Fingerprint reader: fprintd enabled"
+    [[ "${ENABLE_THUNDERBOLT}" == "yes" ]] && einfo "Thunderbolt: bolt enabled"
+    [[ "${ENABLE_SENSORS}" == "yes" ]] && einfo "IIO sensors: iio-sensor-proxy enabled"
+    [[ "${ENABLE_WWAN}" == "yes" ]] && einfo "WWAN LTE: ModemManager enabled"
     return "${TUI_NEXT}"
 }

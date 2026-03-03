@@ -23,6 +23,12 @@ desktop_install() {
     # Install PipeWire audio
     _install_pipewire
 
+    # Install Bluetooth support
+    _install_bluetooth
+
+    # Install printing support (CUPS)
+    _install_printing
+
     # Install KDE applications
     _install_kde_apps
 
@@ -198,6 +204,29 @@ _install_pipewire() {
     fi
 
     einfo "PipeWire installed"
+}
+
+# _install_bluetooth — Install Bluetooth stack (bluez)
+_install_bluetooth() {
+    einfo "Installing Bluetooth support..."
+    try "Installing bluez" emerge --quiet net-wireless/bluez
+    if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+        try "Enabling bluetooth" systemctl enable bluetooth
+    else
+        try "Enabling bluetooth" rc-update add bluetooth default
+    fi
+}
+
+# _install_printing — Install printing support (CUPS)
+_install_printing() {
+    einfo "Installing printing support (CUPS)..."
+    try "Installing CUPS" emerge --quiet net-print/cups
+    try "Installing CUPS filters" emerge --quiet net-print/cups-filters
+    if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+        try "Enabling cupsd" systemctl enable cups
+    else
+        try "Enabling cupsd" rc-update add cupsd default
+    fi
 }
 
 # _install_kde_apps — Install selected KDE applications

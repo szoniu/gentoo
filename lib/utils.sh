@@ -790,6 +790,44 @@ _infer_surface_from_overlay() {
     fi
 }
 
+# _infer_fingerprint_from_packages — Detect fprintd installation
+_infer_fingerprint_from_packages() {
+    local mp="$1"
+    if ls "${mp}/var/db/pkg/sys-auth/fprintd-"* &>/dev/null 2>&1 || \
+       [[ -x "${mp}/usr/bin/fprintd-enroll" ]]; then
+        ENABLE_FINGERPRINT="yes"; FINGERPRINT_DETECTED=1
+        export ENABLE_FINGERPRINT FINGERPRINT_DETECTED
+    fi
+}
+
+# _infer_thunderbolt_from_packages — Detect bolt installation
+_infer_thunderbolt_from_packages() {
+    local mp="$1"
+    if ls "${mp}/var/db/pkg/sys-apps/bolt-"* &>/dev/null 2>&1 || \
+       [[ -x "${mp}/usr/bin/boltctl" ]]; then
+        ENABLE_THUNDERBOLT="yes"; THUNDERBOLT_DETECTED=1
+        export ENABLE_THUNDERBOLT THUNDERBOLT_DETECTED
+    fi
+}
+
+# _infer_sensors_from_packages — Detect iio-sensor-proxy installation
+_infer_sensors_from_packages() {
+    local mp="$1"
+    if ls "${mp}/var/db/pkg/sys-apps/iio-sensor-proxy-"* &>/dev/null 2>&1; then
+        ENABLE_SENSORS="yes"; SENSORS_DETECTED=1
+        export ENABLE_SENSORS SENSORS_DETECTED
+    fi
+}
+
+# _infer_wwan_from_packages — Detect ModemManager installation
+_infer_wwan_from_packages() {
+    local mp="$1"
+    if ls "${mp}/var/db/pkg/net-misc/modemmanager-"* &>/dev/null 2>&1; then
+        ENABLE_WWAN="yes"; WWAN_DETECTED=1
+        export ENABLE_WWAN WWAN_DETECTED
+    fi
+}
+
 # _infer_from_guru_noctalia — Detect GURU overlay and Noctalia shell
 _infer_from_guru_noctalia() {
     local mp="$1"
@@ -942,6 +980,10 @@ infer_config_from_partition() {
     _infer_from_guru_noctalia "${mp}"
     _infer_rog_from_overlay "${mp}"
     _infer_surface_from_overlay "${mp}"
+    _infer_fingerprint_from_packages "${mp}"
+    _infer_thunderbolt_from_packages "${mp}"
+    _infer_sensors_from_packages "${mp}"
+    _infer_wwan_from_packages "${mp}"
     _infer_swap_type "${mp}"
     _infer_desktop_type "${mp}"
     _infer_init_system_fallback "${mp}"
