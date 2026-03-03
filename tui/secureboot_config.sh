@@ -21,10 +21,15 @@ screen_secureboot_config() {
     sb_text+="password: gentoo\n\n"
     sb_text+="Required packages: shim, mokutil, sbsigntools"
 
-    if dialog_yesno "Secure Boot" "${sb_text}"; then
+    local rc=0
+    dialog_yesno "Secure Boot" "${sb_text}" || rc=$?
+    if [[ ${rc} -eq 0 ]]; then
         ENABLE_SECUREBOOT="yes"
-    else
+    elif [[ ${rc} -eq 1 ]]; then
         ENABLE_SECUREBOOT="no"
+    else
+        # ESC / abort — go back
+        return "${TUI_BACK}"
     fi
 
     export ENABLE_SECUREBOOT
