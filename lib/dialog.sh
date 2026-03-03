@@ -267,8 +267,8 @@ dialog_menu() {
     local result
 
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
-        clear 2>/dev/null
-        _gum_backtitle
+        clear >/dev/tty 2>/dev/null
+        _gum_backtitle >/dev/tty
         # Build "tag | description" lines for gum choose
         local -a gum_items=()
         local i
@@ -317,8 +317,8 @@ dialog_radiolist() {
     local result
 
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
-        clear 2>/dev/null
-        _gum_backtitle
+        clear >/dev/tty 2>/dev/null
+        _gum_backtitle >/dev/tty
         # Build items and find preselected one (on/off is every 3rd element)
         local -a gum_items=()
         local preselected=""
@@ -377,8 +377,8 @@ dialog_checklist() {
     local result
 
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
-        clear 2>/dev/null
-        _gum_backtitle
+        clear >/dev/tty 2>/dev/null
+        _gum_backtitle >/dev/tty
         # Build items and collect preselected (on/off is every 3rd element)
         local -a gum_items=()
         local -a preselected=()
