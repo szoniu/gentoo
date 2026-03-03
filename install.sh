@@ -78,12 +78,6 @@ cleanup() {
     # Flush accumulated terminal responses so they don't spill into the shell
     dd if=/dev/tty of=/dev/null bs=4096 count=100 iflag=nonblock 2>/dev/null || true
 
-    # Restore stderr if it was redirected to log file (fd 4 saved by screen_progress)
-    if { true >&4; } 2>/dev/null; then
-        exec 2>&4
-        exec 4>&-
-    fi
-
     if [[ "${_IN_CHROOT:-0}" != "1" ]]; then
         # Only do cleanup in outer process
         if mountpoint -q "${MOUNTPOINT}/proc" 2>/dev/null; then

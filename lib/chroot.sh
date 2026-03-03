@@ -77,7 +77,11 @@ chroot_exec() {
         return 0
     fi
 
-    chroot "${MOUNTPOINT}" /bin/bash -c "${cmd}"
+    # Pass LIVE_OUTPUT so try() inside chroot shows output on terminal via tee
+    local env_prefix=""
+    [[ "${LIVE_OUTPUT:-0}" == "1" ]] && env_prefix="LIVE_OUTPUT=1 "
+
+    chroot "${MOUNTPOINT}" /bin/bash -c "${env_prefix}${cmd}"
 }
 
 # copy_dns_info — Copy DNS resolver config to chroot
