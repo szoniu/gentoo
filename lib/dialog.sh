@@ -68,6 +68,9 @@ _try_gum_backend() {
 
 # Set gum theme env vars to match existing dialogrc dark theme
 _setup_gum_theme() {
+    # Tell termenv we have a dark background — prevents OSC 11 terminal queries
+    # that cause phantom input in gum's bubbletea (auto-selecting menus, garbage in inputs)
+    export COLORFGBG="15;0"
     # Accent: cyan (6), text: white (7), bg: default terminal
     export GUM_CHOOSE_CURSOR_FOREGROUND="6"
     export GUM_CHOOSE_HEADER_FOREGROUND="6"
