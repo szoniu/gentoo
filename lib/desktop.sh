@@ -228,7 +228,7 @@ _install_kde_apps() {
                 gwenview)      try "Installing ${pkg}" emerge --quiet kde-apps/gwenview ;;
                 okular)        try "Installing ${pkg}" emerge --quiet kde-apps/okular ;;
                 ark)           try "Installing ${pkg}" emerge --quiet kde-apps/ark ;;
-                spectacle)     try "Installing ${pkg}" emerge --quiet kde-apps/spectacle ;;
+                spectacle)     try "Installing ${pkg}" emerge --quiet kde-plasma/spectacle ;;
                 kcalc)         try "Installing ${pkg}" emerge --quiet kde-apps/kcalc ;;
                 kwalletmanager) try "Installing ${pkg}" emerge --quiet kde-apps/kwalletmanager ;;
                 elisa)         try "Installing ${pkg}" emerge --quiet media-sound/elisa ;;
