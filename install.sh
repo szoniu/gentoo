@@ -75,6 +75,8 @@ cleanup() {
 
     # Restore terminal echo if it was disabled for gum backend
     [[ "${_GUM_ECHO_OFF:-0}" == "1" ]] && stty echo </dev/tty 2>/dev/null || true
+    # Flush accumulated terminal responses so they don't spill into the shell
+    dd if=/dev/tty of=/dev/null bs=4096 count=100 iflag=nonblock 2>/dev/null || true
 
     # Restore stderr if it was redirected to log file (fd 4 saved by screen_progress)
     if { true >&4; } 2>/dev/null; then

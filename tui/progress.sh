@@ -219,14 +219,18 @@ screen_progress() {
     # Restore terminal echo (was disabled for gum TUI) — no longer needed
     stty echo </dev/tty 2>/dev/null || true
     _GUM_ECHO_OFF=0
+    # Flush ALL accumulated terminal responses from the entire wizard session
+    sleep 0.3
+    dd if=/dev/tty of=/dev/null bs=4096 count=100 iflag=nonblock 2>/dev/null || true
+    while read -t 0.1 -rsn 1 _ </dev/tty 2>/dev/null; do :; done
 
     # Enable live output globally — commands output via tee (terminal + log)
     export LIVE_OUTPUT=1
 
-    # Print initial header
+    # Print initial header (|| true: never crash the installer for cosmetic output)
     if [[ "${NON_INTERACTIVE:-0}" != "1" ]]; then
         printf '\033[H\033[2J' >/dev/tty 2>/dev/null
-        _live_preview_header "1" "${total}" "Starting..." >/dev/tty
+        _live_preview_header "1" "${total}" "Starting..." >/dev/tty 2>/dev/null || true
         echo "" >/dev/tty
     fi
 
@@ -251,7 +255,7 @@ screen_progress() {
         # Print phase separator with progress info
         if [[ "${NON_INTERACTIVE:-0}" != "1" ]]; then
             echo "" >/dev/tty
-            _live_preview_header "${i}" "${total}" "${phase_desc}" >/dev/tty
+            _live_preview_header "${i}" "${total}" "${phase_desc}" >/dev/tty 2>/dev/null || true
             echo "" >/dev/tty
         fi
 
