@@ -71,6 +71,18 @@ _setup_gum_theme() {
     # Tell termenv we have a dark background — prevents OSC 11 terminal queries
     # that cause phantom input in gum's bubbletea (auto-selecting menus, garbage in inputs)
     export COLORFGBG="15;0"
+
+    # Disable terminal echo for the entire gum session.
+    # gum (bubbletea/termenv) sends OSC 11 and CPR queries to the terminal.
+    # When gum choose has piped stdin, termenv can't read the OSC 11 response
+    # (it arrives on /dev/tty, not the pipe). The response stays in /dev/tty buffer
+    # and is: (1) echoed on screen as garbage, (2) read by bubbletea as phantom input.
+    # With echo off, responses are never displayed. _gum_drain_tty removes them
+    # from the input buffer before each interactive gum command.
+    # gum handles its own raw mode internally; echo is restored by cleanup or on exit.
+    stty -echo </dev/tty 2>/dev/null || true
+    _GUM_ECHO_OFF=1
+
     # Accent: cyan (6), text: white (7), bg: default terminal
     export GUM_CHOOSE_CURSOR_FOREGROUND="6"
     export GUM_CHOOSE_HEADER_FOREGROUND="6"
@@ -124,10 +136,15 @@ init_dialog() {
 
 # --- Gum helpers ---
 
-# Drain pending terminal responses (e.g., OSC 11 background color query from termenv)
-# gum uses termenv which queries terminal background; response arrives on /dev/tty input
-# and pollutes the next gum command's input if not drained
+# Drain pending terminal responses (OSC 11, CPR) from /dev/tty input buffer.
+# gum's termenv/bubbletea query the terminal; when stdin is piped (gum choose),
+# responses land on /dev/tty and are read by bubbletea as phantom keystrokes.
+# With echo off (set in _setup_gum_theme), responses don't display on screen,
+# but they still sit in the input buffer — this function removes them.
 _gum_drain_tty() {
+    # Brief pause for late-arriving terminal responses from previous gum invocation
+    sleep 0.1
+    # Consume all pending bytes
     while read -t 0.05 -rsn 1 _ </dev/tty 2>/dev/null; do :; done
 }
 

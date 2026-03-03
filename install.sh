@@ -73,6 +73,9 @@ source "${DATA_DIR}/use_flags_desktop.sh"
 cleanup() {
     local rc=$?
 
+    # Restore terminal echo if it was disabled for gum backend
+    [[ "${_GUM_ECHO_OFF:-0}" == "1" ]] && stty echo </dev/tty 2>/dev/null || true
+
     # Restore stderr if it was redirected to log file (fd 4 saved by screen_progress)
     if { true >&4; } 2>/dev/null; then
         exec 2>&4
