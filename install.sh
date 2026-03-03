@@ -287,6 +287,10 @@ _do_chroot_phases() {
     export _IN_CHROOT=1
     einfo "=== Chroot installation phases ==="
 
+    # Verify DNS works inside chroot (may break if host uses systemd-resolved
+    # with loopback stub, or if DHCP lease expired during long install)
+    ensure_dns
+
     # Phase 5: Portage sync
     if ! checkpoint_reached "portage_sync"; then
         einfo "--- Phase: Portage sync ---"

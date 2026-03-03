@@ -99,6 +99,17 @@ copy_dns_info() {
     fi
 
     cp -L /etc/resolv.conf "${MOUNTPOINT}/etc/resolv.conf"
+
+    # If resolv.conf only has loopback nameservers (systemd-resolved stub),
+    # they won't work inside chroot. Add real public DNS as fallback.
+    if grep -qE '^\s*nameserver\s+127\.' "${MOUNTPOINT}/etc/resolv.conf" 2>/dev/null; then
+        if ! grep -qE '^\s*nameserver\s+[^1]' "${MOUNTPOINT}/etc/resolv.conf" 2>/dev/null; then
+            ewarn "resolv.conf only has loopback nameservers — adding 8.8.8.8 fallback"
+            echo "nameserver 8.8.8.8" >> "${MOUNTPOINT}/etc/resolv.conf"
+            echo "nameserver 1.1.1.1" >> "${MOUNTPOINT}/etc/resolv.conf"
+        fi
+    fi
+
     einfo "DNS configuration copied"
 }
 
