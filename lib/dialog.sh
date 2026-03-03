@@ -250,6 +250,21 @@ dialog_yesno() {
             fi
             break
         done
+        if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 ]]; then
+            # All retries exhausted by phantom ESC — fallback to plain prompt
+            _gum_drain_tty
+            stty echo </dev/tty 2>/dev/null || true
+            local _key=""
+            while true; do
+                printf '  [Y]es / [N]o: ' >/dev/tty
+                read -rsn1 _key </dev/tty
+                echo "" >/dev/tty
+                case "${_key}" in
+                    [Yy]) stty -echo </dev/tty 2>/dev/null || true; return 0 ;;
+                    [Nn]|$'\e'|"") stty -echo </dev/tty 2>/dev/null || true; return 1 ;;
+                esac
+            done
+        fi
         # ESC/Ctrl+C/abort → return 128 (distinguishable from No=1)
         [[ ${_gum_rc} -ne 0 ]] && return 128
         # Yes=0, No=1
@@ -284,7 +299,21 @@ dialog_inputbox() {
             fi
             break
         done
-        [[ ${_gum_rc} -ne 0 ]] && return ${_gum_rc}
+        if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 ]]; then
+            # All retries exhausted by phantom ESC — fallback to plain read
+            _gum_drain_tty
+            stty echo </dev/tty 2>/dev/null || true
+            if [[ -n "${default}" ]]; then
+                printf '  [%s]: ' "${default}" >/dev/tty
+            else
+                printf '  > ' >/dev/tty
+            fi
+            IFS= read -r result </dev/tty || true
+            [[ -z "${result}" ]] && result="${default}"
+            stty -echo </dev/tty 2>/dev/null || true
+        elif [[ ${_gum_rc} -ne 0 ]]; then
+            return ${_gum_rc}
+        fi
         echo "${result}"
         return 0
     elif [[ "${DIALOG_CMD}" == "dialog" ]]; then
@@ -326,7 +355,15 @@ dialog_passwordbox() {
             fi
             break
         done
-        [[ ${_gum_rc} -ne 0 ]] && return ${_gum_rc}
+        if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 ]]; then
+            # All retries exhausted by phantom ESC — fallback to plain read
+            _gum_drain_tty
+            printf '  Password: ' >/dev/tty
+            IFS= read -rs result </dev/tty || true
+            echo "" >/dev/tty
+        elif [[ ${_gum_rc} -ne 0 ]]; then
+            return ${_gum_rc}
+        fi
         echo "${result}"
         return 0
     elif [[ "${DIALOG_CMD}" == "dialog" ]]; then
