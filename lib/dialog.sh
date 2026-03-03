@@ -310,18 +310,18 @@ dialog_menu() {
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
         printf '\033[H\033[2J' >/dev/tty
         _gum_backtitle >/dev/tty
-        # Build separate tag and description arrays
-        local -a gum_tags=() gum_descs=()
+        # Build display lines "tag — desc" and parallel tag array
+        local -a gum_tags=() gum_lines=()
         local i
         for (( i=0; i<${#items[@]}; i+=2 )); do
             gum_tags+=("${items[i]}")
-            gum_descs+=("${items[i+1]}")
+            gum_lines+=("${items[i]} — ${items[i+1]}")
         done
         local header
         header=$(gum style --foreground 6 --bold "  ${title}")
         _gum_drain_tty
-        local selected_desc
-        selected_desc=$(printf '%s\n' "${gum_descs[@]}" | \
+        local selected_line
+        selected_line=$(printf '%s\n' "${gum_lines[@]}" | \
             gum choose --header "${header}" \
                 --height "${DIALOG_LIST_HEIGHT}" \
                 --no-show-help \
@@ -329,15 +329,15 @@ dialog_menu() {
                 --cursor.foreground 6 \
                 --selected.foreground 0 --selected.background 6 \
             ) || return $?
-        # Map selected description back to tag
+        # Map selected line back to tag
         local j
-        for (( j=0; j<${#gum_descs[@]}; j++ )); do
-            if [[ "${gum_descs[j]}" == "${selected_desc}" ]]; then
+        for (( j=0; j<${#gum_lines[@]}; j++ )); do
+            if [[ "${gum_lines[j]}" == "${selected_line}" ]]; then
                 echo "${gum_tags[j]}"
                 return 0
             fi
         done
-        echo "${selected_desc}"
+        echo "${selected_line}"
         return 0
     fi
 
@@ -370,15 +370,15 @@ dialog_radiolist() {
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
         printf '\033[H\033[2J' >/dev/tty
         _gum_backtitle >/dev/tty
-        # Build separate tag and description arrays, track preselected
-        local -a gum_tags=() gum_descs=()
-        local preselected_desc=""
+        # Build display lines "tag — desc" and parallel tag array
+        local -a gum_tags=() gum_lines=()
+        local preselected_line=""
         local i
         for (( i=0; i<${#items[@]}; i+=3 )); do
             gum_tags+=("${items[i]}")
-            gum_descs+=("${items[i+1]}")
+            gum_lines+=("${items[i]} — ${items[i+1]}")
             if [[ "${items[i+2]}" == "on" ]]; then
-                preselected_desc="${items[i+1]}"
+                preselected_line="${items[i]} — ${items[i+1]}"
             fi
         done
         local header
@@ -391,22 +391,22 @@ dialog_radiolist() {
             --cursor.foreground 6
             --selected.foreground 0 --selected.background 6
         )
-        if [[ -n "${preselected_desc}" ]]; then
-            gum_args+=(--selected "${preselected_desc}")
+        if [[ -n "${preselected_line}" ]]; then
+            gum_args+=(--selected "${preselected_line}")
         fi
         _gum_drain_tty
-        local selected_desc
-        selected_desc=$(printf '%s\n' "${gum_descs[@]}" | \
+        local selected_line
+        selected_line=$(printf '%s\n' "${gum_lines[@]}" | \
             gum choose "${gum_args[@]}") || return $?
-        # Map selected description back to tag
+        # Map selected line back to tag
         local j
-        for (( j=0; j<${#gum_descs[@]}; j++ )); do
-            if [[ "${gum_descs[j]}" == "${selected_desc}" ]]; then
+        for (( j=0; j<${#gum_lines[@]}; j++ )); do
+            if [[ "${gum_lines[j]}" == "${selected_line}" ]]; then
                 echo "${gum_tags[j]}"
                 return 0
             fi
         done
-        echo "${selected_desc}"
+        echo "${selected_line}"
         return 0
     fi
 
@@ -439,15 +439,15 @@ dialog_checklist() {
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
         printf '\033[H\033[2J' >/dev/tty
         _gum_backtitle >/dev/tty
-        # Build separate tag and description arrays, collect preselected descs
-        local -a gum_tags=() gum_descs=()
-        local -a preselected_descs=()
+        # Build display lines "tag — desc" and parallel tag array
+        local -a gum_tags=() gum_lines=()
+        local -a preselected_lines=()
         local i
         for (( i=0; i<${#items[@]}; i+=3 )); do
             gum_tags+=("${items[i]}")
-            gum_descs+=("${items[i+1]}")
+            gum_lines+=("${items[i]} — ${items[i+1]}")
             if [[ "${items[i+2]}" == "on" ]]; then
-                preselected_descs+=("${items[i+1]}")
+                preselected_lines+=("${items[i]} — ${items[i+1]}")
             fi
         done
         local header
@@ -461,27 +461,27 @@ dialog_checklist() {
             --cursor.foreground 6
             --selected.foreground 0 --selected.background 6
         )
-        if [[ ${#preselected_descs[@]} -gt 0 ]]; then
+        if [[ ${#preselected_lines[@]} -gt 0 ]]; then
             local sel_joined
-            sel_joined=$(printf '%s,' "${preselected_descs[@]}")
+            sel_joined=$(printf '%s,' "${preselected_lines[@]}")
             sel_joined="${sel_joined%,}"
             gum_args+=(--selected "${sel_joined}")
         fi
         _gum_drain_tty
-        local selected_descs
-        selected_descs=$(printf '%s\n' "${gum_descs[@]}" | \
+        local selected_output
+        selected_output=$(printf '%s\n' "${gum_lines[@]}" | \
             gum choose "${gum_args[@]}") || return $?
-        # Map each selected description back to its tag
+        # Map each selected line back to its tag
         local -a selected_tags=()
         local line j
         while IFS= read -r line; do
-            for (( j=0; j<${#gum_descs[@]}; j++ )); do
-                if [[ "${gum_descs[j]}" == "${line}" ]]; then
+            for (( j=0; j<${#gum_lines[@]}; j++ )); do
+                if [[ "${gum_lines[j]}" == "${line}" ]]; then
                     selected_tags+=("${gum_tags[j]}")
                     break
                 fi
             done
-        done <<< "${selected_descs}"
+        done <<< "${selected_output}"
         echo "${selected_tags[*]}"
         return 0
     fi
