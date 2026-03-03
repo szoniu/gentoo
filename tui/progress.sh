@@ -216,10 +216,19 @@ screen_progress() {
         einfo "Resuming installation from previous progress"
     fi
 
+    # Restore terminal echo (was disabled for gum TUI) — no longer needed
+    stty echo </dev/tty 2>/dev/null || true
+    _GUM_ECHO_OFF=0
+
     # Enable live output globally — commands output via tee (terminal + log)
     export LIVE_OUTPUT=1
 
-    local _lp_started=0
+    # Print initial header
+    if [[ "${NON_INTERACTIVE:-0}" != "1" ]]; then
+        printf '\033[H\033[2J' >/dev/tty 2>/dev/null
+        _live_preview_header "1" "${total}" "Starting..." >/dev/tty
+        echo "" >/dev/tty
+    fi
 
     for entry in "${INSTALL_PHASES[@]}"; do
         local phase_name phase_desc
@@ -239,14 +248,11 @@ screen_progress() {
             continue
         fi
 
-        # Start or update live preview header
+        # Print phase separator with progress info
         if [[ "${NON_INTERACTIVE:-0}" != "1" ]]; then
-            if [[ ${_lp_started} -eq 0 ]]; then
-                _live_preview_start "${i}" "${total}" "${phase_desc}"
-                _lp_started=1
-            else
-                _live_preview_update "${i}" "${total}" "${phase_desc}"
-            fi
+            echo "" >/dev/tty
+            _live_preview_header "${i}" "${total}" "${phase_desc}" >/dev/tty
+            echo "" >/dev/tty
         fi
 
         if [[ "${phase_name}" == "chroot" ]]; then
@@ -255,11 +261,6 @@ screen_progress() {
             _execute_phase "${phase_name}" "${phase_desc}"
         fi
     done
-
-    # Cleanup live preview
-    if [[ ${_lp_started} -eq 1 ]]; then
-        _live_preview_stop
-    fi
 
     unset LIVE_OUTPUT
 
