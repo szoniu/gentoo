@@ -223,13 +223,23 @@ dialog_msgbox() {
 dialog_yesno() {
     local title="$1" text="$2"
     if [[ "${DIALOG_CMD}" == "gum" ]]; then
-        printf '\033[H\033[2J' >/dev/tty
-        _gum_backtitle
-        _gum_style_box "${title}" "${text}"
-        echo ""
-        _gum_drain_tty
-        gum confirm --affirmative "Yes" --negative "No" </dev/tty
-        return $?
+        local _gum_rc=0 _gum_attempt
+        for _gum_attempt in 1 2; do
+            printf '\033[H\033[2J' >/dev/tty
+            _gum_backtitle
+            _gum_style_box "${title}" "${text}"
+            echo ""
+            _gum_drain_tty
+            local _t0="${SECONDS}"
+            _gum_rc=0
+            gum confirm --affirmative "Yes" --negative "No" </dev/tty || _gum_rc=$?
+            if [[ ${_gum_rc} -gt 1 && $(( SECONDS - _t0 )) -lt 2 && ${_gum_attempt} -eq 1 ]]; then
+                # Phantom ESC (rc=130) from terminal response — drain and retry
+                continue
+            fi
+            break
+        done
+        return ${_gum_rc}
     fi
     "${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
         --title "${title}" \
@@ -246,10 +256,21 @@ dialog_inputbox() {
         _gum_backtitle >/dev/tty
         _gum_style_box "${title}" "${text}" >/dev/tty
         echo "" >/dev/tty
-        _gum_drain_tty
-        result=$(gum input --value "${default}" --width 60 \
-            --prompt.foreground 6 --cursor.foreground 6 \
-            </dev/tty) || return $?
+        local _gum_rc=0 _gum_attempt
+        for _gum_attempt in 1 2; do
+            _gum_drain_tty
+            local _t0="${SECONDS}"
+            _gum_rc=0
+            result=$(gum input --value "${default}" --width 60 \
+                --prompt.foreground 6 --cursor.foreground 6 \
+                </dev/tty) || _gum_rc=$?
+            if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -lt 2 && ${_gum_attempt} -eq 1 ]]; then
+                # Phantom ESC from terminal response — drain and retry
+                continue
+            fi
+            break
+        done
+        [[ ${_gum_rc} -ne 0 ]] && return ${_gum_rc}
         echo "${result}"
         return 0
     elif [[ "${DIALOG_CMD}" == "dialog" ]]; then
@@ -277,10 +298,21 @@ dialog_passwordbox() {
         _gum_backtitle >/dev/tty
         _gum_style_box "${title}" "${text}" >/dev/tty
         echo "" >/dev/tty
-        _gum_drain_tty
-        result=$(gum input --password --width 60 \
-            --prompt.foreground 6 --cursor.foreground 6 \
-            </dev/tty) || return $?
+        local _gum_rc=0 _gum_attempt
+        for _gum_attempt in 1 2; do
+            _gum_drain_tty
+            local _t0="${SECONDS}"
+            _gum_rc=0
+            result=$(gum input --password --width 60 \
+                --prompt.foreground 6 --cursor.foreground 6 \
+                </dev/tty) || _gum_rc=$?
+            if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -lt 2 && ${_gum_attempt} -eq 1 ]]; then
+                # Phantom ESC from terminal response — drain and retry
+                continue
+            fi
+            break
+        done
+        [[ ${_gum_rc} -ne 0 ]] && return ${_gum_rc}
         echo "${result}"
         return 0
     elif [[ "${DIALOG_CMD}" == "dialog" ]]; then
