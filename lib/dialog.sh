@@ -194,14 +194,24 @@ dialog_msgbox() {
         echo ""
         gum style --foreground 8 --italic "  Press any key to continue (ESC to go back)..."
         _gum_drain_tty
-        local _key=""
-        read -rsn1 _key </dev/tty
-        if [[ "${_key}" == $'\e' ]]; then
-            # Flush any remaining escape sequence bytes
-            read -rsn5 -t 0.01 _ </dev/tty 2>/dev/null || true
-            return 1
-        fi
-        return 0
+        # Read keypress, filtering out terminal escape responses (OSC 11, CPR)
+        while true; do
+            local _key=""
+            read -rsn1 _key </dev/tty
+            if [[ "${_key}" == $'\e' ]]; then
+                # Check if more bytes follow (= escape sequence, not standalone ESC)
+                local _seq=""
+                read -rsn20 -t 0.05 _seq </dev/tty 2>/dev/null || true
+                if [[ -z "${_seq}" ]]; then
+                    # Standalone ESC — user pressed ESC
+                    return 1
+                fi
+                # Terminal response (e.g. ]11;rgb:... or [3;1R) — ignore, retry
+                continue
+            fi
+            # Regular key — continue
+            return 0
+        done
     fi
     "${DIALOG_CMD}" --backtitle "${INSTALLER_NAME} v${INSTALLER_VERSION}" \
         --title "${title}" \
