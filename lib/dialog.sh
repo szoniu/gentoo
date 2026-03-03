@@ -142,9 +142,13 @@ init_dialog() {
 # With echo off (set in _setup_gum_theme), responses don't display on screen,
 # but they still sit in the input buffer — this function removes them.
 _gum_drain_tty() {
-    # Brief pause for late-arriving terminal responses from previous gum invocation
-    sleep 0.1
-    # Consume all pending bytes
+    # Flush pending terminal responses (CPR, OSC 11) from /dev/tty input buffer.
+    # gum/bubbletea sends cursor position queries; responses linger in the buffer
+    # and get picked up by the next gum command as phantom keystrokes/pre-fill text.
+    sleep 0.2
+    # Non-blocking kernel-level read to flush the tty input queue
+    dd if=/dev/tty of=/dev/null bs=1024 count=10 iflag=nonblock 2>/dev/null || true
+    # Belt-and-suspenders: byte-by-byte drain for anything dd missed
     while read -t 0.05 -rsn 1 _ </dev/tty 2>/dev/null; do :; done
 }
 
