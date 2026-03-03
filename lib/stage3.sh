@@ -57,8 +57,13 @@ stage3_download() {
     local dest="${MOUNTPOINT}/${filename}"
 
     # Download tarball
-    try "Downloading stage3 tarball" \
-        wget -q -O "${dest}" "${url}"
+    if [[ "${LIVE_OUTPUT:-0}" == "1" ]]; then
+        try "Downloading stage3 tarball" \
+            wget --progress=bar:force -O "${dest}" "${url}"
+    else
+        try "Downloading stage3 tarball" \
+            wget -q -O "${dest}" "${url}"
+    fi
 
     # Download DIGESTS (GPG clearsigned, contains SHA512 hashes)
     try "Downloading DIGESTS" \
@@ -136,8 +141,11 @@ stage3_extract() {
     fi
     local file="${STAGE3_FILE}"
 
-    try "Extracting stage3" \
-        tar xpf "${file}" --xattrs-include='*.*' --numeric-owner -C "${MOUNTPOINT}"
+    local -a tar_args=(xpf "${file}" --xattrs-include='*.*' --numeric-owner -C "${MOUNTPOINT}")
+    # Show progress during live output (dot every 500 files extracted)
+    [[ "${LIVE_OUTPUT:-0}" == "1" ]] && tar_args+=(--checkpoint=500 --checkpoint-action=dot)
+
+    try "Extracting stage3" tar "${tar_args[@]}"
 
     # Cleanup tarball to save space
     rm -f "${file}" "${file}.DIGESTS"
