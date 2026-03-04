@@ -13,7 +13,7 @@ secureboot_setup() {
     chmod 700 "${key_dir}"
 
     # 1. Install required packages
-    try "Installing sbsigntools" emerge --quiet sys-boot/sbsigntools
+    try "Installing sbsigntools" emerge --quiet app-crypt/sbsigntools
     try "Installing mokutil" emerge --quiet sys-boot/mokutil
     try "Installing shim" emerge --quiet sys-boot/shim
 
