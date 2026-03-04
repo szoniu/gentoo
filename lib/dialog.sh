@@ -579,10 +579,57 @@ dialog_checklist() {
             sel_joined="${sel_joined%,}"
             gum_args+=(--selected "${sel_joined}")
         fi
-        _gum_drain_tty
-        local selected_output
-        selected_output=$(printf '%s\n' "${gum_lines[@]}" | \
-            gum choose "${gum_args[@]}") || return $?
+        local _gum_rc=0 _gum_attempt selected_output _t0
+        for _gum_attempt in 1 2 3; do
+            _gum_drain_tty
+            _t0="${SECONDS}"
+            _gum_rc=0
+            selected_output=$(printf '%s\n' "${gum_lines[@]}" | \
+                gum choose "${gum_args[@]}") || _gum_rc=$?
+            if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 && ${_gum_attempt} -lt 3 ]]; then
+                continue
+            fi
+            break
+        done
+        if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 ]]; then
+            # All retries exhausted — fallback to numbered multi-select list
+            _gum_drain_tty
+            stty echo </dev/tty 2>/dev/null || true
+            local k
+            for (( k=0; k<${#gum_lines[@]}; k++ )); do
+                local _mark=" "
+                local _m
+                for _m in "${preselected_lines[@]}"; do
+                    [[ "${_m}" == "${gum_lines[k]}" ]] && _mark="*"
+                done
+                printf '  %d) [%s] %s\n' "$(( k + 1 ))" "${_mark}" "${gum_lines[k]}" >/dev/tty
+            done
+            printf '  Enter numbers (comma/space-separated), or Enter for defaults: ' >/dev/tty
+            local _picks=""
+            read -r _picks </dev/tty || true
+            local -a selected_tags=()
+            if [[ -z "${_picks}" ]]; then
+                # Use defaults (preselected)
+                local _m2
+                for _m2 in "${preselected_lines[@]}"; do
+                    local _j2
+                    for (( _j2=0; _j2<${#gum_lines[@]}; _j2++ )); do
+                        [[ "${gum_lines[_j2]}" == "${_m2}" ]] && selected_tags+=("${gum_tags[_j2]}")
+                    done
+                done
+            else
+                local _num
+                for _num in ${_picks//,/ }; do
+                    if [[ "${_num}" =~ ^[0-9]+$ ]] && (( _num >= 1 && _num <= ${#gum_lines[@]} )); then
+                        selected_tags+=("${gum_tags[$(( _num - 1 ))]}")
+                    fi
+                done
+            fi
+            stty -echo </dev/tty 2>/dev/null || true
+            echo "${selected_tags[*]}"
+            return 0
+        fi
+        [[ ${_gum_rc} -ne 0 ]] && return ${_gum_rc}
         # Map each selected line back to its tag
         local -a selected_tags=()
         local line j

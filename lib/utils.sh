@@ -181,15 +181,19 @@ is_root() {
 
 # ensure_dns — Add fallback nameserver if DNS resolution fails
 ensure_dns() {
-    if ! ping -c 1 -W 3 gentoo.org &>/dev/null && ! ping -c 1 -W 3 google.com &>/dev/null; then
-        # Ping failed — check if it's a DNS issue (raw IP works?)
-        if ping -c 1 -W 3 8.8.8.8 &>/dev/null; then
-            ewarn "DNS resolution failed, adding fallback nameserver 8.8.8.8"
-            if ! grep -q '8.8.8.8' /etc/resolv.conf 2>/dev/null; then
-                echo "nameserver 8.8.8.8" >> /etc/resolv.conf
-            fi
-        fi
+    # Quick check — if DNS works, nothing to do
+    if ping -c 1 -W 2 gentoo.org &>/dev/null 2>&1 || \
+       ping -c 1 -W 2 google.com &>/dev/null 2>&1; then
+        return 0
     fi
+    # DNS failed — check if network is up (raw IP works?)
+    if ! ping -c 1 -W 3 8.8.8.8 &>/dev/null; then
+        ewarn "No network connectivity (even raw IP fails)"
+        return 1
+    fi
+    # Network up but DNS broken — force working resolv.conf
+    ewarn "DNS resolution failed, writing fallback nameservers"
+    printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' > /etc/resolv.conf
 }
 
 # has_network — Check basic network connectivity
@@ -248,8 +252,14 @@ checkpoint_migrate_to_target() {
     local target_dir="${MOUNTPOINT}${CHECKPOINT_DIR_SUFFIX}"
     [[ "${CHECKPOINT_DIR}" == "${target_dir}" ]] && return 0
     mkdir -p "${target_dir}"
-    [[ -d "${CHECKPOINT_DIR}" ]] && cp -a "${CHECKPOINT_DIR}/"* "${target_dir}/" 2>/dev/null || true
-    rm -rf "${CHECKPOINT_DIR}"
+    if [[ -d "${CHECKPOINT_DIR}" ]]; then
+        if cp -a "${CHECKPOINT_DIR}/"* "${target_dir}/" 2>/dev/null; then
+            rm -rf "${CHECKPOINT_DIR}"
+        else
+            ewarn "Failed to copy checkpoints to target — keeping originals in ${CHECKPOINT_DIR}"
+            return 0
+        fi
+    fi
     CHECKPOINT_DIR="${target_dir}"
     export CHECKPOINT_DIR
 }

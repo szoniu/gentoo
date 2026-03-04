@@ -235,17 +235,31 @@ run_pre_chroot() {
         checkpoint_migrate_to_target
     fi
 
-    # Phase 3: Stage3
-    if ! checkpoint_reached "stage3"; then
-        einfo "--- Phase: Stage3 download and extraction ---"
+    # Phase 3: Stage3 (granular checkpoints matching tui/progress.sh)
+    if ! checkpoint_reached "stage3_download"; then
+        einfo "--- Phase: Stage3 download ---"
         maybe_exec 'before_stage3'
         stage3_download
+        checkpoint_set "stage3_download"
+    else
+        einfo "Skipping stage3 download (checkpoint reached)"
+    fi
+
+    if ! checkpoint_reached "stage3_verify"; then
+        einfo "--- Phase: Stage3 verification ---"
         stage3_verify
+        checkpoint_set "stage3_verify"
+    else
+        einfo "Skipping stage3 verify (checkpoint reached)"
+    fi
+
+    if ! checkpoint_reached "stage3_extract"; then
+        einfo "--- Phase: Stage3 extraction ---"
         stage3_extract
         maybe_exec 'after_stage3'
-        checkpoint_set "stage3"
+        checkpoint_set "stage3_extract"
     else
-        einfo "Skipping stage3 (checkpoint reached)"
+        einfo "Skipping stage3 extract (checkpoint reached)"
     fi
 
     # Phase 4: Portage preconfig
@@ -294,6 +308,7 @@ _do_chroot_phases() {
     # Phase 5: Portage sync
     if ! checkpoint_reached "portage_sync"; then
         einfo "--- Phase: Portage sync ---"
+        ensure_dns
         maybe_exec 'before_portage_sync'
         portage_sync
         portage_select_profile
@@ -307,6 +322,7 @@ _do_chroot_phases() {
     # Phase 6: @world update
     if ! checkpoint_reached "world_update"; then
         einfo "--- Phase: @world update ---"
+        ensure_dns
         maybe_exec 'before_world_update'
         try "Updating @world" emerge --update --deep --changed-use @world
         maybe_exec 'after_world_update'
@@ -343,6 +359,7 @@ _do_chroot_phases() {
     # Phase 8: Kernel
     if ! checkpoint_reached "kernel"; then
         einfo "--- Phase: Kernel ---"
+        ensure_dns
         maybe_exec 'before_kernel'
         kernel_install
         maybe_exec 'after_kernel'
@@ -410,6 +427,7 @@ _do_chroot_phases() {
     # Phase 13: Desktop
     if ! checkpoint_reached "desktop"; then
         einfo "--- Phase: Desktop ---"
+        ensure_dns
         maybe_exec 'before_desktop'
         desktop_install
         maybe_exec 'after_desktop'
@@ -432,6 +450,7 @@ _do_chroot_phases() {
     # Phase 15: Extras
     if ! checkpoint_reached "extras"; then
         einfo "--- Phase: Extra packages ---"
+        ensure_dns
         maybe_exec 'before_extras'
         install_extra_packages
         maybe_exec 'after_extras'
