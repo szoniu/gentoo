@@ -14,6 +14,16 @@ desktop_install() {
     # Install GPU drivers first
     _install_gpu_drivers
 
+    # KDE dependency prerequisites
+    # avahi needs mdnsresponder-compat for kdnssd (KDE DNS-SD support)
+    mkdir -p /etc/portage/package.use
+    grep -qxF "net-dns/avahi mdnsresponder-compat" /etc/portage/package.use/kde 2>/dev/null || \
+        echo "net-dns/avahi mdnsresponder-compat" >> /etc/portage/package.use/kde 2>/dev/null || true
+
+    # dev-lang/go has a circular build dependency (needs itself to bootstrap)
+    # Install it first as a one-shot to break the cycle
+    try "Bootstrapping Go compiler" emerge --oneshot --quiet dev-lang/go
+
     # Install KDE Plasma
     try "Installing KDE Plasma" emerge --quiet kde-plasma/plasma-meta
 
