@@ -57,6 +57,10 @@ screen_summary() {
     [[ "${ENABLE_GURU:-no}" == "yes" ]] && summary+="GURU repo:    enabled\n"
     [[ "${ENABLE_NOCTALIA:-no}" == "yes" ]] && summary+="Noctalia:     enabled\n"
 
+    if [[ -n "${SHRINK_PARTITION:-}" ]]; then
+        summary+="Shrink:       ${SHRINK_PARTITION} (${SHRINK_PARTITION_FSTYPE:-?}) → ${SHRINK_NEW_SIZE_MIB:-?} MiB\n"
+    fi
+
     if [[ "${ESP_REUSE:-no}" == "yes" ]]; then
         summary+="\nDual-boot:    YES (reusing ESP ${ESP_PARTITION:-?})\n"
     fi

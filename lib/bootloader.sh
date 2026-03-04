@@ -12,6 +12,10 @@ bootloader_install() {
     # Install os-prober for dual-boot detection
     if [[ "${WINDOWS_DETECTED:-0}" == "1" ]] || [[ "${LINUX_DETECTED:-0}" == "1" ]] || \
        [[ "${ESP_REUSE:-no}" == "yes" ]]; then
+        # os-prober requires USE="mount" on grub for filesystem probing
+        mkdir -p /etc/portage/package.use
+        grep -qxF "sys-boot/grub mount" /etc/portage/package.use/grub 2>/dev/null || \
+            echo "sys-boot/grub mount" >> /etc/portage/package.use/grub 2>/dev/null || true
         try "Installing os-prober" emerge --quiet sys-boot/os-prober
     fi
 

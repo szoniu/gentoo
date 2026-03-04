@@ -225,6 +225,16 @@ validate_config() {
         errors+=("PARTITION_SCHEME=dual-boot requires ESP_PARTITION to be set")
     fi
 
+    if [[ -n "${SHRINK_PARTITION:-}" ]]; then
+        if [[ -n "${SHRINK_PARTITION_FSTYPE:-}" ]] && \
+           [[ "${SHRINK_PARTITION_FSTYPE}" != "ntfs" && "${SHRINK_PARTITION_FSTYPE}" != "ext4" && "${SHRINK_PARTITION_FSTYPE}" != "btrfs" ]]; then
+            errors+=("SHRINK_PARTITION_FSTYPE='${SHRINK_PARTITION_FSTYPE}' — must be ntfs, ext4, or btrfs")
+        fi
+        if [[ -z "${SHRINK_NEW_SIZE_MIB:-}" || "${SHRINK_NEW_SIZE_MIB:-0}" -le 0 ]]; then
+            errors+=("SHRINK_PARTITION set requires SHRINK_NEW_SIZE_MIB > 0")
+        fi
+    fi
+
     # --- Output ---
     if [[ ${#errors[@]} -gt 0 ]]; then
         local err
