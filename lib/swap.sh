@@ -29,7 +29,7 @@ swap_setup_zram() {
 
     if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
         # Use zram-generator for systemd
-        try "Installing zram-generator" emerge --quiet sys-block/zram-generator
+        try "Installing zram-generator" emerge --quiet sys-apps/zram-generator
 
         mkdir -p /etc/systemd
         cat > /etc/systemd/zram-generator.conf << 'ZRAMEOF'
