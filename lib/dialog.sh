@@ -139,6 +139,26 @@ init_dialog() {
 # Drain pending terminal responses (OSC 11, CPR) from /dev/tty input buffer.
 # gum's termenv/bubbletea query the terminal; when stdin is piped (gum choose),
 # responses land on /dev/tty and are read by bubbletea as phantom keystrokes.
+# _gum_time_ms — Current time in milliseconds (for phantom ESC detection)
+# Uses EPOCHREALTIME (bash 5.0+) for sub-second precision; falls back to SECONDS.
+# Phantom ESC arrives in <50ms, real user ESC takes >200ms — 150ms threshold.
+_gum_time_ms() {
+    if [[ -n "${EPOCHREALTIME:-}" ]]; then
+        # EPOCHREALTIME uses locale decimal separator (dot or comma)
+        local _rt="${EPOCHREALTIME//,/.}"
+        local _s="${_rt%%.*}"
+        local _f="${_rt#*.}"
+        _f="${_f:0:3}"
+        while [[ ${#_f} -lt 3 ]]; do _f+="0"; done
+        echo "$(( _s * 1000 + 10#${_f} ))"
+    else
+        echo "$(( SECONDS * 1000 ))"
+    fi
+}
+
+# Phantom ESC threshold in milliseconds (150ms: phantom <50ms, real user >200ms)
+_GUM_PHANTOM_ESC_MS=150
+
 # With echo off (set in _setup_gum_theme), responses don't display on screen,
 # but they still sit in the input buffer — this function removes them.
 _gum_drain_tty() {
@@ -237,20 +257,20 @@ dialog_yesno() {
             _gum_style_box "${title}" "${text}"
             echo ""
             _gum_drain_tty
-            local _t0="${SECONDS}"
+            local _t0; _t0=$(_gum_time_ms)
             _gum_rc=0
             _choice=$(printf 'Yes\nNo\n' | gum choose \
                 --cursor "▸ " --cursor.foreground 6 \
                 --selected.foreground 0 --selected.background 6 \
                 --no-show-help \
                 ) || _gum_rc=$?
-            if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 && ${_gum_attempt} -lt 3 ]]; then
+            if [[ ${_gum_rc} -ne 0 && $(( $(_gum_time_ms) - _t0 )) -le ${_GUM_PHANTOM_ESC_MS} && ${_gum_attempt} -lt 3 ]]; then
                 # Exited in <=1s — likely phantom ESC from terminal response
                 continue
             fi
             break
         done
-        if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 ]]; then
+        if [[ ${_gum_rc} -ne 0 && $(( $(_gum_time_ms) - _t0 )) -le ${_GUM_PHANTOM_ESC_MS} ]]; then
             # All retries exhausted by phantom ESC — fallback to plain prompt
             _gum_drain_tty
             stty echo </dev/tty 2>/dev/null || true
@@ -288,18 +308,18 @@ dialog_inputbox() {
         local _gum_rc=0 _gum_attempt
         for _gum_attempt in 1 2 3; do
             _gum_drain_tty
-            local _t0="${SECONDS}"
+            local _t0; _t0=$(_gum_time_ms)
             _gum_rc=0
             result=$(gum input --value "${default}" --width 60 \
                 --prompt.foreground 6 --cursor.foreground 6 \
                 </dev/tty) || _gum_rc=$?
-            if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 && ${_gum_attempt} -lt 3 ]]; then
+            if [[ ${_gum_rc} -ne 0 && $(( $(_gum_time_ms) - _t0 )) -le ${_GUM_PHANTOM_ESC_MS} && ${_gum_attempt} -lt 3 ]]; then
                 # Phantom ESC from terminal response — drain and retry
                 continue
             fi
             break
         done
-        if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 ]]; then
+        if [[ ${_gum_rc} -ne 0 && $(( $(_gum_time_ms) - _t0 )) -le ${_GUM_PHANTOM_ESC_MS} ]]; then
             # All retries exhausted by phantom ESC — fallback to plain read
             _gum_drain_tty
             stty echo </dev/tty 2>/dev/null || true
@@ -344,18 +364,18 @@ dialog_passwordbox() {
         local _gum_rc=0 _gum_attempt
         for _gum_attempt in 1 2 3; do
             _gum_drain_tty
-            local _t0="${SECONDS}"
+            local _t0; _t0=$(_gum_time_ms)
             _gum_rc=0
             result=$(gum input --password --width 60 \
                 --prompt.foreground 6 --cursor.foreground 6 \
                 </dev/tty) || _gum_rc=$?
-            if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 && ${_gum_attempt} -lt 3 ]]; then
+            if [[ ${_gum_rc} -ne 0 && $(( $(_gum_time_ms) - _t0 )) -le ${_GUM_PHANTOM_ESC_MS} && ${_gum_attempt} -lt 3 ]]; then
                 # Phantom ESC from terminal response — drain and retry
                 continue
             fi
             break
         done
-        if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 ]]; then
+        if [[ ${_gum_rc} -ne 0 && $(( $(_gum_time_ms) - _t0 )) -le ${_GUM_PHANTOM_ESC_MS} ]]; then
             # All retries exhausted by phantom ESC — fallback to plain read
             _gum_drain_tty
             printf '  Password: ' >/dev/tty
@@ -405,7 +425,7 @@ dialog_menu() {
         local _gum_rc=0 _gum_attempt selected_line
         for _gum_attempt in 1 2 3; do
             _gum_drain_tty
-            local _t0="${SECONDS}"
+            local _t0; _t0=$(_gum_time_ms)
             _gum_rc=0
             selected_line=$(printf '%s\n' "${gum_lines[@]}" | \
                 gum choose --header "${header}" \
@@ -415,12 +435,12 @@ dialog_menu() {
                     --cursor.foreground 6 \
                     --selected.foreground 0 --selected.background 6 \
                 ) || _gum_rc=$?
-            if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 && ${_gum_attempt} -lt 3 ]]; then
+            if [[ ${_gum_rc} -ne 0 && $(( $(_gum_time_ms) - _t0 )) -le ${_GUM_PHANTOM_ESC_MS} && ${_gum_attempt} -lt 3 ]]; then
                 continue
             fi
             break
         done
-        if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 ]]; then
+        if [[ ${_gum_rc} -ne 0 && $(( $(_gum_time_ms) - _t0 )) -le ${_GUM_PHANTOM_ESC_MS} ]]; then
             # All retries exhausted — fallback to numbered list
             _gum_drain_tty
             stty echo </dev/tty 2>/dev/null || true
@@ -509,16 +529,16 @@ dialog_radiolist() {
         local _gum_rc=0 _gum_attempt selected_line
         for _gum_attempt in 1 2 3; do
             _gum_drain_tty
-            local _t0="${SECONDS}"
+            local _t0; _t0=$(_gum_time_ms)
             _gum_rc=0
             selected_line=$(printf '%s\n' "${gum_lines[@]}" | \
                 gum choose "${gum_args[@]}") || _gum_rc=$?
-            if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 && ${_gum_attempt} -lt 3 ]]; then
+            if [[ ${_gum_rc} -ne 0 && $(( $(_gum_time_ms) - _t0 )) -le ${_GUM_PHANTOM_ESC_MS} && ${_gum_attempt} -lt 3 ]]; then
                 continue
             fi
             break
         done
-        if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 ]]; then
+        if [[ ${_gum_rc} -ne 0 && $(( $(_gum_time_ms) - _t0 )) -le ${_GUM_PHANTOM_ESC_MS} ]]; then
             # All retries exhausted — fallback to numbered list
             _gum_drain_tty
             stty echo </dev/tty 2>/dev/null || true
@@ -611,16 +631,16 @@ dialog_checklist() {
         local _gum_rc=0 _gum_attempt selected_output _t0
         for _gum_attempt in 1 2 3; do
             _gum_drain_tty
-            _t0="${SECONDS}"
+            _t0=$(_gum_time_ms)
             _gum_rc=0
             selected_output=$(printf '%s\n' "${gum_lines[@]}" | \
                 gum choose "${gum_args[@]}") || _gum_rc=$?
-            if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 && ${_gum_attempt} -lt 3 ]]; then
+            if [[ ${_gum_rc} -ne 0 && $(( $(_gum_time_ms) - _t0 )) -le ${_GUM_PHANTOM_ESC_MS} && ${_gum_attempt} -lt 3 ]]; then
                 continue
             fi
             break
         done
-        if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 ]]; then
+        if [[ ${_gum_rc} -ne 0 && $(( $(_gum_time_ms) - _t0 )) -le ${_GUM_PHANTOM_ESC_MS} ]]; then
             # All retries exhausted — fallback to numbered multi-select list
             _gum_drain_tty
             stty echo </dev/tty 2>/dev/null || true
