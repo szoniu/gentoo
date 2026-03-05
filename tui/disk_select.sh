@@ -79,7 +79,10 @@ Make sure you have a full backup before continuing." || true
             desc+=" [${DETECTED_OSES[${pdev}]}]"
         fi
 
-        shrink_items+=("${pdev}" "${desc}")
+        # First item pre-selected, rest off (dialog_radiolist expects triples)
+        local on_off="off"
+        [[ ${#shrink_items[@]} -eq 0 ]] && on_off="on"
+        shrink_items+=("${pdev}" "${desc}" "${on_off}")
         shrink_parts+=("${pdev}")
         shrink_fstypes+=("${pfstype}")
     done < <(lsblk -lno NAME,SIZE,FSTYPE,LABEL "${disk}" 2>/dev/null | tail -n +2)
