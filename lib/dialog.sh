@@ -402,16 +402,45 @@ dialog_menu() {
         done
         local header
         header=$(gum style --foreground 6 --bold "  ${title}")
-        _gum_drain_tty
-        local selected_line
-        selected_line=$(printf '%s\n' "${gum_lines[@]}" | \
-            gum choose --header "${header}" \
-                --height "${DIALOG_LIST_HEIGHT}" \
-                --no-show-help \
-                --cursor "▸ " \
-                --cursor.foreground 6 \
-                --selected.foreground 0 --selected.background 6 \
-            ) || return $?
+        local _gum_rc=0 _gum_attempt selected_line
+        for _gum_attempt in 1 2 3; do
+            _gum_drain_tty
+            local _t0="${SECONDS}"
+            _gum_rc=0
+            selected_line=$(printf '%s\n' "${gum_lines[@]}" | \
+                gum choose --header "${header}" \
+                    --height "${DIALOG_LIST_HEIGHT}" \
+                    --no-show-help \
+                    --cursor "▸ " \
+                    --cursor.foreground 6 \
+                    --selected.foreground 0 --selected.background 6 \
+                ) || _gum_rc=$?
+            if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 && ${_gum_attempt} -lt 3 ]]; then
+                continue
+            fi
+            break
+        done
+        if [[ ${_gum_rc} -ne 0 && $(( SECONDS - _t0 )) -le 1 ]]; then
+            # All retries exhausted — fallback to numbered list
+            _gum_drain_tty
+            stty echo </dev/tty 2>/dev/null || true
+            local k
+            for (( k=0; k<${#gum_lines[@]}; k++ )); do
+                printf '  %d) %s\n' "$(( k + 1 ))" "${gum_lines[k]}" >/dev/tty
+            done
+            local _pick=""
+            while true; do
+                printf '  Select [1-%d]: ' "${#gum_lines[@]}" >/dev/tty
+                read -r _pick </dev/tty || true
+                if [[ "${_pick}" =~ ^[0-9]+$ ]] && (( _pick >= 1 && _pick <= ${#gum_lines[@]} )); then
+                    break
+                fi
+            done
+            stty -echo </dev/tty 2>/dev/null || true
+            echo "${gum_tags[$(( _pick - 1 ))]}"
+            return 0
+        fi
+        [[ ${_gum_rc} -ne 0 ]] && return ${_gum_rc}
         # Map selected line back to tag
         local j
         for (( j=0; j<${#gum_lines[@]}; j++ )); do
