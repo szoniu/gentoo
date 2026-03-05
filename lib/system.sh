@@ -60,10 +60,11 @@ system_set_hostname() {
 
     einfo "Setting hostname: ${hostname}"
 
-    if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
-        echo "${hostname}" > /etc/hostname
-    else
-        # OpenRC — use quoted heredoc to prevent shell expansion
+    # Always write /etc/hostname (used by systemd, read by many tools)
+    echo "${hostname}" > /etc/hostname
+
+    if [[ "${INIT_SYSTEM:-systemd}" == "openrc" ]]; then
+        # OpenRC also needs /etc/conf.d/hostname
         cat > /etc/conf.d/hostname << 'HOSTEOF'
 hostname="PLACEHOLDER"
 HOSTEOF

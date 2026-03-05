@@ -315,6 +315,9 @@ Current=breeze
 
 [General]
 InputMethod=
+
+[Users]
+DefaultSession=plasma.desktop
 SDDMEOF
 
     # Ensure dbus is started
