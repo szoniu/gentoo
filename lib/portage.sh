@@ -260,8 +260,16 @@ _install_noctalia_compositor() {
 
     case "${compositor}" in
         hyprland)
+            # Hyprland was masked in ::gentoo (2026-02-09) and moved to hyproverlay
+            einfo "Enabling hyproverlay repository for Hyprland..."
+            try "Installing eselect-repository" emerge --quiet app-eselect/eselect-repository
+            eselect repository enable hyproverlay 2>/dev/null || true
+            try "Syncing hyproverlay" emerge --sync hyproverlay
             mkdir -p /etc/portage/package.accept_keywords
             echo "gui-wm/hyprland ~amd64" >> /etc/portage/package.accept_keywords/noctalia-shell
+            # Unmask hyprland (masked in ::gentoo profiles but available from hyproverlay)
+            mkdir -p /etc/portage/package.unmask
+            echo "gui-wm/hyprland" >> /etc/portage/package.unmask/hyprland
             try "Installing Hyprland" emerge --quiet --autounmask-write --autounmask-continue gui-wm/hyprland
             ;;
         niri)
