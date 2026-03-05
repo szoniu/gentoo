@@ -198,8 +198,9 @@ kernel_install_surface_genkernel() {
     echo "# surface-genkernel" > /etc/portage/package.accept_keywords/surface-kernel
 
     try "Installing gentoo-sources" emerge --quiet --autounmask-write --autounmask-continue sys-kernel/gentoo-sources
+
+    # Install genkernel (generates its own initramfs — dracut not needed)
     try "Installing genkernel" emerge --quiet sys-kernel/genkernel
-    try "Installing dracut" emerge --quiet sys-kernel/dracut
 
     # Set kernel symlink
     try "Setting kernel symlink" eselect kernel set 1

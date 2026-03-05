@@ -294,10 +294,9 @@ _enable_display_manager() {
         else
             echo 'DISPLAYMANAGER="sddm"' > "${conf}"
         fi
+        # display-manager init script comes from gui-libs/display-manager-init
+        try "Installing display-manager-init" emerge --quiet gui-libs/display-manager-init
         try "Enabling display-manager" rc-update add display-manager default
-
-        # Install XDM init script if not present
-        try "Installing xdm" emerge --quiet x11-base/xorg-server 2>/dev/null || true
     fi
 
     einfo "SDDM enabled"
