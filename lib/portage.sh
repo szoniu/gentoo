@@ -239,6 +239,11 @@ install_noctalia_shell() {
     mkdir -p /etc/portage/package.accept_keywords
     echo "*/*::guru ~amd64" > /etc/portage/package.accept_keywords/guru
 
+    # Disable breakpad on noctalia-qs — optional crash reporter, pulls ~amd64 dep from ::gentoo
+    mkdir -p /etc/portage/package.use
+    grep -qxF "gui-apps/noctalia-qs -breakpad" /etc/portage/package.use/noctalia 2>/dev/null || \
+        echo "gui-apps/noctalia-qs -breakpad" >> /etc/portage/package.use/noctalia 2>/dev/null || true
+
     # Install selected Wayland compositor
     _install_noctalia_compositor "${compositor}"
 
