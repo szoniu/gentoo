@@ -247,6 +247,14 @@ system_finalize() {
         fi
     fi
 
+    # Install and enable SSH server
+    try "Installing OpenSSH" emerge --quiet net-misc/openssh
+    if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+        try "Enabling sshd" systemctl enable sshd
+    else
+        try "Enabling sshd" rc-update add sshd default
+    fi
+
     # Enable default systemd services
     if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
         try "Enabling default systemd services" \
