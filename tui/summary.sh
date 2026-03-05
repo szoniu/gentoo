@@ -104,7 +104,16 @@ screen_summary() {
 
         # What WILL be formatted
         warning+="WILL BE FORMATTED (data destroyed):\n"
-        warning+="  ${ROOT_PARTITION:-?} -> ${FILESYSTEM:-ext4}\n\n"
+        if [[ -n "${ROOT_PARTITION:-}" ]]; then
+            warning+="  ${ROOT_PARTITION} -> ${FILESYSTEM:-ext4}\n"
+        else
+            warning+="  (new partition will be created) -> ${FILESYSTEM:-ext4}\n"
+        fi
+        if [[ -n "${SHRINK_PARTITION:-}" ]]; then
+            warning+="WILL BE SHRUNK (data preserved):\n"
+            warning+="  ${SHRINK_PARTITION} (${SHRINK_PARTITION_FSTYPE:-?}) -> ${SHRINK_NEW_SIZE_MIB:-?} MiB\n"
+        fi
+        warning+="\n"
 
         # What will SURVIVE
         warning+="WILL BE PRESERVED:\n"
