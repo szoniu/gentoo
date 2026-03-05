@@ -488,7 +488,11 @@ run_post_install() {
         complete_msg+="SECURE BOOT: At first reboot, MokManager will appear.\n"
         complete_msg+="Select 'Enroll MOK' -> verify key -> enter password: gentoo -> Reboot\n\n"
     fi
-    complete_msg+="Log file saved to: ${LOG_FILE}"
+    # Copy log to installed system so it survives reboot
+    if [[ "${DRY_RUN}" != "1" && -f "${LOG_FILE}" ]]; then
+        cp "${LOG_FILE}" "${MOUNTPOINT}/var/log/gentoo-installer.log" 2>/dev/null || true
+    fi
+    complete_msg+="Log file saved to: /var/log/gentoo-installer.log"
 
     dialog_msgbox "Installation Complete" "${complete_msg}"
 

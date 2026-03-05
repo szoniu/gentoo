@@ -251,6 +251,12 @@ install_noctalia_shell() {
     # --autounmask-write --autounmask-continue: GURU deps may need extra ~amd64
     try "Installing noctalia-shell" emerge --quiet --autounmask-write --autounmask-continue gui-apps/noctalia-shell
 
+    # Install optional runtime dependencies for Noctalia Shell
+    try "Installing Noctalia extras" emerge --quiet \
+        app-misc/cliphist \
+        gui-apps/wlsunset \
+        media-sound/cava
+
     # Configure compositor to launch Noctalia Shell
     _configure_noctalia_autostart "${compositor}"
 }
