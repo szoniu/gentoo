@@ -41,13 +41,13 @@ _get_partition_info_for_dialog() {
 _shrink_wizard() {
     local disk="$1" esp_partition="${2:-}"
 
-    # Step 1: Warning about backup
+    # Step 1: Warning about backup (ignore return code — informational only)
     dialog_msgbox "No Free Space" \
         "There is not enough free space on ${disk} to create a Gentoo partition.\n\n\
 To proceed, an existing partition must be shrunk.\n\n\
 !!! IMPORTANT: BACK UP YOUR DATA FIRST !!!\n\n\
 Shrinking a partition carries a risk of data loss.\n\
-Make sure you have a full backup before continuing."
+Make sure you have a full backup before continuing." || true
 
     # Step 2: Build list of shrinkable partitions
     local -a shrink_items=()
@@ -129,7 +129,7 @@ Are you sure you want to shrink this partition?" \
 2. Disable hibernation (powercfg /h off)\n\
 3. Perform a clean shutdown (not hibernate)\n\
 4. Run chkdsk on Windows first\n\n\
-Failure to do so may cause data loss."
+Failure to do so may cause data loss." || true
     fi
 
     # Step 5: Get sizes
@@ -178,20 +178,20 @@ Enter size in MiB:" \
 
         # Validate input is a number
         if [[ ! "${gentoo_size_mib}" =~ ^[0-9]+$ ]]; then
-            dialog_msgbox "Invalid Input" "Please enter a number (MiB)."
+            dialog_msgbox "Invalid Input" "Please enter a number (MiB)." || true
             continue
         fi
 
         if [[ ${gentoo_size_mib} -lt ${GENTOO_MIN_SIZE_MIB} ]]; then
             dialog_msgbox "Too Small" \
-                "Minimum size for Gentoo is ${GENTOO_MIN_SIZE_MIB} MiB (20 GiB)."
+                "Minimum size for Gentoo is ${GENTOO_MIN_SIZE_MIB} MiB (20 GiB)." || true
             continue
         fi
 
         if [[ ${gentoo_size_mib} -gt ${max_gentoo_mib} ]]; then
             dialog_msgbox "Too Large" \
                 "Maximum available space is ${max_gentoo_mib} MiB.\n\
-(Total ${total_mib} - Used ${used_mib} - 1 GiB safety margin)"
+(Total ${total_mib} - Used ${used_mib} - 1 GiB safety margin)" || true
             continue
         fi
 
