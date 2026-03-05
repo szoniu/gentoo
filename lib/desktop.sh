@@ -321,9 +321,10 @@ RememberLastSession=false
 DefaultSession=plasma.desktop
 SDDMEOF
 
-    # Ensure dbus is started
+    # Ensure dbus and elogind are started (OpenRC needs explicit enable)
     if [[ "${INIT_SYSTEM:-systemd}" == "openrc" ]]; then
         try "Enabling dbus" rc-update add dbus default
+        try "Enabling elogind" rc-update add elogind boot
     fi
 
     einfo "Plasma defaults configured"

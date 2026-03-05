@@ -47,8 +47,13 @@ kernel_install() {
             ;;
     esac
 
-    # Configure dracut with root filesystem UUID
-    _configure_dracut_root
+    # Configure dracut with root filesystem UUID (dist-kernel + surface-kernel use dracut;
+    # genkernel/surface-genkernel generate their own initramfs)
+    case "${kernel_type}" in
+        dist-kernel|surface-kernel)
+            _configure_dracut_root
+            ;;
+    esac
 
     einfo "Kernel installation complete"
 }
@@ -109,11 +114,8 @@ kernel_install_genkernel() {
     # --autounmask-write --autounmask-continue: deps may also need ~amd64
     try "Installing gentoo-sources" emerge --quiet --autounmask-write --autounmask-continue sys-kernel/gentoo-sources
 
-    # Install genkernel
+    # Install genkernel (generates its own initramfs — dracut not needed)
     try "Installing genkernel" emerge --quiet sys-kernel/genkernel
-
-    # Install dracut for initramfs
-    try "Installing dracut" emerge --quiet sys-kernel/dracut
 
     # Set kernel symlink
     try "Setting kernel symlink" eselect kernel set 1
