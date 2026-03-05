@@ -104,8 +104,7 @@ screen_extra_packages() {
                 ENABLE_GURU="yes"  # noctalia requires GURU
                 # Ask which Wayland compositor to install
                 local compositor
-                compositor=$(dialog_radiolist "Noctalia Compositor" \
-                    "Noctalia Shell requires a Wayland compositor.\nSelect one:" \
+                compositor=$(dialog_radiolist "Select Wayland Compositor for Noctalia" \
                     "hyprland" "Hyprland — dynamic tiling Wayland compositor" "on"  \
                     "niri"     "Niri — scrollable-tiling Wayland compositor"  "off" \
                     "sway"     "Sway — i3-compatible Wayland compositor"      "off" \
