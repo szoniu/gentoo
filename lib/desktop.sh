@@ -315,6 +315,7 @@ Current=breeze
 
 [General]
 InputMethod=
+RememberLastSession=false
 
 [Users]
 DefaultSession=plasma.desktop

@@ -306,7 +306,7 @@ _configure_noctalia_autostart() {
             local conf_dir="${skel}/.config/hypr"
             mkdir -p "${conf_dir}"
             if [[ -f "${conf_dir}/hyprland.conf" ]]; then
-                echo 'exec-once = noctalia-qs -c noctalia-shell' >> "${conf_dir}/hyprland.conf"
+                echo 'exec-once = quickshell -c noctalia-shell' >> "${conf_dir}/hyprland.conf"
             else
                 local kb_layout="${KEYMAP:-us}"
                 cat > "${conf_dir}/hyprland.conf" << HYPREOF
@@ -325,7 +325,7 @@ input {
 }
 
 # Noctalia Shell autostart
-exec-once = noctalia-qs -c noctalia-shell
+exec-once = quickshell -c noctalia-shell
 exec-once = dbus-update-activation-environment --systemd --all
 
 # Basic keybindings
@@ -356,11 +356,11 @@ HYPREOF
             local conf_dir="${skel}/.config/niri"
             mkdir -p "${conf_dir}"
             if [[ -f "${conf_dir}/config.kdl" ]]; then
-                echo 'spawn-at-startup "noctalia-qs" "-c" "noctalia-shell"' >> "${conf_dir}/config.kdl"
+                echo 'spawn-at-startup "quickshell" "-c" "noctalia-shell"' >> "${conf_dir}/config.kdl"
             else
                 cat > "${conf_dir}/config.kdl" << 'NIRIEOF'
 // Noctalia Shell autostart
-spawn-at-startup "noctalia-qs" "-c" "noctalia-shell"
+spawn-at-startup "quickshell" "-c" "noctalia-shell"
 NIRIEOF
             fi
             ;;
@@ -368,11 +368,11 @@ NIRIEOF
             local conf_dir="${skel}/.config/sway"
             mkdir -p "${conf_dir}"
             if [[ -f "${conf_dir}/config" ]]; then
-                echo 'exec noctalia-qs -c noctalia-shell' >> "${conf_dir}/config"
+                echo 'exec quickshell -c noctalia-shell' >> "${conf_dir}/config"
             else
                 cat > "${conf_dir}/config" << 'SWAYEOF'
 # Noctalia Shell autostart
-exec noctalia-qs -c noctalia-shell
+exec quickshell -c noctalia-shell
 SWAYEOF
             fi
             ;;
