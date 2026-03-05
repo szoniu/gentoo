@@ -235,13 +235,9 @@ install_noctalia_shell() {
     local compositor="${NOCTALIA_COMPOSITOR:-hyprland}"
     einfo "Installing Noctalia Shell with ${compositor}..."
 
-    # Accept ~amd64 keywords for noctalia-shell and its GURU dependencies
+    # Accept ~amd64 for all GURU packages (noctalia-shell + transitive deps like brightnessctl)
     mkdir -p /etc/portage/package.accept_keywords
-    {
-        echo "gui-apps/noctalia-shell ~amd64"
-        echo "gui-apps/noctalia-qs ~amd64"
-        echo "media-video/gpu-screen-recorder ~amd64"
-    } > /etc/portage/package.accept_keywords/noctalia-shell
+    echo "*/*::guru ~amd64" > /etc/portage/package.accept_keywords/guru
 
     # Install selected Wayland compositor
     _install_noctalia_compositor "${compositor}"
