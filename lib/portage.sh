@@ -444,7 +444,7 @@ install_thunderbolt_tools() {
 install_sensor_tools() {
     [[ "${ENABLE_SENSORS:-no}" != "yes" ]] && return 0
     einfo "Installing IIO sensor proxy..."
-    try "Installing iio-sensor-proxy" emerge --quiet sys-apps/iio-sensor-proxy
+    try "Installing iio-sensor-proxy" emerge --quiet gnome-extra/iio-sensor-proxy
     if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
         einfo "iio-sensor-proxy auto-started via systemd/udev"
     else
