@@ -265,8 +265,9 @@ _install_noctalia_compositor() {
             try "Installing eselect-repository" emerge --quiet app-eselect/eselect-repository
             eselect repository enable hyproverlay 2>/dev/null || true
             try "Syncing hyproverlay" emerge --sync hyproverlay
+            # Accept ~amd64 for all hyproverlay packages (hyprland + all deps)
             mkdir -p /etc/portage/package.accept_keywords
-            echo "gui-wm/hyprland ~amd64" >> /etc/portage/package.accept_keywords/noctalia-shell
+            echo "*/*::hyproverlay ~amd64" >> /etc/portage/package.accept_keywords/hyproverlay
             # Unmask hyprland (masked in ::gentoo profiles but available from hyproverlay)
             mkdir -p /etc/portage/package.unmask
             echo "gui-wm/hyprland" >> /etc/portage/package.unmask/hyprland
