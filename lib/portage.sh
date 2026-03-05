@@ -306,7 +306,7 @@ _configure_noctalia_autostart() {
             local conf_dir="${skel}/.config/hypr"
             mkdir -p "${conf_dir}"
             if [[ -f "${conf_dir}/hyprland.conf" ]]; then
-                echo 'exec-once = quickshell -c noctalia-shell' >> "${conf_dir}/hyprland.conf"
+                echo 'exec-once = qs -c noctalia-shell' >> "${conf_dir}/hyprland.conf"
             else
                 local kb_layout="${KEYMAP:-us}"
                 cat > "${conf_dir}/hyprland.conf" << HYPREOF
@@ -314,6 +314,36 @@ _configure_noctalia_autostart() {
 
 # Monitor
 monitor = ,preferred,auto,1
+
+# Appearance
+general {
+    gaps_in = 5
+    gaps_out = 10
+}
+
+decoration {
+    rounding = 20
+    rounding_power = 2
+
+    shadow {
+        enabled = true
+        range = 4
+        render_power = 3
+        color = rgba(1a1a1aee)
+    }
+
+    blur {
+        enabled = true
+        size = 3
+        passes = 2
+        vibrancy = 0.1696
+    }
+}
+
+# Noctalia Shell layer rules
+layerrule = ignorealpha 0.5, noctalia-background-.*
+layerrule = blur, noctalia-background-.*
+layerrule = blurpopups, noctalia-background-.*
 
 # Input
 input {
@@ -325,7 +355,7 @@ input {
 }
 
 # Noctalia Shell autostart
-exec-once = quickshell -c noctalia-shell
+exec-once = qs -c noctalia-shell
 exec-once = dbus-update-activation-environment --systemd --all
 
 # Basic keybindings
@@ -356,11 +386,11 @@ HYPREOF
             local conf_dir="${skel}/.config/niri"
             mkdir -p "${conf_dir}"
             if [[ -f "${conf_dir}/config.kdl" ]]; then
-                echo 'spawn-at-startup "quickshell" "-c" "noctalia-shell"' >> "${conf_dir}/config.kdl"
+                echo 'spawn-at-startup "qs" "-c" "noctalia-shell"' >> "${conf_dir}/config.kdl"
             else
                 cat > "${conf_dir}/config.kdl" << 'NIRIEOF'
 // Noctalia Shell autostart
-spawn-at-startup "quickshell" "-c" "noctalia-shell"
+spawn-at-startup "qs" "-c" "noctalia-shell"
 NIRIEOF
             fi
             ;;
@@ -368,11 +398,11 @@ NIRIEOF
             local conf_dir="${skel}/.config/sway"
             mkdir -p "${conf_dir}"
             if [[ -f "${conf_dir}/config" ]]; then
-                echo 'exec quickshell -c noctalia-shell' >> "${conf_dir}/config"
+                echo 'exec qs -c noctalia-shell' >> "${conf_dir}/config"
             else
                 cat > "${conf_dir}/config" << 'SWAYEOF'
 # Noctalia Shell autostart
-exec quickshell -c noctalia-shell
+exec qs -c noctalia-shell
 SWAYEOF
             fi
             ;;
