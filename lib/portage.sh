@@ -621,8 +621,19 @@ install_extra_packages() {
         return 0
     fi
 
-    einfo "Installing extra packages: ${EXTRA_PACKAGES}"
+    # Package-specific USE flags
     local pkg
+    for pkg in ${EXTRA_PACKAGES}; do
+        case "${pkg}" in
+            media-libs/libv4l)
+                mkdir -p /etc/portage/package.use
+                grep -qxF "media-libs/libv4l utils" /etc/portage/package.use/v4l 2>/dev/null || \
+                    echo "media-libs/libv4l utils" >> /etc/portage/package.use/v4l
+                ;;
+        esac
+    done
+
+    einfo "Installing extra packages: ${EXTRA_PACKAGES}"
     for pkg in ${EXTRA_PACKAGES}; do
         # Validate package name (category/name format or simple name)
         if [[ ! "${pkg}" =~ ^[a-zA-Z0-9][a-zA-Z0-9_./-]*$ ]]; then

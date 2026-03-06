@@ -11,7 +11,7 @@ screen_extra_packages() {
         "app-editors/vim"  "Vim text editor"                  "off"
         "dev-vcs/git"      "Git version control"              "off"
         "sys-process/htop"  "Interactive process viewer"       "off"
-        "v4l-utils"        "Video4Linux webcam/capture utilities" "off"
+        "v4l-utils"        "Video4Linux webcam/capture utilities (libv4l)" "off"
     )
 
     # Conditional: ASUS ROG tools (only shown when ROG hardware detected)
@@ -94,7 +94,7 @@ screen_extra_packages() {
                 ENABLE_WWAN="yes"
                 ;;
             v4l-utils)
-                pkgs+=("media-video/v4l-utils")
+                pkgs+=("media-libs/libv4l")
                 ;;
             guru-repo)
                 ENABLE_GURU="yes"
