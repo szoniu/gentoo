@@ -425,6 +425,11 @@ SWAYEOF
     if [[ -n "${USERNAME:-}" ]] && id "${USERNAME}" &>/dev/null; then
         local user_home
         user_home=$(getent passwd "${USERNAME}" | cut -d: -f6)
+
+        # Create Noctalia config dir with correct ownership
+        mkdir -p "${user_home}/.config/noctalia/plugins"
+        chown -R "${USERNAME}:${USERNAME}" "${user_home}/.config/noctalia"
+
         case "${compositor}" in
             hyprland)
                 mkdir -p "${user_home}/.config/hypr"
