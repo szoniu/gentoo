@@ -10,7 +10,7 @@ screen_extra_packages() {
         "kitty"        "GPU-accelerated terminal emulator"   "on"
         "app-editors/vim"  "Vim text editor"                  "off"
         "dev-vcs/git"      "Git version control"              "off"
-        "app-misc/htop"    "Interactive process viewer"       "off"
+        "sys-process/htop"  "Interactive process viewer"       "off"
         "v4l-utils"        "Video4Linux webcam/capture utilities" "off"
     )
 
