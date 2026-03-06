@@ -345,9 +345,7 @@ env = QT_QPA_PLATFORM,wayland
 env = MOZ_ENABLE_WAYLAND,1
 
 # Noctalia Shell layer rules (Hyprland 0.53+ syntax)
-layerrule = blur on, match:namespace noctalia-background-.*
-layerrule = ignorealpha 0.5, match:namespace noctalia-background-.*
-layerrule = blurpopups on, match:namespace noctalia-background-.*
+layerrule = blur on, ignore_alpha 0.5, blur_popups on, match:namespace noctalia-background-.*
 
 # Input
 input {
