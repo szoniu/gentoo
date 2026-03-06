@@ -354,9 +354,13 @@ input {
     }
 }
 
+# Environment
+env = QT_QPA_PLATFORM,wayland
+env = MOZ_ENABLE_WAYLAND,1
+
 # Noctalia Shell autostart
-exec-once = qs -c noctalia-shell
 exec-once = dbus-update-activation-environment --systemd --all
+exec-once = qs -c noctalia-shell
 
 # Basic keybindings
 \$mod = SUPER
@@ -379,6 +383,17 @@ bind = \$mod SHIFT, 2, movetoworkspace, 2
 bind = \$mod SHIFT, 3, movetoworkspace, 3
 bind = \$mod SHIFT, 4, movetoworkspace, 4
 bind = \$mod SHIFT, 5, movetoworkspace, 5
+
+# Noctalia IPC keybindings
+\$ipc = qs -c noctalia-shell ipc call
+bind = \$mod, SPACE, exec, \$ipc launcher toggle
+bind = \$mod, S, exec, \$ipc controlCenter toggle
+bind = \$mod, comma, exec, \$ipc settings toggle
+bindel = , XF86AudioRaiseVolume, exec, \$ipc volume increase
+bindel = , XF86AudioLowerVolume, exec, \$ipc volume decrease
+bindl = , XF86AudioMute, exec, \$ipc volume muteOutput
+bindel = , XF86MonBrightnessUp, exec, \$ipc brightness increase
+bindel = , XF86MonBrightnessDown, exec, \$ipc brightness decrease
 HYPREOF
             fi
             ;;
