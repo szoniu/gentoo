@@ -340,10 +340,10 @@ decoration {
     }
 }
 
-# Noctalia Shell layer rules
-layerrule = ignorealpha 0.5, noctalia-background-.*
-layerrule = blur, noctalia-background-.*
-layerrule = blurpopups, noctalia-background-.*
+# Noctalia Shell layer rules (Hyprland 0.53+ syntax)
+layerrule = blur on, match:namespace noctalia-background-.*
+layerrule = ignorealpha 0.5, match:namespace noctalia-background-.*
+layerrule = blurpopups on, match:namespace noctalia-background-.*
 
 # Input
 input {
