@@ -824,14 +824,15 @@ run_wizard() {
             "${TUI_NEXT}"|0)
                 (( _WIZARD_INDEX++ )) || true
 
-                # Preset skip: after disk_select, jump to user_config
+                # Preset skip: after disk_select, jump to summary
                 # (disk_select must run — TARGET_DISK/ESP are hardware-specific, not in preset)
+                # All other settings (users, packages, desktop) are preserved from preset
                 if [[ "${_PRESET_SKIP_TO_USER:-0}" == "1" && "${screen_func}" == "screen_disk_select" ]]; then
                     local skip_idx
                     for (( skip_idx = _WIZARD_INDEX; skip_idx < total; skip_idx++ )); do
-                        if [[ "${_WIZARD_SCREENS[${skip_idx}]}" == "screen_user_config" ]]; then
+                        if [[ "${_WIZARD_SCREENS[${skip_idx}]}" == "screen_summary" ]]; then
                             _WIZARD_INDEX=${skip_idx}
-                            einfo "Preset skip: jumping to user config"
+                            einfo "Preset skip: jumping to summary"
                             break
                         fi
                     done
