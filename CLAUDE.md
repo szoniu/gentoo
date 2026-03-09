@@ -24,9 +24,9 @@ lib/                    — Moduły biblioteczne (NIGDY nie uruchamiać bezpośr
 ├── logging.sh          — elog/einfo/ewarn/eerror/die/die_trace, kolory, log do pliku
 ├── utils.sh            — try (interaktywne recovery, text fallback bez dialog, LIVE_OUTPUT via tee), checkpoint_set/reached/validate/migrate_to_target, is_root/is_efi/has_network/ensure_dns, generate_password_hash
 ├── dialog.sh           — Wrapper gum/dialog/whiptail, primitives (msgbox/yesno/menu/radiolist/checklist/gauge/infobox/inputbox/passwordbox), wizard runner (register_wizard_screens + run_wizard), bundled gum extraction
-├── config.sh           — config_save/load/set/get/dump (${VAR@Q} quoting), validate_config()
+├── config.sh           — config_save/load/set/get/dump/diff (${VAR@Q} quoting), validate_config()
 ├── hardware.sh         — detect_cpu/gpu/disks/esp/installed_oses, detect_asus_rog, detect_surface, serialize/deserialize_detected_oses, get_hardware_summary
-├── disk.sh             — Dwufazowe: disk_plan_add/add_stdin/show/auto/dualboot → cleanup_target_disk + disk_execute_plan (sfdisk), mount/unmount_filesystems, get_uuid
+├── disk.sh             — Dwufazowe: disk_plan_add/add_stdin/show/auto/dualboot → cleanup_target_disk + disk_execute_plan (sfdisk), mount/unmount_filesystems, get_uuid, get_partuuid, shrink helpers: disk_get_free_space_mib, disk_get_partition_size_mib, disk_get_partition_used_mib, disk_can_shrink_fstype, disk_plan_shrink
 ├── network.sh          — check_network, install_network_manager, select_fastest_mirror
 ├── stage3.sh           — stage3_get_url/download/verify/extract
 ├── portage.sh          — generate_make_conf (_write_make_conf), portage_sync, portage_select_profile, portage_install_cpuflags, install_extra_packages, setup_guru_repository, install_noctalia_shell, setup_surface_overlay, install_surface_tools
@@ -45,7 +45,7 @@ tui/                    — Ekrany TUI
 ├── preset_load.sh      — screen_preset_load: skip/file/browse
 ├── hw_detect.sh        — screen_hw_detect: detect_all_hardware + summary (infobox auto-advance)
 ├── init_select.sh      — screen_init_select: systemd/openrc radiolist
-├── disk_select.sh      — screen_disk_select: dysk + scheme (auto/dual-boot/manual)
+├── disk_select.sh      — screen_disk_select: dysk + scheme (auto/dual-boot/manual) + _shrink_wizard()
 ├── filesystem_select.sh — screen_filesystem_select: ext4/btrfs/xfs + btrfs subvolumes
 ├── swap_config.sh      — screen_swap_config: zram/partition/file/none
 ├── network_config.sh   — screen_network_config: hostname + mirror
@@ -102,6 +102,9 @@ Wszystkie zmienne konfiguracyjne są zdefiniowane w `CONFIG_VARS[]` w `lib/const
 - `ENABLE_IPTSD` — yes/no (Surface touchscreen daemon)
 - `ENABLE_SURFACE_CONTROL` — yes/no (Surface hardware control)
 - `ENABLE_SECUREBOOT` — yes/no (MOK signing)
+- `SHRINK_PARTITION` — /dev/sda3, /dev/nvme0n1p2 (partycja do zmniejszenia)
+- `SHRINK_PARTITION_FSTYPE` — ntfs/ext4/btrfs/xfs (filesystem zmniejszanej partycji)
+- `SHRINK_NEW_SIZE_MIB` — nowy rozmiar partycji w MiB po zmniejszeniu
 - `WINDOWS_DETECTED` — 0/1 (auto-detected)
 - `LINUX_DETECTED` — 0/1 (auto-detected)
 - `DETECTED_OSES_SERIALIZED` — serialized map of partition→OS name
@@ -324,6 +327,7 @@ bash tests/test_multiboot.sh   # Multi-boot OS detection + serialization (26 ass
 bash tests/test_infer_config.sh # Config inference from installed system (53 assertions)
 bash tests/test_hybrid_gpu.sh  # Hybrid GPU + ASUS ROG + recommendation (27 assertions)
 bash tests/test_validate.sh    # Config validation before install (31 assertions)
+bash tests/test_shrink.sh      # Partition shrink planning and helpers (37 assertions)
 bash tests/test_surface.sh     # Surface detection, config vars, kernel types, inference (25 assertions)
 bash tests/test_peripherals.sh # Peripheral detection, config vars, inference (30 assertions)
 ```

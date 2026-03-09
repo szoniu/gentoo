@@ -1,6 +1,6 @@
 # Gentoo TUI Installer
 
-Interaktywny installer Gentoo Linux z interfejsem TUI (dialog). Przeprowadza za rękę przez cały proces instalacji — od partycjonowania dysku po działający desktop KDE Plasma.
+Interaktywny installer Gentoo Linux z interfejsem TUI (dialog). Przeprowadza za rękę przez cały proces instalacji — od partycjonowania dysku po działający desktop KDE Plasma / GNOME.
 
 ## Krok po kroku (od zera do działającego systemu)
 
@@ -23,7 +23,7 @@ Na Windows użyj [Rufus](https://rufus.ie) lub [balenaEtcher](https://etcher.bal
 ### 2. Bootuj z pendrive
 
 - Wejdź do BIOS/UEFI (zwykle F2, F12, Del przy starcie)
-- **Wyłącz Secure Boot** (NVIDIA drivers tego wymagają)
+- **Secure Boot** — możesz wyłączyć lub zostawić włączony (installer obsługuje MOK signing)
 - Ustaw boot z USB
 - Wybierz opcję **UEFI** (nie Legacy/CSM!)
 
@@ -103,11 +103,11 @@ cd gentoo
 >
 > **`Permission denied (publickey)`?** Użyj adresu HTTPS (jak wyżej), nie SSH (`git@github.com:...`). Live ISO nie ma Twoich kluczy SSH.
 
-Installer poprowadzi Cię przez 17 ekranów konfiguracji, a potem zainstaluje wszystko automatycznie.
+Installer poprowadzi Cię przez 18 ekranów konfiguracji, a potem zainstaluje wszystko automatycznie.
 
 ### 6. Po instalacji
 
-Po zakończeniu installer zapyta czy chcesz rebootować. Wyjmij pendrive i uruchom komputer — powinieneś zobaczyć GRUB, a potem ekran logowania SDDM z KDE Plasma.
+Po zakończeniu installer zapyta czy chcesz rebootować. Wyjmij pendrive i uruchom komputer — powinieneś zobaczyć GRUB, a potem ekran logowania SDDM (KDE Plasma) lub GDM (GNOME).
 
 ## Alternatywne sposoby uruchomienia
 
@@ -131,34 +131,44 @@ Po zakończeniu installer zapyta czy chcesz rebootować. Wyjmij pendrive i uruch
 ## Wymagania
 
 - Komputer z **UEFI** (nie Legacy BIOS)
-- **Secure Boot wyłączony**
+- **Secure Boot wyłączony** (lub włączony — installer obsługuje MOK signing)
 - Minimum **60 GiB** wolnego miejsca na dysku docelowym
 - Połączenie z internetem (LAN lub WiFi)
 - Bootowalny pendrive z Gentoo Live ISO (lub dowolne live z `dialog` i `git`)
 
 ## Co robi installer
 
-17 ekranów TUI prowadzi przez:
+18 ekranów TUI prowadzi przez:
 
 | # | Ekran | Co konfigurujesz |
 |---|-------|-------------------|
 | 1 | Welcome | Sprawdzenie wymagań (root, UEFI, sieć) |
 | 2 | Preset | Opcjonalne załadowanie gotowej konfiguracji |
 | 3 | Hardware | Podgląd wykrytego CPU, GPU, dysków, zainstalowanych OS-ów |
-| 4 | Init system | systemd (zalecany dla KDE) lub OpenRC |
-| 5 | Dysk | Wybór dysku + schemat (auto/dual-boot/manual) |
+| 4 | Init system | systemd (zalecany dla KDE/GNOME) lub OpenRC |
+| 5 | Dysk | Wybór dysku + schemat (auto/dual-boot/manual), shrink wizard dla dual-boot |
 | 6 | Filesystem | ext4 / btrfs (ze snapshotami) / XFS |
 | 7 | Swap | zram (domyślnie) / partycja / plik / brak |
 | 8 | Sieć | Hostname + mirror Gentoo |
 | 9 | Locale | Timezone, język, keymap |
-| 10 | Kernel | dist-kernel (szybki) lub genkernel (custom) |
-| 11 | GPU | Auto-wykryty sterownik + możliwość zmiany |
-| 12 | Desktop | KDE Plasma + wybór aplikacji (Dolphin, Firefox, Kate...) |
-| 13 | Użytkownicy | Hasło root, konto użytkownika, grupy |
-| 14 | Pakiety | Dodatkowe pakiety do zainstalowania |
-| 15 | Preset save | Opcjonalny eksport konfiguracji na przyszłość |
-| 16 | Podsumowanie | Pełny przegląd + potwierdzenie "YES" |
-| 17 | Instalacja | Live output w terminalu — siedź i czekaj |
+| 10 | Desktop | KDE Plasma / GNOME / brak (server/minimal) |
+| 11 | Kernel | dist-kernel (szybki) lub genkernel (custom); surface-kernel na Surface |
+| 12 | Secure Boot | MOK signing — generowanie kluczy, podpisywanie kerneli, shim |
+| 13 | GPU | Auto-wykryty sterownik + możliwość zmiany (hybrid GPU / PRIME) |
+| 14 | Aplikacje desktopowe | Wybór aplikacji dla KDE/GNOME (Dolphin, Firefox, Kate...) |
+| 15 | Użytkownicy | Hasło root, konto użytkownika, grupy |
+| 16 | Pakiety | Dodatkowe pakiety + peryferia (fingerprint, thunderbolt, Noctalia Shell...) |
+| 17 | Preset save | Opcjonalny eksport konfiguracji na przyszłość |
+| 18 | Podsumowanie | Pełny przegląd + potwierdzenie "YES" |
+
+### Wsparcie sprzętowe
+
+- **Microsoft Surface** — auto-detekcja urządzeń Surface (Pro, Book, Laptop, Go...). Dedykowany kernel z patchami `linux-surface`, daemon `iptsd` (touchscreen/rysik), `surface-control` (hardware). Opcje kernela Surface pojawiają się automatycznie w wizardzie.
+- **Hybrid GPU (NVIDIA Optimus / PRIME)** — auto-detekcja laptopów z dwoma GPU (iGPU + dGPU). Konfiguracja PRIME render offload, `prime-run`, runtime power management.
+- **ASUS ROG / TUF** — auto-detekcja płyt ASUS ROG/TUF. Opcjonalna instalacja `asusctl` + `supergfxctl` z overlay zGentoo.
+- **Secure Boot (MOK signing)** — generowanie kluczy MOK, podpisywanie kerneli przez `sbsign`, instalacja shim, automatyczny enrollment. Działa z GRUB i dual-boot.
+- **Auto-detekcja peryferiów** — installer wykrywa i oferuje sterowniki/daemony dla: czytnik linii papilarnych (`fprintd`), Thunderbolt (`bolt`), sensory IIO (akcelerometr, żyroskop, ALS), kamera (`v4l-utils`), modem WWAN/LTE (`ModemManager`).
+- **Noctalia Shell** — opcjonalny shell do compositorów Wayland (Hyprland/Niri/Sway), instalowany z repozytorium GURU.
 
 ## Dual-boot (Windows, Linux, multi-boot)
 
@@ -166,6 +176,7 @@ Installer automatycznie:
 - Wykrywa zainstalowane OS-y (Windows, openSUSE, Ubuntu, Fedora, etc.)
 - Wykrywa istniejący ESP z Windows Boot Manager i innymi bootloaderami
 - Reuse'uje ESP (nigdy go nie formatuje!)
+- Oferuje **shrink wizard** — interaktywne zmniejszanie istniejącej partycji (NTFS/ext4/btrfs/xfs) żeby zrobić miejsce na Gentoo
 - GRUB instaluje się do `EFI/Gentoo/` obok `EFI/Microsoft/` i innych
 - `os-prober` dodaje wszystkie wykryte OS-y do menu GRUB
 - Partycje z istniejącymi OS-ami są oznaczone w menu — przypadkowe nadpisanie wymaga potwierdzenia `ERASE`
@@ -185,7 +196,7 @@ presets/desktop-intel-systemd.conf    # Intel + systemd + ext4
 
 Presety są **przenośne między maszynami** — wartości sprzętowe (CPU, GPU, dysk) są automatycznie re-wykrywane przy imporcie. Czyli: konfigurujesz raz, instalujesz na wielu komputerach.
 
-Możesz też wyeksportować własny preset w ekranie 15 wizarda.
+Możesz też wyeksportować własny preset w ekranie 17 wizarda.
 
 ## Co jeśli coś pójdzie nie tak
 
@@ -344,7 +355,7 @@ dmesg | grep -i "oom\|killed"
 
 - **`emerge` — "Temporary failure in name resolution"** — DNS przestał działać. Na innym TTY (`Ctrl+Alt+F2`) wpisz: `echo "nameserver 8.8.8.8" >> /etc/resolv.conf`, wróć na TTY1 i wybierz `r` (retry).
 - **`chronyd -q` — "No suitable source for synchronisation"** — zegar nie zsynchronizował się z NTP. Nie krytyczne jeśli data jest w miarę poprawna. Wybierz **Continue**.
-- **Installer zawisł, nic się nie dzieje** — sprawdź na TTY2 (`Ctrl+Alt+F2`) czy `cc1`/`gcc`/`make` działają w `top`. Jeśli tak — kompilacja trwa, po prostu czekaj. Gentoo kompiluje WSZYSTKO ze źródeł. Kernel: 20-60 min. KDE Plasma: 1-4h.
+- **Installer zawisł, nic się nie dzieje** — sprawdź na TTY2 (`Ctrl+Alt+F2`) czy `cc1`/`gcc`/`make` działają w `top`. Jeśli tak — kompilacja trwa, po prostu czekaj. Gentoo kompiluje WSZYSTKO ze źródeł. Kernel: 20-60 min. KDE Plasma / GNOME: 1-4h.
 - **Przerwa w prądzie / reboot** — uruchom installer ponownie, zapyta czy wznowić od ostatniego checkpointu. Fazy takie jak kompilacja kernela czy @world nie będą powtarzane.
 - **Menu "retry / shell / continue / abort"** — installer napotkał błąd. `r` = spróbuj ponownie, `s` = otwórz shell i napraw ręcznie (potem `exit`), `c` = pomiń ten krok, `a` = przerwij instalację.
 
@@ -426,6 +437,10 @@ bash tests/test_resume.sh       # Resume from disk scanning + recovery
 bash tests/test_multiboot.sh    # Multi-boot OS detection + serialization
 bash tests/test_infer_config.sh # Config inference from installed system
 bash tests/test_hybrid_gpu.sh   # Hybrid GPU + ASUS ROG detection
+bash tests/test_validate.sh     # Config validation before install
+bash tests/test_surface.sh      # Surface detection, kernel types, inference
+bash tests/test_peripherals.sh  # Peripheral detection + inference
+bash tests/test_shrink.sh       # Shrink wizard partition resizing
 ```
 
 ## Struktura projektu
@@ -436,6 +451,9 @@ configure.sh            — Wrapper: tylko wizard TUI
 gentoo.conf.example     — Przykładowa konfiguracja z komentarzami
 
 lib/                    — Moduły biblioteczne (sourcowane, nie uruchamiane)
+├── secureboot.sh       — Secure Boot MOK signing (keygen, sbsign, shim, enrollment)
+├── desktop.sh          — KDE Plasma / GNOME, SDDM/GDM, PipeWire, GPU drivers
+└── ...                 — hardware, disk, kernel, portage, config, etc.
 tui/                    — Ekrany TUI (każdy = funkcja, return 0/1/2)
 data/                   — Bazy danych, motyw TUI, bundled gum binary
 presets/                — Gotowe presety
@@ -447,13 +465,13 @@ TODO.md                 — Planowane ulepszenia
 ## FAQ
 
 **P: Jak długo trwa instalacja?**
-Zależy od CPU i łącza. `dist-kernel` (binarny) to ~30-60 min. `genkernel` (kompilacja) to 1-3h. Kompilacja KDE Plasma to dodatkowe 1-4h.
+Zależy od CPU i łącza. `dist-kernel` (binarny) to ~30-60 min. `genkernel` (kompilacja) to 1-3h. Kompilacja KDE Plasma / GNOME to dodatkowe 1-4h.
 
 **P: Mogę zainstalować na VM?**
 Tak, ale upewnij się że VM jest w trybie UEFI. W VirtualBox: Settings → System → Enable EFI. W QEMU: dodaj `-bios /usr/share/ovmf/OVMF.fd`.
 
 **P: Co jeśli mam Secure Boot?**
-Wyłącz Secure Boot w BIOS. NVIDIA proprietary drivers i wiele modułów kernela nie są podpisane.
+Installer obsługuje Secure Boot przez MOK (Machine Owner Key) signing. W ekranie 12 wizarda możesz włączyć generowanie kluczy MOK, automatyczne podpisywanie kerneli i konfigurację shim. Po pierwszym restarcie MokManager poprosi o zatwierdzenie klucza (hasło: `gentoo`). Alternatywnie możesz wyłączyć Secure Boot w BIOS.
 
 **P: Mogę użyć innego live ISO niż Gentoo?**
 Tak, dowolne live ISO z Linuxem zadziała, pod warunkiem że ma `bash`, `git`, `sfdisk`, `wget`, `gpg`. Installer ma zaszyty `gum` jako backend TUI, więc `dialog`/`whiptail` nie jest wymagany. Ubuntu/Fedora live zazwyczaj mają wszystko albo można doinstalować.
