@@ -211,6 +211,11 @@ screen_progress() {
     local total=${#INSTALL_PHASES[@]}
     local i=0
 
+    # Mount filesystems early so checkpoint validation can check target disk contents
+    if checkpoint_reached "disks" && ! mountpoint -q "${MOUNTPOINT}" 2>/dev/null; then
+        mount_filesystems 2>/dev/null || true
+    fi
+
     # Check for previous progress and handle resume
     if ! _detect_and_handle_resume; then
         einfo "Starting fresh installation"
