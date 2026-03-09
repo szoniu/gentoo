@@ -823,6 +823,20 @@ run_wizard() {
         case ${rc} in
             "${TUI_NEXT}"|0)
                 (( _WIZARD_INDEX++ )) || true
+
+                # Preset skip: after disk_select, jump to user_config
+                # (disk_select must run — TARGET_DISK/ESP are hardware-specific, not in preset)
+                if [[ "${_PRESET_SKIP_TO_USER:-0}" == "1" && "${screen_func}" == "screen_disk_select" ]]; then
+                    local skip_idx
+                    for (( skip_idx = _WIZARD_INDEX; skip_idx < total; skip_idx++ )); do
+                        if [[ "${_WIZARD_SCREENS[${skip_idx}]}" == "screen_user_config" ]]; then
+                            _WIZARD_INDEX=${skip_idx}
+                            einfo "Preset skip: jumping to user config"
+                            break
+                        fi
+                    done
+                    unset _PRESET_SKIP_TO_USER
+                fi
                 ;;
             "${TUI_BACK}"|1)
                 if (( _WIZARD_INDEX > 0 )); then
