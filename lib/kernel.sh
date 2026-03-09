@@ -255,28 +255,25 @@ kernel_install_surface_genkernel() {
 
     if [[ -n "${patch_dir}" && -d "${patch_dir}" ]]; then
         einfo "Applying patches from ${patch_dir} to kernel ${kernel_version}.${patchlevel}..."
-        local p patch_name patch_ok=0 patch_partial=0 patch_fail=0
+        local p patch_name patch_ok=0 patch_skip=0
         for p in "${patch_dir}"/*.patch; do
             [[ -f "${p}" ]] || continue
             patch_name=$(basename "${p}")
 
-            # Dry-run first to check if patch applies cleanly
+            # Dry-run first — only apply if ALL hunks succeed
+            # Partial apply (--force) is dangerous: can leave code referencing
+            # undefined symbols when define hunks fail but usage hunks succeed
             if patch -d /usr/src/linux -p1 -N --dry-run < "${p}" &>/dev/null; then
-                # Clean apply
                 patch -d /usr/src/linux -p1 -N < "${p}" >> "${LOG_FILE}" 2>&1
                 einfo "Applied: ${patch_name}"
                 (( patch_ok++ )) || true
-            elif patch -d /usr/src/linux -p1 -N --force < "${p}" >> "${LOG_FILE}" 2>&1; then
-                # Partial apply with --force (applies what it can, skips failed hunks)
-                ewarn "Partially applied: ${patch_name} (some hunks failed — see log)"
-                (( patch_partial++ )) || true
             else
-                ewarn "Skipped: ${patch_name} (does not apply to this kernel version)"
-                (( patch_fail++ )) || true
+                ewarn "Skipped: ${patch_name} (does not apply cleanly to ${kernel_version}.${patchlevel})"
+                (( patch_skip++ )) || true
             fi
         done
-        einfo "Patches: ${patch_ok} applied, ${patch_partial} partial, ${patch_fail} skipped"
-        if [[ ${patch_partial} -gt 0 || ${patch_fail} -gt 0 ]]; then
+        einfo "Patches: ${patch_ok} applied, ${patch_skip} skipped"
+        if [[ ${patch_skip} -gt 0 ]]; then
             ewarn "Some patches did not apply cleanly. This is normal when kernel"
             ewarn "sources are newer than available linux-surface patches."
             ewarn "Core functionality (WiFi, display, battery) should still work."
