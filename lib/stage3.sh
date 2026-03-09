@@ -141,6 +141,26 @@ stage3_extract() {
     fi
     local file="${STAGE3_FILE}"
 
+    # On retry after a failed attempt, clean up stale contents
+    # (keep stage3 tarball itself and any mount points)
+    if [[ -n "$(ls -A "${MOUNTPOINT}" 2>/dev/null)" ]]; then
+        local non_tarball
+        non_tarball=$(find "${MOUNTPOINT}" -mindepth 1 -maxdepth 1 \
+            ! -name 'stage3-*' ! -name 'lost+found' 2>/dev/null | head -1) || true
+        if [[ -n "${non_tarball}" ]]; then
+            ewarn "Target directory has stale files from previous attempt — cleaning up"
+            # Unmount nested mounts (ESP, subvols) before cleaning
+            local -a nested_mounts
+            readarray -t nested_mounts < <(awk -v mp="${MOUNTPOINT}" '$2 ~ "^"mp"/" {print $2}' /proc/mounts 2>/dev/null | sort -r)
+            local m
+            for m in "${nested_mounts[@]}"; do
+                [[ -z "${m}" ]] && continue
+                umount -l "${m}" 2>/dev/null || true
+            done
+            find "${MOUNTPOINT}" -mindepth 1 -maxdepth 1 ! -name 'stage3-*' -exec rm -rf {} + 2>/dev/null || true
+        fi
+    fi
+
     local -a tar_args=(xpf "${file}" --xattrs-include='*.*' --numeric-owner -C "${MOUNTPOINT}")
     # Show progress during live output (dot every 500 files extracted)
     [[ "${LIVE_OUTPUT:-0}" == "1" ]] && tar_args+=(--checkpoint=500 --checkpoint-action=dot)
