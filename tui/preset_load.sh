@@ -15,10 +15,11 @@ screen_preset_load() {
             ;;
         file)
             # Find the most recent saved preset as default
-            local default_preset="/root/gentoo-preset.conf"
+            local default_preset=""
             local latest
-            latest=$(ls -t /root/gentoo-preset*.conf 2>/dev/null | head -1) || true
+            latest=$(ls -t "${SCRIPT_DIR}/presets/"custom-*.conf /root/gentoo-preset*.conf 2>/dev/null | head -1) || true
             [[ -n "${latest}" ]] && default_preset="${latest}"
+            : "${default_preset:=${SCRIPT_DIR}/presets/custom.conf}"
 
             local file
             file=$(dialog_inputbox "Preset File" \
