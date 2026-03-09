@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
-# use_flags_desktop.sh — USE flags for KDE Plasma desktop
+# use_flags_desktop.sh — USE flags for desktop environments
 source "${LIB_DIR}/protection.sh"
 
-# Base desktop USE flags
-readonly USE_FLAGS_DESKTOP="X wayland dbus policykit udisks upower \
+# Common desktop USE flags (shared by KDE and GNOME)
+readonly USE_FLAGS_DESKTOP_COMMON="X wayland dbus policykit udisks upower \
 networkmanager bluetooth pulseaudio pipewire sound-server \
-kde plasma qt5 qt6 widgets gui \
+widgets gui \
 vulkan opengl egl gles2 \
 fontconfig truetype unicode nls \
 jpeg png svg webp gif tiff \
 mp3 mp4 flac vorbis opus aac \
 pdf djvu \
 cups colord \
-samba \
--gnome -gtk -gtk3"
+samba"
+
+# KDE Plasma specific USE flags
+readonly USE_FLAGS_KDE="kde plasma qt5 qt6 -gnome -gtk -gtk3"
+
+# GNOME specific USE flags
+readonly USE_FLAGS_GNOME="gnome gtk introspection -kde -plasma -qt5 -qt6"
 
 # Systemd-specific USE flags
 readonly USE_FLAGS_SYSTEMD="systemd -elogind -consolekit"
@@ -33,17 +38,26 @@ readonly USE_FLAGS_INTEL="vaapi"
 # Minimal USE flags (server/no desktop)
 readonly USE_FLAGS_MINIMAL="unicode nls"
 
+# Legacy alias
+readonly USE_FLAGS_DESKTOP="${USE_FLAGS_DESKTOP_COMMON} ${USE_FLAGS_KDE}"
+
 # get_use_flags — Build complete USE flag string based on configuration
 get_use_flags() {
     local init_system="${1:-systemd}"
     local gpu_vendor="${2:-}"
 
     local use_flags
-    if [[ "${DESKTOP_TYPE:-plasma}" == "none" ]]; then
-        use_flags="${USE_FLAGS_MINIMAL}"
-    else
-        use_flags="${USE_FLAGS_DESKTOP}"
-    fi
+    case "${DESKTOP_TYPE:-plasma}" in
+        plasma)
+            use_flags="${USE_FLAGS_DESKTOP_COMMON} ${USE_FLAGS_KDE}"
+            ;;
+        gnome)
+            use_flags="${USE_FLAGS_DESKTOP_COMMON} ${USE_FLAGS_GNOME}"
+            ;;
+        none)
+            use_flags="${USE_FLAGS_MINIMAL}"
+            ;;
+    esac
 
     # Init system
     case "${init_system}" in

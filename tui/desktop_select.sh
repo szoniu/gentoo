@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
-# tui/desktop_select.sh — Desktop type: KDE Plasma or none (server/minimal)
+# tui/desktop_select.sh — Desktop type: KDE Plasma, GNOME, or none (server/minimal)
 source "${LIB_DIR}/protection.sh"
 
 screen_desktop_select() {
     local current="${DESKTOP_TYPE:-plasma}"
-    local on_plasma="off" on_none="off"
+    local on_plasma="off" on_gnome="off" on_none="off"
     [[ "${current}" == "plasma" ]] && on_plasma="on"
+    [[ "${current}" == "gnome" ]] && on_gnome="on"
     [[ "${current}" == "none" ]] && on_none="on"
 
     local choice
     choice=$(dialog_radiolist "Desktop Environment" \
         "plasma" "KDE Plasma — full desktop, SDDM, PipeWire" "${on_plasma}" \
-        "none"   "None — server/minimal, CLI only"           "${on_none}") \
+        "gnome"  "GNOME — full desktop, GDM, PipeWire"       "${on_gnome}" \
+        "none"   "None — server/minimal, CLI only"            "${on_none}") \
         || return "${TUI_BACK}"
 
     if [[ -z "${choice}" ]]; then

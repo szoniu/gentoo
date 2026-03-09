@@ -1,18 +1,44 @@
 #!/usr/bin/env bash
-# desktop.sh — KDE Plasma, SDDM, PipeWire, GPU drivers
+# desktop.sh — Desktop environment installation (KDE Plasma / GNOME)
 source "${LIB_DIR}/protection.sh"
 
-# desktop_install — Install full KDE Plasma desktop (skipped when DESKTOP_TYPE=none)
+# desktop_install — Install desktop environment (skipped when DESKTOP_TYPE=none)
 desktop_install() {
     if [[ "${DESKTOP_TYPE:-plasma}" == "none" ]]; then
         einfo "Skipping desktop installation (server/minimal mode)"
         return 0
     fi
 
-    einfo "Installing KDE Plasma desktop..."
-
-    # Install GPU drivers first
+    # Install GPU drivers first (shared by all desktops)
     _install_gpu_drivers
+
+    # Install PipeWire audio (shared)
+    _install_pipewire
+
+    # Install Bluetooth support (shared)
+    _install_bluetooth
+
+    # Install printing support (shared)
+    _install_printing
+
+    # Desktop-specific installation
+    case "${DESKTOP_TYPE}" in
+        plasma)
+            _install_kde_desktop
+            ;;
+        gnome)
+            _install_gnome_desktop
+            ;;
+    esac
+
+    einfo "Desktop installation complete"
+}
+
+# --- KDE Plasma ---
+
+# _install_kde_desktop — Install KDE Plasma + SDDM
+_install_kde_desktop() {
+    einfo "Installing KDE Plasma desktop..."
 
     # KDE dependency prerequisites
     # avahi needs mdnsresponder-compat for kdnssd (KDE DNS-SD support)
@@ -30,26 +56,218 @@ desktop_install() {
     # Install SDDM display manager
     try "Installing SDDM" emerge --quiet x11-misc/sddm
 
-    # Install PipeWire audio
-    _install_pipewire
-
-    # Install Bluetooth support
-    _install_bluetooth
-
-    # Install printing support (CUPS)
-    _install_printing
-
     # Install KDE applications
     _install_kde_apps
 
-    # Enable display manager
-    _enable_display_manager
+    # Enable SDDM
+    _enable_sddm
 
     # Configure Plasma defaults
     _configure_plasma
 
-    einfo "Desktop installation complete"
+    einfo "KDE Plasma installed"
 }
+
+# _install_kde_apps — Install selected KDE applications
+_install_kde_apps() {
+    local extras="${DESKTOP_EXTRAS:-}"
+
+    # Always install some basics
+    local -a base_apps=(
+        kde-apps/kio-extras
+    )
+
+    local pkg
+    for pkg in "${base_apps[@]}"; do
+        try "Installing ${pkg}" emerge --quiet "${pkg}"
+    done
+
+    # Install selected extras
+    if [[ -n "${extras}" ]]; then
+        # extras is space-separated from dialog checklist (may have quotes)
+        local cleaned
+        cleaned=$(echo "${extras}" | tr -d '"')
+        for pkg in ${cleaned}; do
+            case "${pkg}" in
+                konsole)       try "Installing ${pkg}" emerge --quiet kde-apps/konsole ;;
+                dolphin)       try "Installing ${pkg}" emerge --quiet kde-apps/dolphin ;;
+                kate)          try "Installing ${pkg}" emerge --quiet kde-apps/kate ;;
+                firefox-bin)   try "Installing ${pkg}" emerge --quiet www-client/firefox-bin ;;
+                gwenview)      try "Installing ${pkg}" emerge --quiet kde-apps/gwenview ;;
+                okular)        try "Installing ${pkg}" emerge --quiet kde-apps/okular ;;
+                ark)           try "Installing ${pkg}" emerge --quiet kde-apps/ark ;;
+                spectacle)     try "Installing ${pkg}" emerge --quiet kde-plasma/spectacle ;;
+                kcalc)         try "Installing ${pkg}" emerge --quiet kde-apps/kcalc ;;
+                kwalletmanager) try "Installing ${pkg}" emerge --quiet kde-apps/kwalletmanager ;;
+                elisa)         try "Installing ${pkg}" emerge --quiet media-sound/elisa ;;
+                vlc)           try "Installing ${pkg}" emerge --quiet media-video/vlc ;;
+                libreoffice)   try "Installing ${pkg}" emerge --quiet app-office/libreoffice ;;
+                thunderbird)   try "Installing ${pkg}" emerge --quiet mail-client/thunderbird-bin ;;
+                *)             try "Installing ${pkg}" emerge --quiet "${pkg}" ;;
+            esac
+        done
+    fi
+}
+
+# _enable_sddm — Enable SDDM display manager
+_enable_sddm() {
+    einfo "Enabling SDDM display manager..."
+
+    if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+        try "Enabling SDDM" systemctl enable sddm
+    else
+        # OpenRC: set display manager
+        local conf="/etc/conf.d/display-manager"
+        if [[ -f "${conf}" ]]; then
+            sed -i 's/DISPLAYMANAGER=.*/DISPLAYMANAGER="sddm"/' "${conf}"
+        else
+            echo 'DISPLAYMANAGER="sddm"' > "${conf}"
+        fi
+        # display-manager init script comes from gui-libs/display-manager-init
+        try "Installing display-manager-init" emerge --quiet gui-libs/display-manager-init
+        try "Enabling display-manager" rc-update add display-manager default
+    fi
+
+    einfo "SDDM enabled"
+}
+
+# _configure_plasma — Set up KDE Plasma defaults
+_configure_plasma() {
+    einfo "Configuring Plasma defaults..."
+
+    # Set SDDM theme
+    mkdir -p /etc/sddm.conf.d
+    cat > /etc/sddm.conf.d/gentoo.conf << SDDMEOF
+[Theme]
+Current=breeze
+
+[General]
+InputMethod=
+RememberLastSession=false
+
+[Users]
+DefaultSession=plasma.desktop
+SDDMEOF
+
+    # Ensure dbus and elogind are started (OpenRC needs explicit enable)
+    if [[ "${INIT_SYSTEM:-systemd}" == "openrc" ]]; then
+        try "Enabling dbus" rc-update add dbus default
+        try "Enabling elogind" rc-update add elogind boot
+    fi
+
+    einfo "Plasma defaults configured"
+}
+
+# --- GNOME ---
+
+# _install_gnome_desktop — Install GNOME + GDM
+_install_gnome_desktop() {
+    einfo "Installing GNOME desktop..."
+
+    # dev-lang/go has a circular build dependency (needs itself to bootstrap)
+    try "Bootstrapping Go compiler" emerge --oneshot --quiet dev-lang/go
+
+    # Install GNOME (meta package pulls gnome-shell, mutter, gnome-session, etc.)
+    try "Installing GNOME" emerge --quiet gnome-base/gnome
+
+    # Install GDM display manager
+    try "Installing GDM" emerge --quiet gnome-base/gdm
+
+    # Install GNOME applications
+    _install_gnome_apps
+
+    # Enable GDM
+    _enable_gdm
+
+    # Configure GNOME defaults
+    _configure_gnome
+
+    einfo "GNOME installed"
+}
+
+# _install_gnome_apps — Install selected GNOME applications
+_install_gnome_apps() {
+    local extras="${DESKTOP_EXTRAS:-}"
+
+    # Install selected extras
+    if [[ -n "${extras}" ]]; then
+        local cleaned
+        cleaned=$(echo "${extras}" | tr -d '"')
+        local pkg
+        for pkg in ${cleaned}; do
+            case "${pkg}" in
+                gnome-terminal)    try "Installing ${pkg}" emerge --quiet gnome-extra/gnome-terminal ;;
+                nautilus)          try "Installing ${pkg}" emerge --quiet gnome-base/nautilus ;;
+                gnome-text-editor) try "Installing ${pkg}" emerge --quiet app-editors/gnome-text-editor ;;
+                firefox-bin)       try "Installing ${pkg}" emerge --quiet www-client/firefox-bin ;;
+                loupe)             try "Installing ${pkg}" emerge --quiet media-gfx/loupe ;;
+                evince)            try "Installing ${pkg}" emerge --quiet app-text/evince ;;
+                file-roller)       try "Installing ${pkg}" emerge --quiet app-arch/file-roller ;;
+                gnome-screenshot)  try "Installing ${pkg}" emerge --quiet media-gfx/gnome-screenshot ;;
+                gnome-calculator)  try "Installing ${pkg}" emerge --quiet gnome-extra/gnome-calculator ;;
+                gnome-weather)     try "Installing ${pkg}" emerge --quiet gnome-extra/gnome-weather ;;
+                gnome-calendar)    try "Installing ${pkg}" emerge --quiet gnome-extra/gnome-calendar ;;
+                gnome-clocks)      try "Installing ${pkg}" emerge --quiet gnome-extra/gnome-clocks ;;
+                vlc)               try "Installing ${pkg}" emerge --quiet media-video/vlc ;;
+                libreoffice)       try "Installing ${pkg}" emerge --quiet app-office/libreoffice ;;
+                thunderbird)       try "Installing ${pkg}" emerge --quiet mail-client/thunderbird-bin ;;
+                *)                 try "Installing ${pkg}" emerge --quiet "${pkg}" ;;
+            esac
+        done
+    fi
+}
+
+# _enable_gdm — Enable GDM display manager
+_enable_gdm() {
+    einfo "Enabling GDM display manager..."
+
+    if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+        try "Enabling GDM" systemctl enable gdm
+    else
+        # OpenRC: set display manager
+        local conf="/etc/conf.d/display-manager"
+        if [[ -f "${conf}" ]]; then
+            sed -i 's/DISPLAYMANAGER=.*/DISPLAYMANAGER="gdm"/' "${conf}"
+        else
+            echo 'DISPLAYMANAGER="gdm"' > "${conf}"
+        fi
+        try "Installing display-manager-init" emerge --quiet gui-libs/display-manager-init
+        try "Enabling display-manager" rc-update add display-manager default
+    fi
+
+    einfo "GDM enabled"
+}
+
+# _configure_gnome — Set up GNOME defaults
+_configure_gnome() {
+    einfo "Configuring GNOME defaults..."
+
+    # GDM configuration
+    mkdir -p /etc/gdm
+    cat > /etc/gdm/custom.conf << 'GDMEOF'
+[daemon]
+WaylandEnable=true
+AutomaticLoginEnable=false
+
+[security]
+
+[xdmcp]
+
+[chooser]
+
+[debug]
+GDMEOF
+
+    # Ensure dbus and elogind are started (OpenRC needs explicit enable)
+    if [[ "${INIT_SYSTEM:-systemd}" == "openrc" ]]; then
+        try "Enabling dbus" rc-update add dbus default
+        try "Enabling elogind" rc-update add elogind boot
+    fi
+
+    einfo "GNOME defaults configured"
+}
+
+# --- Shared (desktop-agnostic) ---
 
 # _install_gpu_drivers — Install GPU-specific drivers
 _install_gpu_drivers() {
@@ -237,94 +455,4 @@ _install_printing() {
     else
         try "Enabling cupsd" rc-update add cupsd default
     fi
-}
-
-# _install_kde_apps — Install selected KDE applications
-_install_kde_apps() {
-    local extras="${DESKTOP_EXTRAS:-}"
-
-    # Always install some basics
-    local -a base_apps=(
-        kde-apps/kio-extras
-    )
-
-    local pkg
-    for pkg in "${base_apps[@]}"; do
-        try "Installing ${pkg}" emerge --quiet "${pkg}"
-    done
-
-    # Install selected extras
-    if [[ -n "${extras}" ]]; then
-        # extras is space-separated from dialog checklist (may have quotes)
-        local cleaned
-        cleaned=$(echo "${extras}" | tr -d '"')
-        for pkg in ${cleaned}; do
-            case "${pkg}" in
-                konsole)       try "Installing ${pkg}" emerge --quiet kde-apps/konsole ;;
-                dolphin)       try "Installing ${pkg}" emerge --quiet kde-apps/dolphin ;;
-                kate)          try "Installing ${pkg}" emerge --quiet kde-apps/kate ;;
-                firefox-bin)   try "Installing ${pkg}" emerge --quiet www-client/firefox-bin ;;
-                gwenview)      try "Installing ${pkg}" emerge --quiet kde-apps/gwenview ;;
-                okular)        try "Installing ${pkg}" emerge --quiet kde-apps/okular ;;
-                ark)           try "Installing ${pkg}" emerge --quiet kde-apps/ark ;;
-                spectacle)     try "Installing ${pkg}" emerge --quiet kde-plasma/spectacle ;;
-                kcalc)         try "Installing ${pkg}" emerge --quiet kde-apps/kcalc ;;
-                kwalletmanager) try "Installing ${pkg}" emerge --quiet kde-apps/kwalletmanager ;;
-                elisa)         try "Installing ${pkg}" emerge --quiet media-sound/elisa ;;
-                vlc)           try "Installing ${pkg}" emerge --quiet media-video/vlc ;;
-                libreoffice)   try "Installing ${pkg}" emerge --quiet app-office/libreoffice ;;
-                thunderbird)   try "Installing ${pkg}" emerge --quiet mail-client/thunderbird-bin ;;
-                *)             try "Installing ${pkg}" emerge --quiet "${pkg}" ;;
-            esac
-        done
-    fi
-}
-
-# _enable_display_manager — Enable SDDM
-_enable_display_manager() {
-    einfo "Enabling SDDM display manager..."
-
-    if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
-        try "Enabling SDDM" systemctl enable sddm
-    else
-        # OpenRC: set display manager
-        local conf="/etc/conf.d/display-manager"
-        if [[ -f "${conf}" ]]; then
-            sed -i 's/DISPLAYMANAGER=.*/DISPLAYMANAGER="sddm"/' "${conf}"
-        else
-            echo 'DISPLAYMANAGER="sddm"' > "${conf}"
-        fi
-        # display-manager init script comes from gui-libs/display-manager-init
-        try "Installing display-manager-init" emerge --quiet gui-libs/display-manager-init
-        try "Enabling display-manager" rc-update add display-manager default
-    fi
-
-    einfo "SDDM enabled"
-}
-
-# _configure_plasma — Set up KDE Plasma defaults
-_configure_plasma() {
-    einfo "Configuring Plasma defaults..."
-
-    # Set SDDM theme
-    mkdir -p /etc/sddm.conf.d
-    cat > /etc/sddm.conf.d/gentoo.conf << SDDMEOF
-[Theme]
-Current=breeze
-
-[General]
-InputMethod=
-RememberLastSession=false
-
-[Users]
-DefaultSession=plasma.desktop
-SDDMEOF
-
-    # Ensure dbus and elogind are started (OpenRC needs explicit enable)
-    if [[ "${INIT_SYSTEM:-systemd}" == "openrc" ]]; then
-        try "Enabling dbus" rc-update add dbus default
-        try "Enabling elogind" rc-update add elogind boot
-    fi
-
-    einfo "Plasma defaults configured"
 }

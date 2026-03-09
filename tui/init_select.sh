@@ -10,7 +10,7 @@ screen_init_select() {
 
     local choice
     choice=$(dialog_radiolist "Init System" \
-        "systemd" "systemd — modern, KDE recommended, wider support" "${on_systemd}" \
+        "systemd" "systemd — modern, recommended for desktops, wider support" "${on_systemd}" \
         "openrc"  "OpenRC — traditional, lightweight, Gentoo classic" "${on_openrc}") \
         || return "${TUI_BACK}"
 

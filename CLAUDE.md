@@ -2,7 +2,7 @@
 
 ## Co to jest
 
-Interaktywny TUI installer Gentoo Linux w Bashu. Cel: sklonować repo z dowolnego live ISO, uruchomić `./install.sh` i zostać przeprowadzonym przez cały proces od partycjonowania dysku po działający desktop KDE Plasma. Po awarii: `./install.sh --resume` skanuje dyski i wznawia od ostatniego checkpointu.
+Interaktywny TUI installer Gentoo Linux w Bashu. Cel: sklonować repo z dowolnego live ISO, uruchomić `./install.sh` i zostać przeprowadzonym przez cały proces od partycjonowania dysku po działający desktop (KDE Plasma / GNOME / server). Po awarii: `./install.sh --resume` skanuje dyski i wznawia od ostatniego checkpointu.
 
 ## Architektura
 
@@ -34,7 +34,7 @@ lib/                    — Moduły biblioteczne (NIGDY nie uruchamiać bezpośr
 ├── bootloader.sh       — bootloader_install, _configure_grub, _mount/_unmount_osprober, _verify_grub_config, _verify_efi_entries
 ├── secureboot.sh       — secureboot_setup, MOK keygen, kernel signing, shim, enrollment
 ├── system.sh           — system_set_timezone/locale/hostname/keymap, generate_fstab, install_filesystem_tools, system_create_users, system_finalize
-├── desktop.sh          — desktop_install (GPU drivers, KDE Plasma, SDDM, PipeWire, KDE apps)
+├── desktop.sh          — desktop_install (GPU drivers, KDE Plasma/GNOME, SDDM/GDM, PipeWire, apps)
 ├── swap.sh             — swap_setup (zram-generator/zram-init, swap file)
 ├── chroot.sh           — chroot_setup/teardown/exec, copy_dns_info, copy_installer_to_chroot
 ├── hooks.sh            — maybe_exec 'before_X' / 'after_X'
@@ -50,11 +50,11 @@ tui/                    — Ekrany TUI
 ├── swap_config.sh      — screen_swap_config: zram/partition/file/none
 ├── network_config.sh   — screen_network_config: hostname + mirror
 ├── locale_config.sh    — screen_locale_config: timezone + locale + keymap
-├── desktop_select.sh   — screen_desktop_select: plasma/none (server/minimal)
+├── desktop_select.sh   — screen_desktop_select: plasma/gnome/none (server/minimal)
 ├── kernel_select.sh    — screen_kernel_select: dist-kernel/genkernel (+ surface-kernel/surface-genkernel on Surface)
 ├── secureboot_config.sh — screen_secureboot_config: Secure Boot MOK signing yes/no
 ├── gpu_config.sh       — screen_gpu_config: auto/nvidia/amd/intel/none + nvidia-open
-├── desktop_config.sh   — screen_desktop_config: KDE apps checklist
+├── desktop_config.sh   — screen_desktop_config: KDE/GNOME apps checklist
 ├── user_config.sh      — screen_user_config: root pwd, user, grupy
 ├── extra_packages.sh   — screen_extra_packages: checklist (fastfetch, btop, kitty, GURU, noctalia) + wolne pole tekstowe
 ├── preset_save.sh      — screen_preset_save: opcjonalny eksport
@@ -65,7 +65,7 @@ data/                   — Statyczne bazy danych + bundled assets
 ├── cpu_march_database.sh — CPU_MARCH_MAP[vendor:family:model] → -march flag
 ├── gpu_database.sh     — nvidia_generation(), get_gpu_recommendation()
 ├── mirrors.sh          — GENTOO_MIRRORS[], get_mirror_list_for_dialog()
-├── use_flags_desktop.sh — USE_FLAGS_DESKTOP/SYSTEMD/OPENRC/NVIDIA/AMD/INTEL, get_use_flags()
+├── use_flags_desktop.sh — USE_FLAGS_DESKTOP_COMMON/KDE/GNOME/SYSTEMD/OPENRC/NVIDIA/AMD/INTEL, get_use_flags()
 ├── dialogrc            — Ciemny motyw TUI (ładowany przez DIALOGRC w init_dialog)
 └── gum.tar.gz          — Bundled gum v0.17.0 binary (statyczny ELF x86-64, ~4.5 MB)
 
@@ -92,7 +92,7 @@ Wszystkie zmienne konfiguracyjne są zdefiniowane w `CONFIG_VARS[]` w `lib/const
 - `PARTITION_SCHEME` — auto/dual-boot/manual
 - `FILESYSTEM` — ext4/btrfs/xfs
 - `SWAP_TYPE` — zram/partition/file/none
-- `DESKTOP_TYPE` — plasma/none
+- `DESKTOP_TYPE` — plasma/gnome/none
 - `KERNEL_TYPE` — dist-kernel/genkernel
 - `GPU_VENDOR` — nvidia/amd/intel/none/unknown
 - `ENABLE_GURU` — yes/no (repozytorium GURU community)

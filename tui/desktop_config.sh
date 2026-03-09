@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tui/desktop_config.sh — KDE Plasma + desktop options
+# tui/desktop_config.sh — Desktop environment apps selection
 source "${LIB_DIR}/protection.sh"
 
 screen_desktop_config() {
@@ -12,33 +12,65 @@ screen_desktop_config() {
     fi
 
     local info_text=""
-    info_text+="The following desktop environment will be installed:\n\n"
-    info_text+="  KDE Plasma Desktop (kde-plasma/plasma-meta)\n"
-    info_text+="  Display Manager: SDDM\n"
-    info_text+="  Audio: PipeWire (with PulseAudio compatibility)\n"
-    info_text+="  Networking: NetworkManager\n\n"
-    info_text+="Additional KDE applications can be selected below."
-
-    dialog_msgbox "Desktop Environment" "${info_text}" || return "${TUI_BACK}"
-
-    # Extra desktop packages
     local extras
-    extras=$(dialog_checklist "KDE Applications" \
-        "konsole"      "Terminal emulator"        "on" \
-        "dolphin"      "File manager"             "on" \
-        "kate"         "Text editor"              "on" \
-        "firefox-bin"  "Firefox web browser"      "on" \
-        "gwenview"     "Image viewer"             "on" \
-        "okular"       "Document viewer"          "on" \
-        "ark"          "Archive manager"          "on" \
-        "spectacle"    "Screenshot tool"          "on" \
-        "kcalc"        "Calculator"               "off" \
-        "kwalletmanager" "Wallet manager"         "off" \
-        "elisa"        "Music player"             "off" \
-        "vlc"          "VLC media player"         "off" \
-        "libreoffice"  "LibreOffice suite"        "off" \
-        "thunderbird"  "Thunderbird email client" "off") \
-        || return "${TUI_BACK}"
+
+    case "${DESKTOP_TYPE}" in
+        plasma)
+            info_text+="The following desktop environment will be installed:\n\n"
+            info_text+="  KDE Plasma Desktop (kde-plasma/plasma-meta)\n"
+            info_text+="  Display Manager: SDDM\n"
+            info_text+="  Audio: PipeWire (with PulseAudio compatibility)\n"
+            info_text+="  Networking: NetworkManager\n\n"
+            info_text+="Additional KDE applications can be selected below."
+
+            dialog_msgbox "Desktop Environment" "${info_text}" || return "${TUI_BACK}"
+
+            extras=$(dialog_checklist "KDE Applications" \
+                "konsole"        "Terminal emulator"        "on" \
+                "dolphin"        "File manager"             "on" \
+                "kate"           "Text editor"              "on" \
+                "firefox-bin"    "Firefox web browser"      "on" \
+                "gwenview"       "Image viewer"             "on" \
+                "okular"         "Document viewer"          "on" \
+                "ark"            "Archive manager"          "on" \
+                "spectacle"      "Screenshot tool"          "on" \
+                "kcalc"          "Calculator"               "off" \
+                "kwalletmanager" "Wallet manager"           "off" \
+                "elisa"          "Music player"             "off" \
+                "vlc"            "VLC media player"         "off" \
+                "libreoffice"    "LibreOffice suite"        "off" \
+                "thunderbird"    "Thunderbird email client" "off") \
+                || return "${TUI_BACK}"
+            ;;
+        gnome)
+            info_text+="The following desktop environment will be installed:\n\n"
+            info_text+="  GNOME Shell (gnome-base/gnome)\n"
+            info_text+="  Display Manager: GDM\n"
+            info_text+="  Audio: PipeWire (with PulseAudio compatibility)\n"
+            info_text+="  Networking: NetworkManager\n\n"
+            info_text+="Additional GNOME applications can be selected below."
+
+            dialog_msgbox "Desktop Environment" "${info_text}" || return "${TUI_BACK}"
+
+            extras=$(dialog_checklist "GNOME Applications" \
+                "gnome-terminal" "Terminal emulator"        "on" \
+                "nautilus"       "File manager"             "on" \
+                "gnome-text-editor" "Text editor"           "on" \
+                "firefox-bin"    "Firefox web browser"      "on" \
+                "loupe"          "Image viewer"             "on" \
+                "evince"         "Document viewer"          "on" \
+                "file-roller"    "Archive manager"          "on" \
+                "gnome-screenshot" "Screenshot tool"        "on" \
+                "gnome-calculator" "Calculator"             "off" \
+                "gnome-weather"  "Weather"                  "off" \
+                "gnome-calendar" "Calendar"                 "off" \
+                "gnome-clocks"   "Clocks & timers"          "off" \
+                "vlc"            "VLC media player"         "off" \
+                "libreoffice"    "LibreOffice suite"        "off" \
+                "thunderbird"    "Thunderbird email client" "off") \
+                || return "${TUI_BACK}"
+            ;;
+    esac
 
     DESKTOP_EXTRAS="${extras}"
     export DESKTOP_EXTRAS

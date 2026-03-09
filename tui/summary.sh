@@ -47,12 +47,18 @@ screen_summary() {
     [[ "${ENABLE_SECUREBOOT:-no}" == "yes" ]] && summary+="Secure Boot:  MOK signing enabled\n"
     summary+="\n"
     summary+="Username:     ${USERNAME:-user}\n"
-    if [[ "${DESKTOP_TYPE:-plasma}" == "none" ]]; then
-        summary+="Desktop:      None (server/minimal)\n"
-    else
-        summary+="Desktop:      KDE Plasma + SDDM + PipeWire + Bluetooth + CUPS\n"
-    fi
-    [[ -n "${DESKTOP_EXTRAS:-}" ]] && summary+="KDE apps:     ${DESKTOP_EXTRAS}\n"
+    case "${DESKTOP_TYPE:-plasma}" in
+        plasma)
+            summary+="Desktop:      KDE Plasma + SDDM + PipeWire + Bluetooth + CUPS\n"
+            ;;
+        gnome)
+            summary+="Desktop:      GNOME + GDM + PipeWire + Bluetooth + CUPS\n"
+            ;;
+        none)
+            summary+="Desktop:      None (server/minimal)\n"
+            ;;
+    esac
+    [[ -n "${DESKTOP_EXTRAS:-}" ]] && summary+="Desktop apps: ${DESKTOP_EXTRAS}\n"
     [[ -n "${EXTRA_PACKAGES:-}" ]] && summary+="Extra pkgs:   ${EXTRA_PACKAGES}\n"
     [[ "${ENABLE_GURU:-no}" == "yes" ]] && summary+="GURU repo:    enabled\n"
     [[ "${ENABLE_NOCTALIA:-no}" == "yes" ]] && summary+="Noctalia:     enabled\n"

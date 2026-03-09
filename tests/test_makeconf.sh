@@ -94,6 +94,30 @@ assert_contains "openrc USE has elogind" "elogind" "${use_openrc}"
 assert_contains "openrc USE has vaapi" "vaapi" "${use_openrc}"
 assert_contains "openrc USE has -systemd" "-systemd" "${use_openrc}"
 
+# GNOME USE flags
+DESKTOP_TYPE="gnome"
+export DESKTOP_TYPE
+use_gnome=$(get_use_flags "systemd" "intel")
+assert_contains "gnome USE has gnome" "gnome" "${use_gnome}"
+assert_contains "gnome USE has gtk" "gtk" "${use_gnome}"
+assert_contains "gnome USE has introspection" "introspection" "${use_gnome}"
+assert_contains "gnome USE has -kde" "-kde" "${use_gnome}"
+assert_contains "gnome USE has -plasma" "-plasma" "${use_gnome}"
+assert_contains "gnome USE has wayland" "wayland" "${use_gnome}"
+assert_contains "gnome USE has pipewire" "pipewire" "${use_gnome}"
+
+# Server/none USE flags
+DESKTOP_TYPE="none"
+export DESKTOP_TYPE
+use_none=$(get_use_flags "systemd" "")
+assert_contains "none USE has unicode" "unicode" "${use_none}"
+assert_not_contains "none USE no plasma" "plasma" "${use_none}"
+assert_not_contains "none USE no gnome" "gnome" "${use_none}"
+
+# Reset
+DESKTOP_TYPE="plasma"
+export DESKTOP_TYPE
+
 # Cleanup
 rm -f "${LOG_FILE}"
 

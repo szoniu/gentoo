@@ -429,6 +429,52 @@ rm -rf "${_RESUME_TEST_DIR}"
 
 unset _RESUME_TEST_DIR _INFER_UUID_MAP
 
+# ================================================================
+echo ""
+echo "=== Test 11: Desktop type inference ==="
+
+# Plasma detection
+local_mp="$(mktemp -d)"
+mkdir -p "${local_mp}/usr/share/plasma"
+_infer_desktop_type "${local_mp}"
+assert_eq "Plasma detected from /usr/share/plasma" "plasma" "${DESKTOP_TYPE}"
+rm -rf "${local_mp}"
+
+# Plasma via sddm
+local_mp="$(mktemp -d)"
+mkdir -p "${local_mp}/etc/sddm.conf.d"
+_infer_desktop_type "${local_mp}"
+assert_eq "Plasma detected from /etc/sddm.conf.d" "plasma" "${DESKTOP_TYPE}"
+rm -rf "${local_mp}"
+
+# GNOME detection
+local_mp="$(mktemp -d)"
+mkdir -p "${local_mp}/usr/bin"
+touch "${local_mp}/usr/bin/gnome-shell"
+_infer_desktop_type "${local_mp}"
+assert_eq "GNOME detected from gnome-shell" "gnome" "${DESKTOP_TYPE}"
+rm -rf "${local_mp}"
+
+# GNOME via gdm
+local_mp="$(mktemp -d)"
+mkdir -p "${local_mp}/etc/gdm"
+_infer_desktop_type "${local_mp}"
+assert_eq "GNOME detected from /etc/gdm" "gnome" "${DESKTOP_TYPE}"
+rm -rf "${local_mp}"
+
+# GNOME via gnome-shell dir
+local_mp="$(mktemp -d)"
+mkdir -p "${local_mp}/usr/share/gnome-shell"
+_infer_desktop_type "${local_mp}"
+assert_eq "GNOME detected from /usr/share/gnome-shell" "gnome" "${DESKTOP_TYPE}"
+rm -rf "${local_mp}"
+
+# None detection (empty)
+local_mp="$(mktemp -d)"
+_infer_desktop_type "${local_mp}"
+assert_eq "No desktop detected" "none" "${DESKTOP_TYPE}"
+rm -rf "${local_mp}"
+
 # Cleanup
 rm -rf "${TEST_TMPDIR}"
 rm -f "${LOG_FILE}"

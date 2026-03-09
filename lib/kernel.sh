@@ -2,6 +2,29 @@
 # kernel.sh — Kernel installation: genkernel (custom) and dist-kernel (fast)
 source "${LIB_DIR}/protection.sh"
 
+# _set_kernel_extraversion — Append suffix to EXTRAVERSION in kernel Makefile
+# Genkernel reads this and includes it in the kernel name.
+# Example: EXTRAVERSION = -gentoo  →  EXTRAVERSION = -gentoo-surface
+# Result:  vmlinuz-6.19.6-gentoo-surface-x86_64
+_set_kernel_extraversion() {
+    local suffix="$1"
+    local makefile="/usr/src/linux/Makefile"
+
+    [[ -f "${makefile}" ]] || return 0
+
+    local current
+    current=$(sed -n 's/^EXTRAVERSION = *//p' "${makefile}") || true
+
+    # Don't add suffix if already present
+    if [[ "${current}" == *"${suffix}"* ]]; then
+        einfo "EXTRAVERSION already contains '${suffix}': ${current}"
+        return 0
+    fi
+
+    sed -i "s/^EXTRAVERSION = .*/EXTRAVERSION = ${current}${suffix}/" "${makefile}"
+    einfo "Kernel EXTRAVERSION set to: ${current}${suffix}"
+}
+
 # kernel_install — Install kernel based on KERNEL_TYPE
 kernel_install() {
     local kernel_type="${KERNEL_TYPE:-dist-kernel}"
@@ -163,6 +186,9 @@ kernel_install_surface() {
     # Set kernel symlink
     try "Setting kernel symlink" eselect kernel set 1
 
+    # Set Surface suffix in kernel version (e.g. 6.19.6-gentoo-surface-x86_64)
+    _set_kernel_extraversion "-surface"
+
     # Build kernel with genkernel
     local genkernel_opts=(
         --makeopts="-j$(get_cpu_count)"
@@ -219,21 +245,48 @@ kernel_install_surface_genkernel() {
     local patch_dir="/tmp/linux-surface/patches/${kernel_version}.${patchlevel}"
 
     if [[ ! -d "${patch_dir}" ]]; then
-        ewarn "No patches found for kernel ${kernel_version}.${patchlevel}, trying latest available..."
         # Find the highest available patch directory
         patch_dir=$(ls -d /tmp/linux-surface/patches/[0-9]* 2>/dev/null | sort -V | tail -1) || true
+        local patches_version
+        patches_version=$(basename "${patch_dir}") || true
+        ewarn "No patches for kernel ${kernel_version}.${patchlevel} — using ${patches_version} (latest available)"
+        ewarn "Some patches may not apply cleanly. This is expected."
     fi
 
     if [[ -n "${patch_dir}" && -d "${patch_dir}" ]]; then
-        einfo "Applying patches from ${patch_dir}..."
-        local p
+        einfo "Applying patches from ${patch_dir} to kernel ${kernel_version}.${patchlevel}..."
+        local p patch_name patch_ok=0 patch_partial=0 patch_fail=0
         for p in "${patch_dir}"/*.patch; do
             [[ -f "${p}" ]] || continue
-            try "Applying patch $(basename "${p}")" patch -d /usr/src/linux -p1 -N < "${p}"
+            patch_name=$(basename "${p}")
+
+            # Dry-run first to check if patch applies cleanly
+            if patch -d /usr/src/linux -p1 -N --dry-run < "${p}" &>/dev/null; then
+                # Clean apply
+                patch -d /usr/src/linux -p1 -N < "${p}" >> "${LOG_FILE}" 2>&1
+                einfo "Applied: ${patch_name}"
+                (( patch_ok++ )) || true
+            elif patch -d /usr/src/linux -p1 -N --force < "${p}" >> "${LOG_FILE}" 2>&1; then
+                # Partial apply with --force (applies what it can, skips failed hunks)
+                ewarn "Partially applied: ${patch_name} (some hunks failed — see log)"
+                (( patch_partial++ )) || true
+            else
+                ewarn "Skipped: ${patch_name} (does not apply to this kernel version)"
+                (( patch_fail++ )) || true
+            fi
         done
+        einfo "Patches: ${patch_ok} applied, ${patch_partial} partial, ${patch_fail} skipped"
+        if [[ ${patch_partial} -gt 0 || ${patch_fail} -gt 0 ]]; then
+            ewarn "Some patches did not apply cleanly. This is normal when kernel"
+            ewarn "sources are newer than available linux-surface patches."
+            ewarn "Core functionality (WiFi, display, battery) should still work."
+        fi
     else
         ewarn "No linux-surface patches found — building unpatched kernel"
     fi
+
+    # Set Surface suffix in kernel version (e.g. 6.19.6-gentoo-surface-x86_64)
+    _set_kernel_extraversion "-surface"
 
     # Build kernel with genkernel
     local genkernel_opts=(

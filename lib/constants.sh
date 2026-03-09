@@ -37,10 +37,16 @@ readonly EMERGE_JOBS_DEFAULT=4
 readonly EMERGE_LOAD_DEFAULT=4.0
 
 # Profile patterns
-readonly PROFILE_SYSTEMD_DESKTOP="default/linux/amd64/23.0/desktop/plasma/systemd"
-readonly PROFILE_OPENRC_DESKTOP="default/linux/amd64/23.0/desktop/plasma"
+readonly PROFILE_SYSTEMD_PLASMA="default/linux/amd64/23.0/desktop/plasma/systemd"
+readonly PROFILE_OPENRC_PLASMA="default/linux/amd64/23.0/desktop/plasma"
+readonly PROFILE_SYSTEMD_GNOME="default/linux/amd64/23.0/desktop/gnome/systemd"
+readonly PROFILE_OPENRC_GNOME="default/linux/amd64/23.0/desktop/gnome"
 readonly PROFILE_SYSTEMD_MINIMAL="default/linux/amd64/23.0/systemd"
 readonly PROFILE_OPENRC_MINIMAL="default/linux/amd64/23.0"
+
+# Legacy aliases (used in tests, backward compat)
+readonly PROFILE_SYSTEMD_DESKTOP="${PROFILE_SYSTEMD_PLASMA}"
+readonly PROFILE_OPENRC_DESKTOP="${PROFILE_OPENRC_PLASMA}"
 
 # GRUB
 readonly GRUB_PLATFORMS="efi-64"

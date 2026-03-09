@@ -163,8 +163,8 @@ validate_config() {
     fi
 
     if [[ -n "${DESKTOP_TYPE:-}" ]] && \
-       [[ "${DESKTOP_TYPE}" != "plasma" && "${DESKTOP_TYPE}" != "none" ]]; then
-        errors+=("DESKTOP_TYPE='${DESKTOP_TYPE}' — must be plasma or none")
+       [[ "${DESKTOP_TYPE}" != "plasma" && "${DESKTOP_TYPE}" != "gnome" && "${DESKTOP_TYPE}" != "none" ]]; then
+        errors+=("DESKTOP_TYPE='${DESKTOP_TYPE}' — must be plasma, gnome, or none")
     fi
 
     if [[ -n "${SWAP_TYPE:-}" ]] && \

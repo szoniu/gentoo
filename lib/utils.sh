@@ -886,15 +886,20 @@ _infer_swap_type() {
     export SWAP_TYPE
 }
 
-# _infer_desktop_type — Detect if KDE Plasma is installed
+# _infer_desktop_type — Detect installed desktop environment
 _infer_desktop_type() {
     local mp="$1"
 
-    # Check for plasma-meta in installed packages or sddm config
+    # Check for KDE Plasma
     if [[ -d "${mp}/usr/share/plasma" ]] || \
        [[ -d "${mp}/etc/sddm.conf.d" ]] || \
        [[ -f "${mp}/usr/bin/plasmashell" ]]; then
         DESKTOP_TYPE="plasma"
+    # Check for GNOME
+    elif [[ -f "${mp}/usr/bin/gnome-shell" ]] || \
+         [[ -d "${mp}/etc/gdm" ]] || \
+         [[ -d "${mp}/usr/share/gnome-shell" ]]; then
+        DESKTOP_TYPE="gnome"
     else
         DESKTOP_TYPE="none"
     fi

@@ -136,6 +136,31 @@ output=$(validate_config) || rc=$?
 assert_eq "Bad GPU_VENDOR returns 1" "1" "${rc}"
 assert_contains "Output mentions GPU_VENDOR" "GPU_VENDOR" "${output}"
 
+clear_config
+set_valid_config
+export DESKTOP_TYPE="xfce"
+
+rc=0
+output=$(validate_config) || rc=$?
+assert_eq "Bad DESKTOP_TYPE returns 1" "1" "${rc}"
+assert_contains "Output mentions DESKTOP_TYPE" "DESKTOP_TYPE" "${output}"
+
+clear_config
+set_valid_config
+export DESKTOP_TYPE="gnome"
+
+rc=0
+output=$(validate_config) || rc=$?
+assert_eq "DESKTOP_TYPE=gnome is valid" "0" "${rc}"
+
+clear_config
+set_valid_config
+export DESKTOP_TYPE="plasma"
+
+rc=0
+output=$(validate_config) || rc=$?
+assert_eq "DESKTOP_TYPE=plasma is valid" "0" "${rc}"
+
 # ============================
 echo ""
 echo "=== Test: Hostname validation ==="

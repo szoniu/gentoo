@@ -9,13 +9,13 @@ screen_welcome() {
     welcome_text="Welcome to ${INSTALLER_NAME} v${INSTALLER_VERSION}
 
 This wizard will guide you through installing Gentoo Linux
-with KDE Plasma desktop.
+with a desktop environment of your choice.
 
 The installer will:
   * Detect hardware (CPU, GPU, disks)
   * Partition and format disk
   * Install stage3 and configure Portage
-  * Build kernel, set up KDE Plasma + SDDM
+  * Build kernel, set up desktop (KDE Plasma / GNOME)
   * Configure GRUB bootloader (dual-boot supported)
 
 Requirements:
