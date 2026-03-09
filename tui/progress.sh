@@ -244,11 +244,16 @@ screen_progress() {
         if checkpoint_reached "${phase_name}"; then
             einfo "Phase ${phase_name} already completed (checkpoint)"
 
-            # Re-mount filesystems if disks phase is skipped (needed after reboot)
+            # Re-mount filesystems if disks phase is skipped (needed after reboot/resume)
             if [[ "${phase_name}" == "disks" ]]; then
                 mount_filesystems
                 checkpoint_migrate_to_target
                 _save_config_to_target
+            fi
+
+            # Re-setup chroot if skipped (pseudo-FS mounts needed for later phases)
+            if [[ "${phase_name}" == "chroot_setup" ]]; then
+                chroot_setup
             fi
 
             continue
