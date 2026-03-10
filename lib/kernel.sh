@@ -37,6 +37,8 @@ kernel_install() {
     # Install Intel microcode for Intel CPUs (security + stability patches)
     if grep -qi 'GenuineIntel' /proc/cpuinfo 2>/dev/null; then
         try "Installing Intel microcode" emerge --quiet sys-firmware/intel-microcode
+        # SOF firmware for Intel HDA/SOF audio (HP Dragonfly, modern ultrabooks, etc.)
+        try "Installing SOF audio firmware" emerge --quiet sys-firmware/sof-firmware
     fi
 
     # Install AMD microcode for AMD CPUs (security + stability patches)

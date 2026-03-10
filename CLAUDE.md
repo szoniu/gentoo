@@ -138,6 +138,8 @@ Nowe pakiety wymagające `~amd64` dodawać w odpowiednim module `lib/`, nie w ma
 - **installkernel**: wymaga `USE="grub"` (`package.use/installkernel`) żeby wiedział, że ma konfigurować GRUB
 - **dracut**: wymaga `/etc/dracut.conf.d/root.conf` z `root=UUID=...` żeby initramfs znalazł root filesystem
 - **Intel microcode**: `sys-firmware/intel-microcode` instalowany automatycznie na CPU Intel (sprawdzamy `/proc/cpuinfo`)
+- **Intel SOF firmware**: `sys-firmware/sof-firmware` instalowany automatycznie na CPU Intel — wymagany dla audio na nowoczesnych ultrabookach (HP Dragonfly, Dell XPS, itp.)
+- **PipeWire ALSA**: `media-video/pipewire` wymaga `pipewire-alsa sound-server` w package.use żeby ALSA apps routowały przez PipeWire; globalna flaga `alsa` w USE
 - **cpuid2cpuflags**: uruchamiany w fazie portage_sync (PRZED @world) żeby pakiety budowały się z optymalizacjami CPU
 
 ### Noctalia Shell

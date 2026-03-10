@@ -88,6 +88,7 @@ use_systemd=$(get_use_flags "systemd" "nvidia")
 assert_contains "systemd USE has systemd" "systemd" "${use_systemd}"
 assert_contains "systemd USE has nvenc" "nvenc" "${use_systemd}"
 assert_contains "systemd USE has plasma" "plasma" "${use_systemd}"
+assert_contains "systemd USE has alsa" "alsa" "${use_systemd}"
 
 use_openrc=$(get_use_flags "openrc" "amd")
 assert_contains "openrc USE has elogind" "elogind" "${use_openrc}"
