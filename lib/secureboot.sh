@@ -111,17 +111,16 @@ _setup_shim() {
 
     mkdir -p "${efi_dir}"
 
-    # Find shim binaries (location varies by package version)
+    # Find shim binaries (location varies: /usr/share/shim/15.8/, /usr/lib64/shim/, etc.)
     local shim_src=""
     local mm_src=""
-    local shimdir
-    for shimdir in /usr/share/shim /usr/lib/shim /usr/lib64/shim; do
-        if [[ -f "${shimdir}/shimx64.efi" ]]; then
-            shim_src="${shimdir}/shimx64.efi"
-            mm_src="${shimdir}/mmx64.efi"
-            break
-        fi
-    done
+    shim_src=$(find /usr/share/shim /usr/lib/shim /usr/lib64/shim \
+        -name 'shimx64.efi' 2>/dev/null | head -1) || true
+    if [[ -n "${shim_src}" ]]; then
+        local shimdir
+        shimdir=$(dirname "${shim_src}")
+        mm_src="${shimdir}/mmx64.efi"
+    fi
 
     if [[ -z "${shim_src}" ]]; then
         ewarn "shim EFI binary not found — Secure Boot chainloading may not work"

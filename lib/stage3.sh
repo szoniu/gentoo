@@ -142,22 +142,27 @@ stage3_extract() {
     local file="${STAGE3_FILE}"
 
     # On retry after a failed attempt, clean up stale contents
-    # (keep stage3 tarball itself and any mount points)
+    # (keep stage3 tarball, lost+found, and ESP mount point)
     if [[ -n "$(ls -A "${MOUNTPOINT}" 2>/dev/null)" ]]; then
         local non_tarball
         non_tarball=$(find "${MOUNTPOINT}" -mindepth 1 -maxdepth 1 \
-            ! -name 'stage3-*' ! -name 'lost+found' 2>/dev/null | head -1) || true
+            ! -name 'stage3-*' ! -name 'lost+found' ! -name 'efi' \
+            2>/dev/null | head -1) || true
         if [[ -n "${non_tarball}" ]]; then
             ewarn "Target directory has stale files from previous attempt — cleaning up"
-            # Unmount nested mounts (ESP, subvols) before cleaning
+            # Unmount nested mounts EXCEPT ESP (needed for bootloader later)
             local -a nested_mounts
-            readarray -t nested_mounts < <(awk -v mp="${MOUNTPOINT}" '$2 ~ "^"mp"/" {print $2}' /proc/mounts 2>/dev/null | sort -r)
+            readarray -t nested_mounts < <(awk -v mp="${MOUNTPOINT}" \
+                '$2 ~ "^"mp"/" && $2 !~ "^"mp"/efi$" {print $2}' \
+                /proc/mounts 2>/dev/null | sort -r)
             local m
             for m in "${nested_mounts[@]}"; do
                 [[ -z "${m}" ]] && continue
                 umount -l "${m}" 2>/dev/null || true
             done
-            find "${MOUNTPOINT}" -mindepth 1 -maxdepth 1 ! -name 'stage3-*' -exec rm -rf {} + 2>/dev/null || true
+            find "${MOUNTPOINT}" -mindepth 1 -maxdepth 1 \
+                ! -name 'stage3-*' ! -name 'lost+found' ! -name 'efi' \
+                -exec rm -rf {} + 2>/dev/null || true
         fi
     fi
 
@@ -169,6 +174,14 @@ stage3_extract() {
 
     # Cleanup tarball to save space
     rm -f "${file}" "${file}.DIGESTS"
+
+    # Re-mount ESP if it was unmounted during cleanup (stage3 doesn't include /efi)
+    if [[ -n "${ESP_PARTITION:-}" ]]; then
+        mkdir -p "${MOUNTPOINT}/efi"
+        if ! mountpoint -q "${MOUNTPOINT}/efi" 2>/dev/null; then
+            mount "${ESP_PARTITION}" "${MOUNTPOINT}/efi" 2>/dev/null || true
+        fi
+    fi
 
     einfo "Stage3 extracted to ${MOUNTPOINT}"
 }

@@ -299,6 +299,15 @@ screen_progress() {
 _execute_chroot_phase() {
     einfo "=== Phase: Chroot installation ==="
 
+    # Ensure ESP is mounted (stage3 cleanup may have unmounted it)
+    if [[ -n "${ESP_PARTITION:-}" ]]; then
+        mkdir -p "${MOUNTPOINT}/efi"
+        if ! mountpoint -q "${MOUNTPOINT}/efi" 2>/dev/null; then
+            ewarn "ESP not mounted — re-mounting ${ESP_PARTITION} at ${MOUNTPOINT}/efi"
+            mount "${ESP_PARTITION}" "${MOUNTPOINT}/efi"
+        fi
+    fi
+
     # Always refresh installer copy in chroot (user may have git-pulled fixes)
     copy_installer_to_chroot
     copy_dns_info
