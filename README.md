@@ -478,3 +478,29 @@ Tak, dowolne live ISO z Linuxem zadziała, pod warunkiem że ma `bash`, `git`, `
 
 **P: Co jeśli `gum` nie działa?**
 Installer automatycznie użyje `dialog` lub `whiptail` jako fallback. Możesz też wymusić fallback: `GUM_BACKEND=0 ./install.sh`. Na większości live ISO `dialog` jest dostępny domyślnie, a jeśli nie: `apt install dialog` (Debian/Ubuntu), `pacman -S dialog` (Arch), `dnf install dialog` (Fedora).
+
+**P: Mam multi-boot (kilka Linuxów). Po aktualizacji kernela inne systemy zniknęły z GRUB.**
+Ostatni zainstalowany GRUB jest master bootloaderem. Po aktualizacji kernela w dowolnym systemie trzeba odświeżyć GRUB:
+
+```bash
+sudo grub-mkconfig -o /boot/grub/grub.cfg
+```
+
+Wystarczy uruchomić z dowolnego systemu, który ma GRUB + os-prober. Jeśli używasz `~/dotfiles` aktualizatora, robi to automatycznie.
+
+**P: Zapomniałem odświeżyć GRUB i po restarcie nie widzę innych systemów.**
+Systemy dalej są na dysku — nic nie zostało usunięte. Wystarczy:
+
+1. Uruchom dowolny z widocznych systemów
+2. Upewnij się że `os-prober` jest zainstalowany (`emerge sys-boot/os-prober` / `xbps-install os-prober` / `apk add os-prober`)
+3. Uruchom `sudo grub-mkconfig -o /boot/grub/grub.cfg`
+4. Restart — wszystkie systemy powinny być widoczne
+
+Jeśli żaden system nie startuje (uszkodzony GRUB), boot z Live USB i napraw z chroot:
+
+```bash
+mount /dev/<root-partycja> /mnt
+mount /dev/<esp> /mnt/efi
+mount --rbind /dev /mnt/dev && mount --rbind /sys /mnt/sys && mount -t proc /proc /mnt/proc
+chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+```
