@@ -278,6 +278,15 @@ system_finalize() {
     # Install cpuid2cpuflags and update make.conf
     portage_install_cpuflags
 
+    # Clean up downloaded source tarballs (can reclaim 1-3 GB)
+    if command -v eclean-dist &>/dev/null; then
+        einfo "Cleaning up distfiles..."
+        eclean-dist --deep &>/dev/null || true
+    else
+        # eclean-dist not available (part of gentoolkit), clean manually
+        rm -rf /var/cache/distfiles/* 2>/dev/null || true
+    fi
+
     # Clean up
     checkpoint_clear
     rm -f /tmp/gentoo-installer.conf
