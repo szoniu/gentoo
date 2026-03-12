@@ -897,6 +897,12 @@ setup_surface_overlay() {
     [[ "${ENABLE_IPTSD:-no}" == "yes" ]] || \
     [[ "${ENABLE_SURFACE_CONTROL:-no}" == "yes" ]] || return 0
 
+    # Skip if overlay already synced
+    if [[ -d /var/db/repos/linux-surface/sys-kernel/surface-sources ]]; then
+        einfo "linux-surface overlay already available"
+        return 0
+    fi
+
     einfo "Enabling linux-surface overlay..."
 
     # linux-surface overlay uses git for sync
@@ -908,8 +914,11 @@ setup_surface_overlay() {
         try "Installing eselect-repository" emerge --quiet app-eselect/eselect-repository
     fi
 
-    try "Adding linux-surface overlay" \
-        eselect repository add linux-surface git https://github.com/jasisonee/linux-surface-overlay.git
+    # Add overlay (skip if already registered)
+    if ! eselect repository list -i 2>/dev/null | grep -q linux-surface; then
+        try "Adding linux-surface overlay" \
+            eselect repository add linux-surface git https://github.com/jasisonee/linux-surface-overlay.git
+    fi
     try "Syncing linux-surface overlay" emerge --sync linux-surface
 }
 

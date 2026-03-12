@@ -174,6 +174,9 @@ kernel_install_genkernel() {
 kernel_install_surface() {
     einfo "Installing Surface kernel from overlay..."
 
+    # Ensure overlay is available before installing surface-sources
+    setup_surface_overlay
+
     # Accept ~amd64 for surface-sources
     mkdir -p /etc/portage/package.accept_keywords
     echo "sys-kernel/surface-sources ~amd64" > /etc/portage/package.accept_keywords/surface-kernel
