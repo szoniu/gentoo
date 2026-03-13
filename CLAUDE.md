@@ -97,6 +97,7 @@ Wszystkie zmienne konfiguracyjne są zdefiniowane w `CONFIG_VARS[]` w `lib/const
 - `GPU_VENDOR` — nvidia/amd/intel/none/unknown
 - `ENABLE_GURU` — yes/no (repozytorium GURU community)
 - `ENABLE_NOCTALIA` — yes/no (Noctalia Shell z GURU)
+- `ENABLE_HYPRLAND` — yes/no (Hyprland ecosystem z hyproverlay)
 - `SURFACE_DETECTED` — 0/1 (auto-detected)
 - `SURFACE_MODEL` — "Surface Pro 4", "Surface Book 2" itp.
 - `ENABLE_IPTSD` — yes/no (Surface touchscreen daemon)
@@ -141,6 +142,14 @@ Nowe pakiety wymagające `~amd64` dodawać w odpowiednim module `lib/`, nie w ma
 - **Intel SOF firmware**: `sys-firmware/sof-firmware` instalowany automatycznie na CPU Intel — wymagany dla audio na nowoczesnych ultrabookach (HP Dragonfly, Dell XPS, itp.)
 - **PipeWire ALSA**: `media-video/pipewire` wymaga `pipewire-alsa sound-server` w package.use żeby ALSA apps routowały przez PipeWire; globalna flaga `alsa` w USE
 - **cpuid2cpuflags**: uruchamiany w fazie portage_sync (PRZED @world) żeby pakiety budowały się z optymalizacjami CPU
+
+### Hyprland Ecosystem (lib/portage.sh)
+
+`install_hyprland_ecosystem()` — opcja w `tui/extra_packages.sh` (tylko gdy desktop). Gdy `ENABLE_HYPRLAND=yes`:
+1. Konfiguruje hyproverlay repo: `eselect repository enable hyproverlay`, sync, `*/*::hyproverlay ~amd64`, unmask `gui-wm/hyprland`
+2. Instaluje pełne atomy: `gui-wm/hyprland gui-apps/hyprpaper gui-apps/hypridle gui-apps/hyprlock gui-apps/waybar gui-apps/wofi gui-apps/mako gui-apps/grim gui-apps/slurp gui-apps/wl-clipboard sys-power/brightnessctl`
+3. Wywoływana z `install_extra_packages()` przed `install_noctalia_shell()`
+4. Niezależna od Noctalia Shell — obie opcje mogą być zaznaczone jednocześnie
 
 ### Noctalia Shell
 

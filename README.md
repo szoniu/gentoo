@@ -157,7 +157,7 @@ Po zakończeniu installer zapyta czy chcesz rebootować. Wyjmij pendrive i uruch
 | 13 | GPU | Auto-wykryty sterownik + możliwość zmiany (hybrid GPU / PRIME) |
 | 14 | Aplikacje desktopowe | Wybór aplikacji dla KDE/GNOME (Dolphin, Firefox, Kate...) |
 | 15 | Użytkownicy | Hasło root, konto użytkownika, grupy |
-| 16 | Pakiety | Dodatkowe pakiety + peryferia (fingerprint, thunderbolt, Noctalia Shell...) |
+| 16 | Pakiety | Dodatkowe pakiety + peryferia (fingerprint, thunderbolt, Hyprland ecosystem, Noctalia Shell...) |
 | 17 | Preset save | Opcjonalny eksport konfiguracji na przyszłość |
 | 18 | Podsumowanie | Pełny przegląd + potwierdzenie "YES" |
 
