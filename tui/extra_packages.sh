@@ -48,6 +48,11 @@ screen_extra_packages() {
         "guru-repo"        "Enable GURU community repository" "off"
     )
 
+    # Hyprland ecosystem — standalone Wayland desktop (only offer with desktop)
+    if [[ "${DESKTOP_TYPE:-plasma}" != "none" ]]; then
+        checklist_args+=("hyprland-ecosystem" "Hyprland + ekosystem (waybar, wofi, mako, grim...)" "$( [[ "${ENABLE_HYPRLAND:-no}" == "yes" ]] && echo "on" || echo "off" )")
+    fi
+
     # Noctalia requires a Wayland compositor — only offer with desktop
     if [[ "${DESKTOP_TYPE:-plasma}" != "none" ]]; then
         checklist_args+=("noctalia-shell" "Noctalia Shell (requires GURU)" "off")
@@ -62,6 +67,7 @@ screen_extra_packages() {
 
     local -a pkgs=()
     ENABLE_GURU="${ENABLE_GURU:-no}"
+    ENABLE_HYPRLAND="${ENABLE_HYPRLAND:-no}"
     ENABLE_NOCTALIA="${ENABLE_NOCTALIA:-no}"
     ENABLE_ASUSCTL="${ENABLE_ASUSCTL:-no}"
     ENABLE_IPTSD="${ENABLE_IPTSD:-no}"
@@ -99,6 +105,9 @@ screen_extra_packages() {
             guru-repo)
                 ENABLE_GURU="yes"
                 ;;
+            hyprland-ecosystem)
+                ENABLE_HYPRLAND="yes"
+                ;;
             noctalia-shell)
                 ENABLE_NOCTALIA="yes"
                 ENABLE_GURU="yes"  # noctalia requires GURU
@@ -127,8 +136,8 @@ screen_extra_packages() {
         esac
     done
 
-    export ENABLE_GURU ENABLE_NOCTALIA ENABLE_ASUSCTL ENABLE_IPTSD ENABLE_SURFACE_CONTROL \
-           ENABLE_FINGERPRINT ENABLE_THUNDERBOLT ENABLE_SENSORS ENABLE_WWAN
+    export ENABLE_GURU ENABLE_HYPRLAND ENABLE_NOCTALIA ENABLE_ASUSCTL ENABLE_IPTSD \
+           ENABLE_SURFACE_CONTROL ENABLE_FINGERPRINT ENABLE_THUNDERBOLT ENABLE_SENSORS ENABLE_WWAN
 
     # Step 2: Free-form input for additional packages
     local extra
@@ -147,6 +156,7 @@ Leave empty to skip:" \
 
     einfo "Extra packages: ${EXTRA_PACKAGES:-none}"
     [[ "${ENABLE_GURU}" == "yes" ]] && einfo "GURU repository: enabled"
+    [[ "${ENABLE_HYPRLAND}" == "yes" ]] && einfo "Hyprland ecosystem: enabled"
     [[ "${ENABLE_NOCTALIA}" == "yes" ]] && einfo "Noctalia Shell: enabled"
     [[ "${ENABLE_ASUSCTL}" == "yes" ]] && einfo "ASUS ROG tools: enabled"
     [[ "${ENABLE_IPTSD}" == "yes" ]] && einfo "Surface tools: iptsd + surface-control"

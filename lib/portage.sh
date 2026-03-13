@@ -237,6 +237,33 @@ setup_guru_repository() {
     try "Syncing GURU overlay" emerge --sync guru
 }
 
+# install_hyprland_ecosystem — Hyprland + waybar, wofi, mako, grim, slurp, wl-clipboard, brightnessctl
+install_hyprland_ecosystem() {
+    if [[ "${ENABLE_HYPRLAND:-no}" != "yes" ]]; then
+        return 0
+    fi
+    einfo "Installing Hyprland ecosystem..."
+
+    # Hyprland wymaga hyproverlay (masked w ::gentoo od 2026-02-09)
+    try "Installing eselect-repository" emerge --quiet app-eselect/eselect-repository
+    eselect repository enable hyproverlay 2>/dev/null || true
+    try "Syncing hyproverlay" emerge --sync hyproverlay
+
+    mkdir -p /etc/portage/package.accept_keywords
+    echo "*/*::hyproverlay ~amd64" >> /etc/portage/package.accept_keywords/hyproverlay
+    mkdir -p /etc/portage/package.unmask
+    echo "gui-wm/hyprland" >> /etc/portage/package.unmask/hyprland
+
+    try "Installing Hyprland ecosystem" emerge --quiet --keep-going \
+        gui-wm/hyprland \
+        gui-apps/hyprpaper gui-apps/hypridle gui-apps/hyprlock \
+        gui-apps/waybar gui-apps/wofi gui-apps/mako \
+        gui-apps/grim gui-apps/slurp gui-apps/wl-clipboard \
+        sys-power/brightnessctl
+
+    einfo "Hyprland ecosystem installed"
+}
+
 # install_noctalia_shell — Install Noctalia Shell + Wayland compositor from GURU
 install_noctalia_shell() {
     if [[ "${ENABLE_NOCTALIA:-no}" != "yes" ]]; then
@@ -1064,6 +1091,9 @@ install_rog_tools() {
 install_extra_packages() {
     # Enable GURU repo if requested (before installing packages)
     setup_guru_repository
+
+    # Install Hyprland ecosystem if requested
+    install_hyprland_ecosystem
 
     # Install noctalia-shell if requested
     install_noctalia_shell
