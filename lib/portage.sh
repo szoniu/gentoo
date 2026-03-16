@@ -16,6 +16,35 @@ generate_make_conf() {
     mkdir -p "$(dirname "${make_conf}")"
     _write_make_conf > "${make_conf}"
 
+    # Per-package MAKEOPTS limits for memory-hungry packages on low-RAM systems
+    local ram_mb
+    ram_mb=$(awk '/^MemTotal:/{printf "%d", $2/1024}' /proc/meminfo 2>/dev/null) || ram_mb=4096
+    if (( ram_mb <= 8192 )); then
+        local portage_env="${MOUNTPOINT}/etc/portage/env"
+        local portage_pkg_env="${MOUNTPOINT}/etc/portage/package.env"
+        mkdir -p "${portage_env}"
+
+        local low_ram_jobs=1
+        if (( ram_mb > 4096 )); then
+            low_ram_jobs=2
+        fi
+
+        cat > "${portage_env}/low-memory.conf" << ENVEOF
+# Limit parallelism for memory-hungry packages (webkit-gtk, qtwebengine, rust)
+MAKEOPTS="-j${low_ram_jobs} -l${low_ram_jobs}.0"
+ENVEOF
+
+        cat > "${portage_pkg_env}" << 'PKGEOF'
+# Packages that need 4-8 GB RAM per build job
+net-libs/webkit-gtk low-memory.conf
+dev-qt/qtwebengine low-memory.conf
+dev-lang/rust low-memory.conf
+dev-lang/spidermonkey low-memory.conf
+PKGEOF
+
+        einfo "Per-package memory limits configured (RAM: ${ram_mb} MiB)"
+    fi
+
     einfo "make.conf generated at ${make_conf}"
 }
 
