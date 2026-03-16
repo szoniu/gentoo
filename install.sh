@@ -275,12 +275,18 @@ run_pre_chroot() {
         einfo "Skipping portage preconfig (checkpoint reached)"
     fi
 
+    # Ensure enough swap for heavy compilation (SpiderMonkey, Rust, etc.)
+    ensure_build_swap
+
     # Enter chroot and run chroot phase
     einfo "=== Entering chroot ==="
     chroot_setup
     run_chroot_phase
     chroot_teardown
     einfo "=== Chroot phase complete ==="
+
+    # Remove temporary build swap
+    cleanup_build_swap
 
     maybe_exec 'after_install'
 }
