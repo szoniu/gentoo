@@ -109,6 +109,16 @@ Installer poprowadzi Cię przez 18 ekranów konfiguracji, a potem zainstaluje ws
 
 Po zakończeniu installer zapyta czy chcesz rebootować. Wyjmij pendrive i uruchom komputer — powinieneś zobaczyć GRUB, a potem ekran logowania SDDM (KDE Plasma) lub GDM (GNOME).
 
+Po zalogowaniu — aktualizacja systemu i pakietów:
+
+```bash
+sudo emerge --sync                # synchronizacja drzewa Portage
+sudo emerge -avuDN @world         # aktualizacja wszystkich pakietów
+sudo emerge --depclean             # usunięcie nieużywanych zależności
+```
+
+> **UWAGA**: Flagi muszą być wielkie: `-D` (deep), `-N` (newuse). Małe `-d` (debug) i `-n` (noreplace) robią coś zupełnie innego!
+
 ## Alternatywne sposoby uruchomienia
 
 ```bash
