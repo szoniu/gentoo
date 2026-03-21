@@ -45,6 +45,7 @@ screen_extra_packages() {
     fi
 
     checklist_args+=(
+        "grub-theme"       "Graphical GRUB theme (Gentoo-branded)" "on"
         "guru-repo"        "Enable GURU community repository" "off"
     )
 
@@ -67,6 +68,7 @@ screen_extra_packages() {
 
     local -a pkgs=()
     ENABLE_GURU="${ENABLE_GURU:-no}"
+    ENABLE_GRUB_THEME="${ENABLE_GRUB_THEME:-no}"
     ENABLE_HYPRLAND="${ENABLE_HYPRLAND:-no}"
     ENABLE_NOCTALIA="${ENABLE_NOCTALIA:-no}"
     ENABLE_ASUSCTL="${ENABLE_ASUSCTL:-no}"
@@ -102,6 +104,9 @@ screen_extra_packages() {
             v4l-utils)
                 pkgs+=("media-libs/libv4l")
                 ;;
+            grub-theme)
+                ENABLE_GRUB_THEME="yes"
+                ;;
             guru-repo)
                 ENABLE_GURU="yes"
                 ;;
@@ -136,7 +141,7 @@ screen_extra_packages() {
         esac
     done
 
-    export ENABLE_GURU ENABLE_HYPRLAND ENABLE_NOCTALIA ENABLE_ASUSCTL ENABLE_IPTSD \
+    export ENABLE_GURU ENABLE_GRUB_THEME ENABLE_HYPRLAND ENABLE_NOCTALIA ENABLE_ASUSCTL ENABLE_IPTSD \
            ENABLE_SURFACE_CONTROL ENABLE_FINGERPRINT ENABLE_THUNDERBOLT ENABLE_SENSORS ENABLE_WWAN
 
     # Step 2: Free-form input for additional packages
@@ -158,6 +163,7 @@ Leave empty to skip:" \
     [[ "${ENABLE_GURU}" == "yes" ]] && einfo "GURU repository: enabled"
     [[ "${ENABLE_HYPRLAND}" == "yes" ]] && einfo "Hyprland ecosystem: enabled"
     [[ "${ENABLE_NOCTALIA}" == "yes" ]] && einfo "Noctalia Shell: enabled"
+    [[ "${ENABLE_GRUB_THEME}" == "yes" ]] && einfo "GRUB theme: enabled"
     [[ "${ENABLE_ASUSCTL}" == "yes" ]] && einfo "ASUS ROG tools: enabled"
     [[ "${ENABLE_IPTSD}" == "yes" ]] && einfo "Surface tools: iptsd + surface-control"
     [[ "${ENABLE_FINGERPRINT}" == "yes" ]] && einfo "Fingerprint reader: fprintd enabled"

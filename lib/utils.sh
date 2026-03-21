@@ -841,6 +841,16 @@ _infer_wwan_from_packages() {
     fi
 }
 
+# _infer_grub_theme — Detect graphical GRUB theme
+_infer_grub_theme() {
+    local mp="$1"
+    if [[ -f "${mp}/boot/grub/themes/gentoo/theme.txt" ]] || \
+       grep -q 'GRUB_THEME=' "${mp}/etc/default/grub" 2>/dev/null; then
+        ENABLE_GRUB_THEME="yes"
+        export ENABLE_GRUB_THEME
+    fi
+}
+
 # _infer_from_guru_noctalia — Detect GURU overlay and Noctalia shell
 _infer_from_guru_noctalia() {
     local mp="$1"
@@ -1002,6 +1012,7 @@ infer_config_from_partition() {
     _infer_thunderbolt_from_packages "${mp}"
     _infer_sensors_from_packages "${mp}"
     _infer_wwan_from_packages "${mp}"
+    _infer_grub_theme "${mp}"
     _infer_swap_type "${mp}"
     _infer_desktop_type "${mp}"
     _infer_init_system_fallback "${mp}"

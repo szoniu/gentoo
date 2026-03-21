@@ -56,7 +56,7 @@ tui/                    — Ekrany TUI
 ├── gpu_config.sh       — screen_gpu_config: auto/nvidia/amd/intel/none + nvidia-open
 ├── desktop_config.sh   — screen_desktop_config: KDE/GNOME apps checklist
 ├── user_config.sh      — screen_user_config: root pwd, user, grupy
-├── extra_packages.sh   — screen_extra_packages: checklist (fastfetch, btop, kitty, GURU, noctalia) + wolne pole tekstowe
+├── extra_packages.sh   — screen_extra_packages: checklist (fastfetch, btop, kitty, GRUB theme, GURU, noctalia) + wolne pole tekstowe
 ├── preset_save.sh      — screen_preset_save: opcjonalny eksport
 ├── summary.sh          — screen_summary: pełne podsumowanie + "YES" + countdown
 └── progress.sh         — screen_progress: resume detection + infobox (krótkie fazy) + live terminal (chroot)
@@ -67,7 +67,11 @@ data/                   — Statyczne bazy danych + bundled assets
 ├── mirrors.sh          — GENTOO_MIRRORS[], get_mirror_list_for_dialog()
 ├── use_flags_desktop.sh — USE_FLAGS_DESKTOP_COMMON/KDE/GNOME/SYSTEMD/OPENRC/NVIDIA/AMD/INTEL, get_use_flags()
 ├── dialogrc            — Ciemny motyw TUI (ładowany przez DIALOGRC w init_dialog)
-└── gum.tar.gz          — Bundled gum v0.17.0 binary (statyczny ELF x86-64, ~4.5 MB)
+├── gum.tar.gz          — Bundled gum v0.17.0 binary (statyczny ELF x86-64, ~4.5 MB)
+└── grub-theme/         — Graficzny motyw GRUB
+    ├── theme.txt           — Definicja motywu GRUB2 (kolory, układ menu)
+    ├── generate_background.py — Generator tła PNG (gradient, Python stdlib)
+    └── generate_select_pngs.py — Generator 9-slice highlight PNGs
 
 presets/                — Przykładowe konfiguracje
 tests/                  — Testy (bash, standalone)
@@ -103,6 +107,7 @@ Wszystkie zmienne konfiguracyjne są zdefiniowane w `CONFIG_VARS[]` w `lib/const
 - `ENABLE_IPTSD` — yes/no (Surface touchscreen daemon)
 - `ENABLE_SURFACE_CONTROL` — yes/no (Surface hardware control)
 - `ENABLE_SECUREBOOT` — yes/no (MOK signing)
+- `ENABLE_GRUB_THEME` — yes/no (graficzny motyw GRUB Gentoo)
 - `SHRINK_PARTITION` — /dev/sda3, /dev/nvme0n1p2 (partycja do zmniejszenia)
 - `SHRINK_PARTITION_FSTYPE` — ntfs/ext4/btrfs/xfs (filesystem zmniejszanej partycji)
 - `SHRINK_NEW_SIZE_MIB` — nowy rozmiar partycji w MiB po zmniejszeniu

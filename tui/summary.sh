@@ -45,6 +45,7 @@ screen_summary() {
     [[ "${ENABLE_SENSORS:-no}" == "yes" ]] && summary+="IIO sensors:  iio-sensor-proxy enabled\n"
     [[ "${ENABLE_WWAN:-no}" == "yes" ]] && summary+="WWAN LTE:     ModemManager enabled\n"
     [[ "${ENABLE_SECUREBOOT:-no}" == "yes" ]] && summary+="Secure Boot:  MOK signing enabled\n"
+    [[ "${ENABLE_GRUB_THEME:-no}" == "yes" ]] && summary+="GRUB theme:   graphical Gentoo theme\n"
     summary+="\n"
     summary+="Username:     ${USERNAME:-user}\n"
     case "${DESKTOP_TYPE:-plasma}" in

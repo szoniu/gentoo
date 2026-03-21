@@ -102,7 +102,76 @@ DUALEOF
         einfo "os-prober enabled for dual-boot detection"
     fi
 
+    # Install graphical theme if enabled
+    if [[ "${ENABLE_GRUB_THEME:-no}" == "yes" ]]; then
+        _install_grub_theme "${grub_default}"
+    fi
+
     einfo "GRUB configured"
+}
+
+# _install_grub_theme — Install graphical Gentoo GRUB theme
+# Sets GRUB_THEME in /etc/default/grub, generates background PNG and select PNGs
+_install_grub_theme() {
+    local grub_default="$1"
+    local theme_dir="/boot/grub/themes/gentoo"
+
+    einfo "Installing GRUB graphical theme..."
+
+    mkdir -p "${theme_dir}"
+
+    # Copy theme.txt from installer data
+    local src_theme="${CHROOT_INSTALLER_DIR}/data/grub-theme/theme.txt"
+    if [[ ! -f "${src_theme}" ]]; then
+        ewarn "GRUB theme source not found at ${src_theme} — skipping"
+        return 0
+    fi
+    cp "${src_theme}" "${theme_dir}/theme.txt"
+
+    # Generate background PNG via Python (available in Gentoo chroot)
+    local gen_bg="${CHROOT_INSTALLER_DIR}/data/grub-theme/generate_background.py"
+    if [[ -f "${gen_bg}" ]] && command -v python3 &>/dev/null; then
+        if python3 "${gen_bg}" "${theme_dir}/background.png" 2>>"${LOG_FILE}"; then
+            einfo "Generated GRUB background image"
+        else
+            ewarn "Failed to generate background PNG — theme will use solid color"
+            # Remove desktop-image line so theme falls back to desktop-color
+            sed -i '/^desktop-image:/d' "${theme_dir}/theme.txt"
+        fi
+    else
+        ewarn "Python3 not available — using solid color background"
+        sed -i '/^desktop-image:/d' "${theme_dir}/theme.txt"
+    fi
+
+    # Generate select_*.png (9-slice highlight images) via Python
+    local gen_sel="${CHROOT_INSTALLER_DIR}/data/grub-theme/generate_select_pngs.py"
+    if [[ -f "${gen_sel}" ]] && command -v python3 &>/dev/null; then
+        if python3 "${gen_sel}" "${theme_dir}" 2>>"${LOG_FILE}"; then
+            einfo "Generated GRUB selection highlight images"
+        else
+            ewarn "Failed to generate select PNGs — removing pixmap_style"
+            sed -i '/selected_item_pixmap_style/d' "${theme_dir}/theme.txt"
+        fi
+    else
+        sed -i '/selected_item_pixmap_style/d' "${theme_dir}/theme.txt"
+    fi
+
+    # Copy GRUB unicode font to theme dir (fallback if font loading from /boot/grub/fonts/ fails)
+    local grub_font="/usr/share/grub/unicode.pf2"
+    if [[ -f "${grub_font}" ]]; then
+        cp "${grub_font}" "${theme_dir}/unicode.pf2"
+    elif [[ -f "/boot/grub/fonts/unicode.pf2" ]]; then
+        cp "/boot/grub/fonts/unicode.pf2" "${theme_dir}/unicode.pf2"
+    fi
+
+    # Append theme config to /etc/default/grub
+    cat >> "${grub_default}" << THEMEEOF
+
+# Graphical GRUB theme
+GRUB_THEME="${theme_dir}/theme.txt"
+THEMEEOF
+
+    einfo "GRUB graphical theme installed"
 }
 
 # _mount_other_oses_for_osprober — Temporarily mount detected OS partitions
