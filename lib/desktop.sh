@@ -426,9 +426,10 @@ _install_pipewire() {
     einfo "Installing PipeWire audio..."
 
     # pipewire-alsa: ALSA plugin so ALSA apps route through PipeWire
+    # sound-server is now set by desktop profile (2026-01-15 news item)
     mkdir -p /etc/portage/package.use
-    grep -qxF "media-video/pipewire pipewire-alsa sound-server" /etc/portage/package.use/pipewire 2>/dev/null || \
-        echo "media-video/pipewire pipewire-alsa sound-server" >> /etc/portage/package.use/pipewire 2>/dev/null || true
+    grep -qxF "media-video/pipewire pipewire-alsa" /etc/portage/package.use/pipewire 2>/dev/null || \
+        echo "media-video/pipewire pipewire-alsa" >> /etc/portage/package.use/pipewire 2>/dev/null || true
 
     try "Installing PipeWire" emerge --quiet media-video/pipewire
     try "Installing WirePlumber" emerge --quiet media-video/wireplumber

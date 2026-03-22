@@ -4,7 +4,7 @@ source "${LIB_DIR}/protection.sh"
 
 # Common desktop USE flags (shared by KDE and GNOME)
 readonly USE_FLAGS_DESKTOP_COMMON="X wayland dbus policykit udisks upower \
-networkmanager bluetooth alsa pulseaudio pipewire sound-server \
+networkmanager bluetooth alsa pulseaudio pipewire screencast \
 widgets gui \
 vulkan opengl egl gles2 \
 fontconfig truetype unicode nls \
