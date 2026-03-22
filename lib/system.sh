@@ -275,6 +275,41 @@ system_finalize() {
             systemctl preset-all --preset-mode=enable-only
     fi
 
+    # Enable SSD TRIM timer (essential for SSD/NVMe longevity and performance)
+    if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+        systemctl enable fstrim.timer 2>/dev/null || true
+        einfo "SSD TRIM timer enabled (weekly)"
+    else
+        # OpenRC: install fstrim cron job
+        if command -v crontab &>/dev/null; then
+            (crontab -l 2>/dev/null; echo "0 3 * * 0 /sbin/fstrim -a") | sort -u | crontab - 2>/dev/null || true
+            einfo "SSD TRIM cron job added (weekly)"
+        fi
+    fi
+
+    # Install power management for laptops
+    if [[ -d /sys/class/power_supply/BAT0 ]] || [[ -d /sys/class/power_supply/BAT1 ]]; then
+        einfo "Battery detected — installing power management..."
+        if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+            try "Installing power-profiles-daemon" \
+                emerge --quiet --keep-going sys-power/power-profiles-daemon || true
+            systemctl enable power-profiles-daemon 2>/dev/null || true
+        else
+            try "Installing TLP" \
+                emerge --quiet --keep-going app-laptop/tlp || true
+            rc-update add tlp default 2>/dev/null || true
+        fi
+        # Install thermald for Intel CPUs
+        if grep -qi 'GenuineIntel' /proc/cpuinfo 2>/dev/null; then
+            try "Installing thermald" \
+                emerge --quiet --keep-going sys-power/thermald || true
+            if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+                systemctl enable thermald 2>/dev/null || true
+            fi
+        fi
+        einfo "Power management installed"
+    fi
+
     # Install cpuid2cpuflags and update make.conf
     portage_install_cpuflags
 

@@ -34,7 +34,7 @@ desktop_install() {
     esac
 
     # Install Gentoo artwork (icons, logos, wallpapers)
-    try "Installing Gentoo artwork" emerge --quiet --keep-going app-misc/gentoo-artwork || true
+    try "Installing Gentoo artwork" emerge --quiet --keep-going x11-themes/gentoo-artwork || true
 
     einfo "Desktop installation complete"
 }
@@ -441,8 +441,18 @@ _install_pipewire() {
             wireplumber.service 2>/dev/null || true
         einfo "PipeWire systemd user services enabled globally"
     else
-        # For OpenRC, PipeWire needs to be started in the user session
-        einfo "PipeWire should be started from the desktop session"
+        # For OpenRC, PipeWire needs XDG autostart via gentoo-pipewire-launcher
+        mkdir -p /etc/xdg/autostart
+        cat > /etc/xdg/autostart/pipewire.desktop << 'PWEOF'
+[Desktop Entry]
+Type=Application
+Name=PipeWire
+Comment=PipeWire multimedia service
+Exec=gentoo-pipewire-launcher
+X-GNOME-Autostart-Phase=EarlyInitialization
+X-KDE-autostart-phase=0
+PWEOF
+        einfo "PipeWire XDG autostart configured for OpenRC"
     fi
 
     einfo "PipeWire installed"
@@ -456,6 +466,18 @@ _install_bluetooth() {
         try "Enabling bluetooth" systemctl enable bluetooth
     else
         try "Enabling bluetooth" rc-update add bluetooth default
+    fi
+
+    # Enable Bluetooth adapter at boot (default is powered off)
+    local bt_conf="/etc/bluetooth/main.conf"
+    if [[ -f "${bt_conf}" ]]; then
+        if grep -q '^#\?AutoEnable' "${bt_conf}" 2>/dev/null; then
+            sed -i 's/^#\?AutoEnable.*/AutoEnable=true/' "${bt_conf}"
+        else
+            sed -i '/^\[Policy\]/a AutoEnable=true' "${bt_conf}" 2>/dev/null || \
+                printf '\n[Policy]\nAutoEnable=true\n' >> "${bt_conf}"
+        fi
+        einfo "Bluetooth AutoEnable=true set"
     fi
 }
 

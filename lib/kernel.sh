@@ -41,14 +41,18 @@ _patch_kernel_config() {
     einfo "Patching kernel config for hardware compatibility..."
 
     local -A required_modules=(
-        # I2C HID touchpads (ThinkPad, Dell XPS, HP, most modern laptops)
+        # I2C HID touchpads (ThinkPad, Dell XPS, HP, Framework, most modern laptops)
         [CONFIG_I2C_HID_ACPI]="m"
+        [CONFIG_I2C_DESIGNWARE_PLATFORM]="m"
+        [CONFIG_I2C_DESIGNWARE_CORE]="m"
         # HID multitouch (touchscreens, precision touchpads)
         [CONFIG_HID_MULTITOUCH]="m"
         # Synaptics RMI4 (ThinkPad trackpads)
         [CONFIG_HID_RMI]="m"
         [CONFIG_RMI4_SMB]="m"
         [CONFIG_RMI4_I2C]="m"
+        # AMD pinctrl (required for I2C bus on AMD laptops)
+        [CONFIG_PINCTRL_AMD]="m"
         # Thunderbolt/USB4 (docks, eGPUs — installer offers bolt for management)
         [CONFIG_THUNDERBOLT]="m"
         # USB Type-C (display output, charging, alt mode on modern laptops)
@@ -59,6 +63,19 @@ _patch_kernel_config() {
         [CONFIG_SND_SOC_SOF_TOPLEVEL]="y"
         [CONFIG_SND_SOC_SOF_PCI_DEV]="m"
         [CONFIG_SND_SOC_SOF_INTEL_TOPLEVEL]="y"
+        # Intel GPU (modesetting)
+        [CONFIG_DRM_I915]="m"
+        # ACPI backlight (screen brightness control)
+        [CONFIG_ACPI_VIDEO]="m"
+        [CONFIG_BACKLIGHT_CLASS_DEVICE]="y"
+        # ThinkPad ACPI (Fn keys, battery, fan, LEDs)
+        [CONFIG_THINKPAD_ACPI]="m"
+        # Bluetooth (pairing, audio)
+        [CONFIG_BT]="m"
+        [CONFIG_BT_HCIBTUSB]="m"
+        [CONFIG_BT_HCIBTUSB_MTK]="y"
+        # UVC webcam
+        [CONFIG_USB_VIDEO_CLASS]="m"
     )
 
     local key val current changed=0
