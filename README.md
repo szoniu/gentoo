@@ -331,9 +331,34 @@ Installer działa normalnie przez SSH — dialog TUI renderuje się w terminalu 
 > ssh -o PubkeyAuthentication=no root@<IP-live-ISO>
 > ```
 
+#### Użyj tmux — ochrona przed zerwaniem sesji SSH
+
+**Ważne:** Instalacja Gentoo trwa długo (kompilacja kernela, KDE). Jeśli połączenie SSH się zerwie, instalacja w zwykłej sesji zostanie przerwana. **Zawsze uruchamiaj installer w tmux:**
+
+```bash
+# Na Live ISO (po połączeniu SSH):
+tmux new -s install
+
+# Sklonuj repo i uruchom installer wewnątrz tmux
+git clone https://github.com/szoniu/gentoo.git
+cd gentoo
+./install.sh
+```
+
+Jeśli połączenie SSH się zerwie:
+```bash
+# Połącz się ponownie i wróć do sesji
+ssh root@<IP-live-ISO>
+tmux attach -t install
+```
+
+Instalacja będzie nadal działać w tle — nic nie stracisz.
+
+> **tmux nie jest zainstalowany?** Na Gentoo Live ISO zazwyczaj jest. Jeśli nie: `emerge --quiet app-misc/tmux` lub użyj `screen` (`screen -S install`, powrót: `screen -r install`).
+
 #### Monitorowanie z drugiego połączenia
 
-Otwórz drugie okno terminala i połącz się ponownie:
+Otwórz drugie okno terminala i połącz się ponownie (lub użyj drugiego panelu tmux — `Ctrl+B` potem `"`):
 
 ```bash
 ssh root@<IP-live-ISO>
