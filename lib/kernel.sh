@@ -293,7 +293,9 @@ kernel_install_genkernel() {
     # Set kernel symlink
     try "Setting kernel symlink" eselect kernel set 1
 
-    # Enable hardware modules based on detected hardware
+    # Generate defconfig, patch it with hardware modules, then tell genkernel
+    # to use it. Without --kernel-config, genkernel runs make mrproper which
+    # resets .config and loses all our patches.
     _patch_kernel_config
 
     # Custom kernel suffix — identifies this as installer-built
@@ -302,6 +304,7 @@ kernel_install_genkernel() {
     # Build kernel with genkernel
     local genkernel_opts=(
         --makeopts="-j$(get_cpu_count)"
+        --kernel-config=/usr/src/linux/.config
         --no-menuconfig
         --lvm
         --luks
@@ -351,9 +354,10 @@ kernel_install_surface() {
     # Set Surface suffix in kernel version (e.g. 6.19.6-gentoo-surface-x86_64)
     _set_kernel_extraversion "-surface"
 
-    # Build kernel with genkernel
+    # Build kernel with genkernel (--kernel-config preserves patched .config)
     local genkernel_opts=(
         --makeopts="-j$(get_cpu_count)"
+        --kernel-config=/usr/src/linux/.config
         --no-menuconfig
         --lvm
         --luks
@@ -450,9 +454,10 @@ kernel_install_surface_genkernel() {
     # Set Surface suffix in kernel version (e.g. 6.19.6-gentoo-surface-x86_64)
     _set_kernel_extraversion "-surface"
 
-    # Build kernel with genkernel
+    # Build kernel with genkernel (--kernel-config preserves patched .config)
     local genkernel_opts=(
         --makeopts="-j$(get_cpu_count)"
+        --kernel-config=/usr/src/linux/.config
         --no-menuconfig
         --lvm
         --luks
