@@ -152,7 +152,7 @@ Nowe pakiety wymagające `~amd64` dodawać w odpowiednim module `lib/`, nie w ma
 
 `install_hyprland_ecosystem()` — opcja w `tui/extra_packages.sh` (tylko gdy desktop). Gdy `ENABLE_HYPRLAND=yes`:
 1. Konfiguruje hyproverlay repo: `eselect repository enable hyproverlay`, sync, `*/*::hyproverlay ~amd64`, unmask `gui-wm/hyprland`
-2. Instaluje pełne atomy: `gui-wm/hyprland gui-apps/hyprpaper gui-apps/hypridle gui-apps/hyprlock gui-apps/waybar gui-apps/wofi gui-apps/mako gui-apps/grim gui-apps/slurp gui-apps/wl-clipboard sys-power/brightnessctl`
+2. Instaluje pełne atomy: `gui-wm/hyprland gui-apps/hyprpaper gui-apps/hypridle gui-apps/hyprlock gui-apps/waybar gui-apps/wofi gui-apps/mako gui-apps/grim gui-apps/slurp gui-apps/wl-clipboard app-misc/brightnessctl` (brightnessctl z GURU overlay — automatycznie włącza GURU)
 3. Wywoływana z `install_extra_packages()` przed `install_noctalia_shell()`
 4. Niezależna od Noctalia Shell — obie opcje mogą być zaznaczone jednocześnie
 

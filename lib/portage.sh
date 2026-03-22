@@ -283,12 +283,19 @@ install_hyprland_ecosystem() {
     mkdir -p /etc/portage/package.unmask
     echo "gui-wm/hyprland" >> /etc/portage/package.unmask/hyprland
 
+    # brightnessctl is in GURU overlay (app-misc/brightnessctl), not in ::gentoo
+    # Force-enable GURU if not already enabled (setup_guru_repository checks ENABLE_GURU)
+    local _orig_guru="${ENABLE_GURU:-no}"
+    ENABLE_GURU="yes"
+    setup_guru_repository
+    ENABLE_GURU="${_orig_guru}"
+
     try "Installing Hyprland ecosystem" emerge --quiet --keep-going \
         gui-wm/hyprland \
         gui-apps/hyprpaper gui-apps/hypridle gui-apps/hyprlock \
         gui-apps/waybar gui-apps/wofi gui-apps/mako \
         gui-apps/grim gui-apps/slurp gui-apps/wl-clipboard \
-        sys-power/brightnessctl
+        app-misc/brightnessctl
 
     einfo "Hyprland ecosystem installed"
 }
