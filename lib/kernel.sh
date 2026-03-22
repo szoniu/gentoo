@@ -25,6 +25,55 @@ _set_kernel_extraversion() {
     einfo "Kernel EXTRAVERSION set to: ${current}${suffix}"
 }
 
+# _patch_kernel_config — Enable essential modules that genkernel defconfig misses
+# Genkernel uses defconfig which may lack drivers for modern laptop hardware.
+# This patches .config BEFORE genkernel builds, so modules are included.
+_patch_kernel_config() {
+    local kconfig="/usr/src/linux/.config"
+
+    # Generate default config if not present
+    if [[ ! -f "${kconfig}" ]]; then
+        make -C /usr/src/linux defconfig &>/dev/null || true
+    fi
+
+    [[ -f "${kconfig}" ]] || return 0
+
+    einfo "Patching kernel config for hardware compatibility..."
+
+    local -A required_modules=(
+        # I2C HID touchpads (ThinkPad, Dell XPS, HP, most modern laptops)
+        [CONFIG_I2C_HID_ACPI]="m"
+        # HID multitouch (touchscreens, precision touchpads)
+        [CONFIG_HID_MULTITOUCH]="m"
+        # Synaptics RMI4 (ThinkPad trackpads)
+        [CONFIG_HID_RMI]="m"
+        [CONFIG_RMI4_SMB]="m"
+        [CONFIG_RMI4_I2C]="m"
+    )
+
+    local key val current changed=0
+    for key in "${!required_modules[@]}"; do
+        val="${required_modules[${key}]}"
+        if grep -q "# ${key} is not set" "${kconfig}" 2>/dev/null; then
+            sed -i "s/# ${key} is not set/${key}=${val}/" "${kconfig}"
+            einfo "  Enabled ${key}=${val}"
+            (( changed++ )) || true
+        elif ! grep -q "^${key}=" "${kconfig}" 2>/dev/null; then
+            echo "${key}=${val}" >> "${kconfig}"
+            einfo "  Added ${key}=${val}"
+            (( changed++ )) || true
+        fi
+    done
+
+    if [[ ${changed} -gt 0 ]]; then
+        # Resolve dependencies after manual config changes
+        make -C /usr/src/linux olddefconfig &>/dev/null || true
+        einfo "Kernel config patched (${changed} options)"
+    else
+        einfo "Kernel config already has required options"
+    fi
+}
+
 # kernel_install — Install kernel based on KERNEL_TYPE
 kernel_install() {
     local kernel_type="${KERNEL_TYPE:-dist-kernel}"
@@ -145,6 +194,9 @@ kernel_install_genkernel() {
     # Set kernel symlink
     try "Setting kernel symlink" eselect kernel set 1
 
+    # Enable essential hardware modules that genkernel defconfig misses
+    _patch_kernel_config
+
     # Build kernel with genkernel
     local genkernel_opts=(
         --makeopts="-j$(get_cpu_count)"
@@ -190,6 +242,9 @@ kernel_install_surface() {
 
     # Set kernel symlink
     try "Setting kernel symlink" eselect kernel set 1
+
+    # Enable essential hardware modules that genkernel defconfig misses
+    _patch_kernel_config
 
     # Set Surface suffix in kernel version (e.g. 6.19.6-gentoo-surface-x86_64)
     _set_kernel_extraversion "-surface"
@@ -286,6 +341,9 @@ kernel_install_surface_genkernel() {
     else
         ewarn "No linux-surface patches found — building unpatched kernel"
     fi
+
+    # Enable essential hardware modules that genkernel defconfig misses
+    _patch_kernel_config
 
     # Set Surface suffix in kernel version (e.g. 6.19.6-gentoo-surface-x86_64)
     _set_kernel_extraversion "-surface"

@@ -429,8 +429,12 @@ _install_pipewire() {
     try "Installing WirePlumber" emerge --quiet media-video/wireplumber
 
     if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
-        # PipeWire will be auto-started by systemd user services
-        einfo "PipeWire will be started as a systemd user service"
+        # Enable PipeWire user services globally (for all users)
+        # --global enables for all users, avoiding need to run as specific user in chroot
+        systemctl --global enable pipewire.service pipewire.socket \
+            pipewire-pulse.service pipewire-pulse.socket \
+            wireplumber.service 2>/dev/null || true
+        einfo "PipeWire systemd user services enabled globally"
     else
         # For OpenRC, PipeWire needs to be started in the user session
         einfo "PipeWire should be started from the desktop session"
