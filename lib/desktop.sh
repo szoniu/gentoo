@@ -33,6 +33,9 @@ desktop_install() {
             ;;
     esac
 
+    # Install Gentoo artwork (icons, logos, wallpapers)
+    try "Installing Gentoo artwork" emerge --quiet --keep-going app-misc/gentoo-artwork || true
+
     einfo "Desktop installation complete"
 }
 
