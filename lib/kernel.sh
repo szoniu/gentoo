@@ -80,6 +80,12 @@ _patch_kernel_config() {
         required_modules[CONFIG_PINCTRL_AMD]="m"
     fi
 
+    # Fingerprint reader detected — UHID needed for libfprint communication
+    if [[ "${FINGERPRINT_DETECTED:-0}" == "1" ]]; then
+        einfo "  Fingerprint reader detected — adding UHID"
+        required_modules[CONFIG_UHID]="m"
+    fi
+
     # Bluetooth detected
     if [[ "${BLUETOOTH_DETECTED:-0}" == "1" ]]; then
         einfo "  Bluetooth detected — adding BT modules"
