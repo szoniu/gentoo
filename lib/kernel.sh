@@ -104,6 +104,46 @@ _patch_kernel_config() {
         required_modules[CONFIG_THINKPAD_ACPI]="m"
     fi
 
+    # NVIDIA GPU detected — ensure DRM support for nvidia-drivers
+    if [[ "${GPU_VENDOR:-}" == "nvidia" ]] || [[ "${DGPU_VENDOR:-}" == "nvidia" ]]; then
+        einfo "  NVIDIA GPU detected — adding DRM, FB_EFI"
+        required_modules[CONFIG_DRM]="y"
+        required_modules[CONFIG_DRM_FBDEV_EMULATION]="y"
+        required_modules[CONFIG_FB_EFI]="y"
+    fi
+
+    # IIO sensors detected (accelerometer, gyro, ambient light)
+    if [[ "${SENSORS_DETECTED:-0}" == "1" ]]; then
+        einfo "  IIO sensors detected — adding HID_SENSOR modules"
+        required_modules[CONFIG_HID_SENSOR_HUB]="m"
+        required_modules[CONFIG_HID_SENSOR_ACCEL_3D]="m"
+        required_modules[CONFIG_HID_SENSOR_GYRO_3D]="m"
+        required_modules[CONFIG_HID_SENSOR_ALS]="m"
+    fi
+
+    # ASUS ROG detected — ASUS WMI and platform drivers
+    if [[ "${ASUS_ROG_DETECTED:-0}" == "1" ]]; then
+        einfo "  ASUS ROG detected — adding ASUS platform modules"
+        required_modules[CONFIG_ASUS_WMI]="m"
+        required_modules[CONFIG_ASUS_NB_WMI]="m"
+    fi
+
+    # Surface detected — Surface ACPI and HID
+    if [[ "${SURFACE_DETECTED:-0}" == "1" ]]; then
+        einfo "  Surface detected — adding Surface platform modules"
+        required_modules[CONFIG_SURFACE_AGGREGATOR]="m"
+        required_modules[CONFIG_SURFACE_AGGREGATOR_HUB]="m"
+        required_modules[CONFIG_SURFACE_HID]="m"
+        required_modules[CONFIG_SURFACE_DTX]="m"
+    fi
+
+    # WWAN LTE modem detected
+    if [[ "${WWAN_DETECTED:-0}" == "1" ]]; then
+        einfo "  WWAN modem detected — adding WWAN modules"
+        required_modules[CONFIG_USB_NET_QMI_WWAN]="m"
+        required_modules[CONFIG_USB_SERIAL_OPTION]="m"
+    fi
+
     local key val current changed=0
     for key in "${!required_modules[@]}"; do
         val="${required_modules[${key}]}"
@@ -247,8 +287,11 @@ kernel_install_genkernel() {
     # Set kernel symlink
     try "Setting kernel symlink" eselect kernel set 1
 
-    # Enable essential hardware modules that genkernel defconfig misses
+    # Enable hardware modules based on detected hardware
     _patch_kernel_config
+
+    # Custom kernel suffix — identifies this as installer-built
+    _set_kernel_extraversion "-custom"
 
     # Build kernel with genkernel
     local genkernel_opts=(
