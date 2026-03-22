@@ -38,8 +38,9 @@ _patch_kernel_config() {
 
     [[ -f "${kconfig}" ]] || return 0
 
-    einfo "Patching kernel config for hardware compatibility..."
+    einfo "Patching kernel config based on detected hardware..."
 
+    # Always-on: essential for any modern laptop
     local -A required_modules=(
         # I2C HID touchpads (ThinkPad, Dell XPS, HP, Framework, most modern laptops)
         [CONFIG_I2C_HID_ACPI]="m"
@@ -51,32 +52,57 @@ _patch_kernel_config() {
         [CONFIG_HID_RMI]="m"
         [CONFIG_RMI4_SMB]="m"
         [CONFIG_RMI4_I2C]="m"
-        # AMD pinctrl (required for I2C bus on AMD laptops)
-        [CONFIG_PINCTRL_AMD]="m"
-        # Thunderbolt/USB4 (docks, eGPUs — installer offers bolt for management)
-        [CONFIG_THUNDERBOLT]="m"
-        # USB Type-C (display output, charging, alt mode on modern laptops)
+        # USB Type-C (display output, charging, alt mode)
         [CONFIG_TYPEC]="m"
         [CONFIG_TYPEC_UCSI]="m"
         [CONFIG_UCSI_ACPI]="m"
-        # Intel SOF audio (8th gen+ Intel laptops — installer installs sof-firmware)
-        [CONFIG_SND_SOC_SOF_TOPLEVEL]="y"
-        [CONFIG_SND_SOC_SOF_PCI_DEV]="m"
-        [CONFIG_SND_SOC_SOF_INTEL_TOPLEVEL]="y"
-        # Intel GPU (modesetting)
-        [CONFIG_DRM_I915]="m"
         # ACPI backlight (screen brightness control)
         [CONFIG_ACPI_VIDEO]="m"
         [CONFIG_BACKLIGHT_CLASS_DEVICE]="y"
-        # ThinkPad ACPI (Fn keys, battery, fan, LEDs)
-        [CONFIG_THINKPAD_ACPI]="m"
-        # Bluetooth (pairing, audio)
-        [CONFIG_BT]="m"
-        [CONFIG_BT_HCIBTUSB]="m"
-        [CONFIG_BT_HCIBTUSB_MTK]="y"
         # UVC webcam
         [CONFIG_USB_VIDEO_CLASS]="m"
     )
+
+    # Conditional: based on detected hardware from detect_all_hardware()
+
+    # Intel CPU → Intel GPU, SOF audio, thermald support
+    if grep -qi 'GenuineIntel' /proc/cpuinfo 2>/dev/null; then
+        einfo "  Intel CPU detected — adding i915, SOF audio"
+        required_modules[CONFIG_DRM_I915]="m"
+        required_modules[CONFIG_SND_SOC_SOF_TOPLEVEL]="y"
+        required_modules[CONFIG_SND_SOC_SOF_PCI_DEV]="m"
+        required_modules[CONFIG_SND_SOC_SOF_INTEL_TOPLEVEL]="y"
+    fi
+
+    # AMD CPU → pinctrl for I2C bus
+    if grep -qi 'AuthenticAMD' /proc/cpuinfo 2>/dev/null; then
+        einfo "  AMD CPU detected — adding PINCTRL_AMD"
+        required_modules[CONFIG_PINCTRL_AMD]="m"
+    fi
+
+    # Bluetooth detected
+    if [[ "${BLUETOOTH_DETECTED:-0}" == "1" ]]; then
+        einfo "  Bluetooth detected — adding BT modules"
+        required_modules[CONFIG_BT]="m"
+        required_modules[CONFIG_BT_HCIBTUSB]="m"
+        # MediaTek Bluetooth quirk (Framework AMD, many AMD laptops)
+        if grep -qi 'AuthenticAMD' /proc/cpuinfo 2>/dev/null; then
+            required_modules[CONFIG_BT_HCIBTUSB_MTK]="y"
+        fi
+    fi
+
+    # Thunderbolt detected
+    if [[ "${THUNDERBOLT_DETECTED:-0}" == "1" ]]; then
+        einfo "  Thunderbolt detected — adding TB module"
+        required_modules[CONFIG_THUNDERBOLT]="m"
+    fi
+
+    # ThinkPad detected (via thinkpad_acpi or DMI)
+    if [[ -d /sys/devices/platform/thinkpad_acpi ]] || \
+       grep -qi 'ThinkPad' /sys/class/dmi/id/product_family 2>/dev/null; then
+        einfo "  ThinkPad detected — adding THINKPAD_ACPI"
+        required_modules[CONFIG_THINKPAD_ACPI]="m"
+    fi
 
     local key val current changed=0
     for key in "${!required_modules[@]}"; do
