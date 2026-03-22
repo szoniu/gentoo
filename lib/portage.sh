@@ -1012,9 +1012,14 @@ install_surface_tools() {
             emerge --quiet --autounmask-write --autounmask-continue "${pkgs[@]}"
     fi
 
-    # Enable iptsd systemd service
-    if [[ "${ENABLE_IPTSD:-no}" == "yes" && "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
-        try "Enabling iptsd" systemctl enable iptsd
+    # Enable iptsd service
+    if [[ "${ENABLE_IPTSD:-no}" == "yes" ]]; then
+        if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+            try "Enabling iptsd" systemctl enable iptsd
+        else
+            ewarn "iptsd requires systemd — touchscreen daemon will NOT auto-start on OpenRC"
+            ewarn "You can start it manually: /usr/bin/iptsd"
+        fi
     fi
 
     einfo "Surface tools installed"

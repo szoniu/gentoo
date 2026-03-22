@@ -24,6 +24,8 @@ install_network_manager() {
     if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
         try "Enabling NetworkManager" systemctl enable NetworkManager
     else
+        # NetworkManager requires D-Bus on OpenRC
+        rc-update add dbus default 2>/dev/null || true
         try "Enabling NetworkManager" rc-update add NetworkManager default
     fi
 

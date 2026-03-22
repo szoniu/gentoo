@@ -15,8 +15,10 @@ desktop_install() {
     # Install PipeWire audio (shared)
     _install_pipewire
 
-    # Install Bluetooth support (shared)
-    _install_bluetooth
+    # Install Bluetooth support (only if hardware detected)
+    if [[ "${BLUETOOTH_DETECTED:-0}" == "1" ]]; then
+        _install_bluetooth
+    fi
 
     # Install printing support (shared)
     _install_printing
@@ -460,7 +462,7 @@ _install_printing() {
     try "Installing CUPS" emerge --quiet net-print/cups
     try "Installing CUPS filters" emerge --quiet net-print/cups-filters
     if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
-        try "Enabling cupsd" systemctl enable cups
+        try "Enabling cupsd" systemctl enable cups.socket cups.path
     else
         try "Enabling cupsd" rc-update add cupsd default
     fi

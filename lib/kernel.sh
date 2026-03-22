@@ -49,6 +49,16 @@ _patch_kernel_config() {
         [CONFIG_HID_RMI]="m"
         [CONFIG_RMI4_SMB]="m"
         [CONFIG_RMI4_I2C]="m"
+        # Thunderbolt/USB4 (docks, eGPUs — installer offers bolt for management)
+        [CONFIG_THUNDERBOLT]="m"
+        # USB Type-C (display output, charging, alt mode on modern laptops)
+        [CONFIG_TYPEC]="m"
+        [CONFIG_TYPEC_UCSI]="m"
+        [CONFIG_UCSI_ACPI]="m"
+        # Intel SOF audio (8th gen+ Intel laptops — installer installs sof-firmware)
+        [CONFIG_SND_SOC_SOF_TOPLEVEL]="y"
+        [CONFIG_SND_SOC_SOF_PCI_DEV]="m"
+        [CONFIG_SND_SOC_SOF_INTEL_TOPLEVEL]="y"
     )
 
     local key val current changed=0
