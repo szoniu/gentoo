@@ -280,6 +280,9 @@ install_hyprland_ecosystem() {
 
     mkdir -p /etc/portage/package.accept_keywords
     echo "*/*::hyproverlay ~amd64" >> /etc/portage/package.accept_keywords/hyproverlay
+    # hyprlock requires dev-cpp/sdbus-c++ ~amd64 (masked in ::gentoo)
+    grep -qxF "dev-cpp/sdbus-c++ ~amd64" /etc/portage/package.accept_keywords/hyproverlay 2>/dev/null || \
+        echo "dev-cpp/sdbus-c++ ~amd64" >> /etc/portage/package.accept_keywords/hyproverlay
     mkdir -p /etc/portage/package.unmask
     echo "gui-wm/hyprland" >> /etc/portage/package.unmask/hyprland
 
