@@ -294,9 +294,12 @@ kernel_install_genkernel() {
     try "Setting kernel symlink" eselect kernel set 1
 
     # Generate defconfig, patch it with hardware modules, then tell genkernel
-    # to use it. Without --kernel-config, genkernel runs make mrproper which
-    # resets .config and loses all our patches.
+    # to use it. Config is saved OUTSIDE source tree because genkernel's
+    # make mrproper deletes /usr/src/linux/.config before reading --kernel-config.
     _patch_kernel_config
+
+    local saved_config="/tmp/genkernel-patched.config"
+    cp /usr/src/linux/.config "${saved_config}"
 
     # Custom kernel suffix — identifies this as installer-built
     _set_kernel_extraversion "-custom"
@@ -304,7 +307,7 @@ kernel_install_genkernel() {
     # Build kernel with genkernel
     local genkernel_opts=(
         --makeopts="-j$(get_cpu_count)"
-        --kernel-config=/usr/src/linux/.config
+        --kernel-config="${saved_config}"
         --no-menuconfig
         --lvm
         --luks
@@ -351,13 +354,16 @@ kernel_install_surface() {
     # Enable essential hardware modules that genkernel defconfig misses
     _patch_kernel_config
 
+    local saved_config="/tmp/genkernel-patched.config"
+    cp /usr/src/linux/.config "${saved_config}"
+
     # Set Surface suffix in kernel version (e.g. 6.19.6-gentoo-surface-x86_64)
     _set_kernel_extraversion "-surface"
 
-    # Build kernel with genkernel (--kernel-config preserves patched .config)
+    # Build kernel with genkernel — config saved outside source tree to survive make mrproper
     local genkernel_opts=(
         --makeopts="-j$(get_cpu_count)"
-        --kernel-config=/usr/src/linux/.config
+        --kernel-config="${saved_config}"
         --no-menuconfig
         --lvm
         --luks
@@ -451,13 +457,16 @@ kernel_install_surface_genkernel() {
     # Enable essential hardware modules that genkernel defconfig misses
     _patch_kernel_config
 
+    local saved_config="/tmp/genkernel-patched.config"
+    cp /usr/src/linux/.config "${saved_config}"
+
     # Set Surface suffix in kernel version (e.g. 6.19.6-gentoo-surface-x86_64)
     _set_kernel_extraversion "-surface"
 
-    # Build kernel with genkernel (--kernel-config preserves patched .config)
+    # Build kernel with genkernel — config saved outside source tree to survive make mrproper
     local genkernel_opts=(
         --makeopts="-j$(get_cpu_count)"
-        --kernel-config=/usr/src/linux/.config
+        --kernel-config="${saved_config}"
         --no-menuconfig
         --lvm
         --luks
