@@ -2,6 +2,32 @@
 # secureboot.sh — Secure Boot: MOK key generation, kernel signing, shim setup
 source "${LIB_DIR}/protection.sh"
 
+# is_secureboot_active — Check if Secure Boot is currently enabled in firmware
+# Returns 0 if enabled, 1 if disabled or unknown
+is_secureboot_active() {
+    if [[ "${DRY_RUN:-0}" == "1" ]]; then
+        return 1
+    fi
+
+    # Method 1: read EFI variable directly (works without mokutil)
+    local sb_var
+    sb_var=$(find /sys/firmware/efi/efivars/ -name 'SecureBoot-*' 2>/dev/null | head -1) || true
+    if [[ -n "${sb_var}" ]]; then
+        # EFI variable: 4 bytes attributes + 1 byte value (01=enabled, 00=disabled)
+        local val
+        val=$(od -An -tx1 -j4 -N1 "${sb_var}" 2>/dev/null | tr -d ' ') || true
+        [[ "${val}" == "01" ]] && return 0
+        return 1
+    fi
+
+    # Method 2: mokutil (may not be available on live ISO)
+    if command -v mokutil &>/dev/null; then
+        mokutil --sb-state 2>/dev/null | grep -qi "SecureBoot enabled" && return 0
+    fi
+
+    return 1
+}
+
 # secureboot_setup — Full Secure Boot setup: keys, signing, shim, enrollment
 secureboot_setup() {
     [[ "${ENABLE_SECUREBOOT:-no}" != "yes" ]] && return 0
@@ -54,7 +80,14 @@ secureboot_setup() {
     _enroll_mok "${key_dir}"
 
     einfo "Secure Boot setup complete"
-    einfo "At first reboot: MokManager will appear → Enroll MOK → password: gentoo"
+    if is_secureboot_active; then
+        einfo "At first reboot: MokManager will appear → Enroll MOK → password: gentoo"
+    else
+        einfo "Secure Boot is currently DISABLED in firmware"
+        einfo "After installation: enable Secure Boot in BIOS/UEFI → reboot"
+        einfo "MokManager will appear → Enroll MOK → password: gentoo"
+        einfo "If MokManager does not appear, run: mokutil --import /root/secureboot/MOK.der"
+    fi
 }
 
 # _configure_secureboot_portage — Add USE=secureboot + signing keys to make.conf
@@ -190,11 +223,22 @@ _enroll_mok() {
     mokutil --generate-hash=gentoo > "${pw_hash_file}" 2>/dev/null || true
 
     if [[ -s "${pw_hash_file}" ]]; then
+        # mokutil --import writes MokNew EFI variable. With Secure Boot disabled,
+        # some firmware ignores it or the variable may not persist after enabling SB.
+        # We try anyway — on many systems it works. If not, user re-runs manually.
+        local import_rc=0
         try "Queuing MOK enrollment" \
-            mokutil --import "${der}" --hash-file "${pw_hash_file}"
+            mokutil --import "${der}" --hash-file "${pw_hash_file}" || import_rc=$?
         rm -f "${pw_hash_file}"
         trap - EXIT
-        einfo "MOK queued for enrollment (password: gentoo)"
+        if [[ ${import_rc} -eq 0 ]]; then
+            einfo "MOK queued for enrollment (password: gentoo)"
+        fi
+        if ! is_secureboot_active; then
+            ewarn "Secure Boot is disabled — MOK enrollment may not persist"
+            ewarn "After enabling Secure Boot, if MokManager does not appear, run:"
+            ewarn "  mokutil --import '${der}' (password: gentoo)"
+        fi
     else
         rm -f "${pw_hash_file}"
         trap - EXIT

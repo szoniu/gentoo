@@ -285,8 +285,17 @@ screen_progress() {
     complete_msg+="You can now reboot into your new system.\n"
     complete_msg+="Remember to remove the installation media.\n\n"
     if [[ "${ENABLE_SECUREBOOT:-no}" == "yes" ]]; then
-        complete_msg+="SECURE BOOT: At first reboot, MokManager will appear.\n"
-        complete_msg+="Select 'Enroll MOK' -> verify key -> enter password: gentoo -> Reboot\n\n"
+        if is_secureboot_active; then
+            complete_msg+="SECURE BOOT: At first reboot, MokManager will appear.\n"
+            complete_msg+="Select 'Enroll MOK' -> verify key -> enter password: gentoo -> Reboot\n\n"
+        else
+            complete_msg+="SECURE BOOT: Secure Boot is currently disabled.\n"
+            complete_msg+="  1. Enable Secure Boot in BIOS/UEFI settings\n"
+            complete_msg+="  2. Reboot — MokManager will appear\n"
+            complete_msg+="  3. Select 'Enroll MOK' -> password: gentoo\n"
+            complete_msg+="If MokManager does not appear, boot normally and run:\n"
+            complete_msg+="  mokutil --import /root/secureboot/MOK.der\n\n"
+        fi
     fi
     complete_msg+="Log file: ${LOG_FILE}"
 

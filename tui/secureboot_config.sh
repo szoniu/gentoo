@@ -10,15 +10,26 @@ screen_secureboot_config() {
         return "${TUI_NEXT}"
     fi
 
+    local sb_active=0
+    is_secureboot_active && sb_active=1
+
     local sb_text=""
     sb_text+="Enable Secure Boot signing?\n\n"
     sb_text+="This will:\n"
     sb_text+="  - Generate MOK (Machine Owner Key) signing keys\n"
     sb_text+="  - Sign the kernel and GRUB bootloader\n"
     sb_text+="  - Set up shim as chainloader\n\n"
-    sb_text+="At first reboot, MokManager will appear.\n"
-    sb_text+="Select 'Enroll MOK', verify the key, and enter\n"
-    sb_text+="password: gentoo\n\n"
+    if [[ ${sb_active} -eq 1 ]]; then
+        sb_text+="At first reboot, MokManager will appear.\n"
+        sb_text+="Select 'Enroll MOK', verify the key, and enter\n"
+        sb_text+="password: gentoo\n\n"
+    else
+        sb_text+="NOTE: Secure Boot is currently DISABLED.\n"
+        sb_text+="After installation:\n"
+        sb_text+="  1. Enable Secure Boot in BIOS/UEFI\n"
+        sb_text+="  2. Reboot — MokManager will appear\n"
+        sb_text+="  3. Select 'Enroll MOK' -> password: gentoo\n\n"
+    fi
     sb_text+="Required packages: shim, mokutil, sbsigntools"
 
     local rc=0
