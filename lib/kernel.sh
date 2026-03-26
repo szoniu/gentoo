@@ -31,7 +31,9 @@ _set_kernel_extraversion() {
 _patch_kernel_config() {
     local kconfig="/usr/src/linux/.config"
 
-    # Generate default config if not present
+    # Generate config if not present. During first install, defconfig is fine
+    # because there's no previous kernel. For updates, dotfiles wizard uses
+    # the previous kernel's config from /etc/kernels/ instead.
     if [[ ! -f "${kconfig}" ]]; then
         make -C /usr/src/linux defconfig &>/dev/null || true
     fi
