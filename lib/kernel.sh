@@ -42,6 +42,8 @@ _patch_kernel_config() {
 
     # Always-on: essential for any modern laptop
     local -A required_modules=(
+        # NVMe storage (must be built-in, not module — needed before root mount)
+        [CONFIG_BLK_DEV_NVME]="y"
         # I2C HID touchpads (ThinkPad, Dell XPS, HP, Framework, most modern laptops)
         [CONFIG_I2C_HID_ACPI]="m"
         [CONFIG_I2C_DESIGNWARE_PLATFORM]="m"
