@@ -134,8 +134,20 @@ swap_setup_file() {
 
     if [[ "${FILESYSTEM:-ext4}" == "btrfs" ]]; then
         # btrfs requires special handling for swap files
-        try "Creating btrfs swap file" \
-            btrfs filesystem mkswapfile --size "${size_mib}m" "${swap_file}"
+        # btrfs filesystem mkswapfile requires btrfs-progs >= 6.1
+        local btrfs_ver
+        btrfs_ver=$(btrfs --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
+        if [[ -n "${btrfs_ver}" ]] && awk "BEGIN{exit !(${btrfs_ver} >= 6.1)}"; then
+            try "Creating btrfs swap file" \
+                btrfs filesystem mkswapfile --size "${size_mib}m" "${swap_file}"
+        else
+            # Fallback for older btrfs-progs
+            try "Allocating swap file" truncate -s 0 "${swap_file}"
+            chattr +C "${swap_file}" 2>/dev/null || true
+            try "Filling swap file" dd if=/dev/zero of="${swap_file}" bs=1M count="${size_mib}" status=progress
+            chmod 0600 "${swap_file}"
+            try "Formatting swap file" mkswap "${swap_file}"
+        fi
     else
         try "Allocating swap file" \
             dd if=/dev/zero of="${swap_file}" bs=1M count="${size_mib}" status=progress

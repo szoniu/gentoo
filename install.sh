@@ -528,6 +528,8 @@ run_post_install() {
 preflight_checks() {
     einfo "Running preflight checks..."
 
+    check_dependencies
+
     if [[ "${DRY_RUN}" != "1" ]]; then
         is_root || die "Must run as root"
         is_efi || die "UEFI boot mode required"

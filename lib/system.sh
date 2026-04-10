@@ -10,7 +10,7 @@ system_set_timezone() {
 
     if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
         try "Setting timezone" ln -sf "/usr/share/zoneinfo/${tz}" /etc/localtime
-        try "Hardware clock" hwclock --systohc 2>/dev/null || true
+        [[ -e /dev/rtc ]] && { try "Hardware clock" hwclock --systohc 2>/dev/null || true; }
     else
         echo "${tz}" > /etc/timezone
         try "Configuring timezone" emerge --config sys-libs/timezone-data
@@ -261,12 +261,14 @@ system_finalize() {
         fi
     fi
 
-    # Install and enable SSH server
-    try "Installing OpenSSH" emerge --quiet net-misc/openssh
-    if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
-        try "Enabling sshd" systemctl enable sshd
-    else
-        try "Enabling sshd" rc-update add sshd default
+    # Install and enable SSH server (if requested)
+    if [[ "${ENABLE_SSH:-yes}" == "yes" ]]; then
+        try "Installing OpenSSH" emerge --quiet net-misc/openssh
+        if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
+            try "Enabling sshd" systemctl enable sshd
+        else
+            try "Enabling sshd" rc-update add sshd default
+        fi
     fi
 
     # Enable default systemd services

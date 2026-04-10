@@ -279,12 +279,14 @@ install_hyprland_ecosystem() {
     try "Syncing hyproverlay" emerge --sync hyproverlay
 
     mkdir -p /etc/portage/package.accept_keywords
-    echo "*/*::hyproverlay ~amd64" >> /etc/portage/package.accept_keywords/hyproverlay
+    grep -qxF "*/*::hyproverlay ~amd64" /etc/portage/package.accept_keywords/hyproverlay 2>/dev/null || \
+        echo "*/*::hyproverlay ~amd64" >> /etc/portage/package.accept_keywords/hyproverlay
     # hyprlock requires dev-cpp/sdbus-c++ ~amd64 (masked in ::gentoo)
     grep -qxF "dev-cpp/sdbus-c++ ~amd64" /etc/portage/package.accept_keywords/hyproverlay 2>/dev/null || \
         echo "dev-cpp/sdbus-c++ ~amd64" >> /etc/portage/package.accept_keywords/hyproverlay
     mkdir -p /etc/portage/package.unmask
-    echo "gui-wm/hyprland" >> /etc/portage/package.unmask/hyprland
+    grep -qxF "gui-wm/hyprland" /etc/portage/package.unmask/hyprland 2>/dev/null || \
+        echo "gui-wm/hyprland" >> /etc/portage/package.unmask/hyprland
 
     # brightnessctl is in GURU overlay (app-misc/brightnessctl), not in ::gentoo
     # Force-enable GURU if not already enabled (setup_guru_repository checks ENABLE_GURU)
@@ -351,10 +353,12 @@ _install_noctalia_compositor() {
             try "Syncing hyproverlay" emerge --sync hyproverlay
             # Accept ~amd64 for all hyproverlay packages (hyprland + all deps)
             mkdir -p /etc/portage/package.accept_keywords
-            echo "*/*::hyproverlay ~amd64" >> /etc/portage/package.accept_keywords/hyproverlay
+            grep -qxF "*/*::hyproverlay ~amd64" /etc/portage/package.accept_keywords/hyproverlay 2>/dev/null || \
+                echo "*/*::hyproverlay ~amd64" >> /etc/portage/package.accept_keywords/hyproverlay
             # Unmask hyprland (masked in ::gentoo profiles but available from hyproverlay)
             mkdir -p /etc/portage/package.unmask
-            echo "gui-wm/hyprland" >> /etc/portage/package.unmask/hyprland
+            grep -qxF "gui-wm/hyprland" /etc/portage/package.unmask/hyprland 2>/dev/null || \
+                echo "gui-wm/hyprland" >> /etc/portage/package.unmask/hyprland
             try "Installing Hyprland" emerge --quiet --autounmask-write --autounmask-continue gui-wm/hyprland
             ;;
         niri)

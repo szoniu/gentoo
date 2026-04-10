@@ -218,19 +218,13 @@ _enroll_mok() {
     # mokutil --import prompts for password — use --hash-file to automate
     local pw_hash_file
     pw_hash_file=$(mktemp /tmp/mok-pw-hash.XXXXXX)
-    # Ensure temp file is cleaned up on exit (contains sensitive hash)
-    trap 'rm -f "${pw_hash_file}"' EXIT
     mokutil --generate-hash=gentoo > "${pw_hash_file}" 2>/dev/null || true
 
     if [[ -s "${pw_hash_file}" ]]; then
-        # mokutil --import writes MokNew EFI variable. With Secure Boot disabled,
-        # some firmware ignores it or the variable may not persist after enabling SB.
-        # We try anyway — on many systems it works. If not, user re-runs manually.
         local import_rc=0
         try "Queuing MOK enrollment" \
             mokutil --import "${der}" --hash-file "${pw_hash_file}" || import_rc=$?
         rm -f "${pw_hash_file}"
-        trap - EXIT
         if [[ ${import_rc} -eq 0 ]]; then
             einfo "MOK queued for enrollment (password: gentoo)"
         fi
@@ -241,7 +235,6 @@ _enroll_mok() {
         fi
     else
         rm -f "${pw_hash_file}"
-        trap - EXIT
         ewarn "Could not generate MOK password hash — manual enrollment required"
         ewarn "Run: mokutil --import '${der}'"
     fi

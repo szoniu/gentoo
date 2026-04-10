@@ -1058,5 +1058,6 @@ get_cpu_count() {
 generate_password_hash() {
     local password="$1"
     openssl passwd -6 -stdin <<< "${password}" 2>/dev/null || \
-    GENTOO_PW="${password}" python3 -c "import crypt, os; print(crypt.crypt(os.environ['GENTOO_PW'], crypt.mksalt(crypt.METHOD_SHA512)))" 2>/dev/null
+    mkpasswd -m sha-512 --stdin <<< "${password}" 2>/dev/null || \
+    { eerror "Cannot generate password hash: neither openssl nor mkpasswd available"; return 1; }
 }

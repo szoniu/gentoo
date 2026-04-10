@@ -312,7 +312,7 @@ disk_plan_shrink() {
             ;;
         btrfs)
             disk_plan_add "Shrink btrfs filesystem on ${part}" \
-                bash -c "mount ${part} /mnt/gentoo-shrink-tmp && btrfs filesystem resize ${new_size}M /mnt/gentoo-shrink-tmp && umount /mnt/gentoo-shrink-tmp"
+                bash -c "tmp=\$(mktemp -d /tmp/gentoo-shrink-XXXXXX) && mount ${part} \${tmp} && { btrfs filesystem resize ${new_size}M \${tmp}; rc=\$?; umount \${tmp}; rmdir \${tmp}; exit \${rc}; }"
             ;;
     esac
 

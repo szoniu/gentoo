@@ -385,8 +385,9 @@ _install_nvidia_drivers() {
         echo "nvidia_uvm" >> /etc/modules-load.d/nvidia.conf
         echo "nvidia_drm" >> /etc/modules-load.d/nvidia.conf
     else
-        mkdir -p /etc/modules-load.d
-        echo "nvidia" > /etc/modules-load.d/nvidia.conf
+        # OpenRC uses /etc/conf.d/modules, not /etc/modules-load.d/
+        mkdir -p /etc/conf.d
+        echo 'modules="nvidia nvidia_modeset nvidia_uvm nvidia_drm"' > /etc/conf.d/modules
     fi
 
     # Enable DRM KMS for Wayland

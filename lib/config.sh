@@ -137,7 +137,7 @@ validate_config() {
     # --- Required variables (must be non-empty) ---
     local -a required=(
         INIT_SYSTEM TARGET_DISK FILESYSTEM HOSTNAME TIMEZONE LOCALE
-        KERNEL_TYPE GPU_VENDOR USERNAME ROOT_PASSWORD_HASH USER_PASSWORD_HASH
+        KERNEL_TYPE GPU_VENDOR DESKTOP_TYPE USERNAME ROOT_PASSWORD_HASH USER_PASSWORD_HASH
     )
     local var
     for var in "${required[@]}"; do
@@ -215,9 +215,9 @@ validate_config() {
     fi
 
     # --- Cross-field logic ---
-    if [[ "${SWAP_TYPE:-}" == "partition" ]] && \
+    if [[ "${SWAP_TYPE:-}" == "partition" || "${SWAP_TYPE:-}" == "file" ]] && \
        [[ -z "${SWAP_SIZE_MIB:-}" || "${SWAP_SIZE_MIB:-0}" -le 0 ]]; then
-        errors+=("SWAP_TYPE=partition requires SWAP_SIZE_MIB > 0")
+        errors+=("SWAP_TYPE=${SWAP_TYPE} requires SWAP_SIZE_MIB > 0")
     fi
 
     if [[ "${PARTITION_SCHEME:-}" == "dual-boot" ]] && \
