@@ -25,6 +25,59 @@ _set_kernel_extraversion() {
     einfo "Kernel EXTRAVERSION set to: ${current}${suffix}"
 }
 
+# _apply_surface_config_fragment — Apply official linux-surface config fragment
+# The fragment sets critical options like SERIAL_DEV_BUS=y, SAM modules,
+# camera drivers, IPTS/ITHC, sensors, etc. Without this, battery and other
+# Surface hardware may not work even with patches applied.
+_apply_surface_config_fragment() {
+    local kconfig="/usr/src/linux/.config"
+    [[ -f "${kconfig}" ]] || return 0
+
+    # Find config fragment from linux-surface (overlay or /tmp clone)
+    local kernel_version patchlevel surface_config=""
+    kernel_version=$(sed -n 's/^VERSION = //p' /usr/src/linux/Makefile 2>/dev/null) || true
+    patchlevel=$(sed -n 's/^PATCHLEVEL = //p' /usr/src/linux/Makefile 2>/dev/null) || true
+
+    # Check linux-surface overlay first, then /tmp clone
+    local search_dirs=(
+        "/var/db/repos/linux-surface/configs"
+        "/tmp/linux-surface/configs"
+    )
+    local dir
+    for dir in "${search_dirs[@]}"; do
+        if [[ -f "${dir}/surface-${kernel_version}.${patchlevel}.config" ]]; then
+            surface_config="${dir}/surface-${kernel_version}.${patchlevel}.config"
+            break
+        fi
+    done
+    # Fallback to highest available
+    if [[ -z "${surface_config}" ]]; then
+        for dir in "${search_dirs[@]}"; do
+            surface_config=$(ls "${dir}"/surface-*.config 2>/dev/null | sort -V | tail -1) || true
+            [[ -n "${surface_config}" ]] && break
+        done
+    fi
+
+    if [[ -n "${surface_config}" && -f "${surface_config}" ]]; then
+        einfo "Applying surface config fragment: $(basename "${surface_config}")"
+        # Remove conflicting keys then append fragment
+        while IFS= read -r line; do
+            [[ -z "${line}" || "${line}" == \#* ]] && continue
+            local key="${line%%=*}"
+            sed -i "/^${key}[=]/d" "${kconfig}" 2>/dev/null
+            sed -i "/^# ${key} /d" "${kconfig}" 2>/dev/null
+        done < "${surface_config}"
+        cat "${surface_config}" >> "${kconfig}"
+        # Force critical options
+        sed -i 's/^CONFIG_SERIAL_DEV_BUS=m/CONFIG_SERIAL_DEV_BUS=y/' "${kconfig}"
+        grep -q "CONFIG_SERIAL_DEV_CTRL_TTYPORT=y" "${kconfig}" || echo "CONFIG_SERIAL_DEV_CTRL_TTYPORT=y" >> "${kconfig}"
+    else
+        ewarn "No linux-surface config fragment found — applying manual fixes"
+        sed -i 's/^CONFIG_SERIAL_DEV_BUS=m/CONFIG_SERIAL_DEV_BUS=y/' "${kconfig}"
+        echo "CONFIG_SERIAL_DEV_CTRL_TTYPORT=y" >> "${kconfig}"
+    fi
+}
+
 # _patch_kernel_config — Enable essential modules that genkernel defconfig misses
 # Genkernel uses defconfig which may lack drivers for modern laptop hardware.
 # This patches .config BEFORE genkernel builds, so modules are included.
@@ -358,6 +411,9 @@ kernel_install_surface() {
     # Enable essential hardware modules that genkernel defconfig misses
     _patch_kernel_config
 
+    # Apply official linux-surface config fragment (SERIAL_DEV_BUS=y, SAM, cameras, etc.)
+    _apply_surface_config_fragment
+
     local saved_config="/tmp/genkernel-patched.config"
     cp /usr/src/linux/.config "${saved_config}"
 
@@ -460,6 +516,9 @@ kernel_install_surface_genkernel() {
 
     # Enable essential hardware modules that genkernel defconfig misses
     _patch_kernel_config
+
+    # Apply official linux-surface config fragment (SERIAL_DEV_BUS=y, SAM, cameras, etc.)
+    _apply_surface_config_fragment
 
     local saved_config="/tmp/genkernel-patched.config"
     cp /usr/src/linux/.config "${saved_config}"

@@ -221,21 +221,23 @@ _enroll_mok() {
     mokutil --generate-hash=gentoo > "${pw_hash_file}" 2>/dev/null || true
 
     if [[ -s "${pw_hash_file}" ]]; then
-        local import_rc=0
-        try "Queuing MOK enrollment" \
-            mokutil --import "${der}" --hash-file "${pw_hash_file}" || import_rc=$?
-        rm -f "${pw_hash_file}"
-        if [[ ${import_rc} -eq 0 ]]; then
+        # mokutil --import may fail when Secure Boot is disabled in firmware
+        # (EFI variables not writable). This is expected — enrollment happens
+        # via MokManager at first boot instead. Never abort on failure here.
+        if mokutil --import "${der}" --hash-file "${pw_hash_file}" 2>/dev/null; then
             einfo "MOK queued for enrollment (password: gentoo)"
+        else
+            ewarn "mokutil --import failed (expected if Secure Boot is disabled)"
+            ewarn "MOK enrollment will happen via MokManager at first boot"
         fi
+        rm -f "${pw_hash_file}"
         if ! is_secureboot_active; then
-            ewarn "Secure Boot is disabled — MOK enrollment may not persist"
-            ewarn "After enabling Secure Boot, if MokManager does not appear, run:"
-            ewarn "  mokutil --import '${der}' (password: gentoo)"
+            ewarn "Secure Boot is disabled — after enabling in BIOS/UEFI:"
+            ewarn "  MokManager will appear -> Enroll MOK -> password: gentoo"
         fi
     else
         rm -f "${pw_hash_file}"
         ewarn "Could not generate MOK password hash — manual enrollment required"
-        ewarn "Run: mokutil --import '${der}'"
+        ewarn "MokManager will appear at first boot -> Enroll key from disk"
     fi
 }
