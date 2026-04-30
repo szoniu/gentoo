@@ -93,6 +93,34 @@ _patch_kernel_config() {
 
     [[ -f "${kconfig}" ]] || return 0
 
+    # localmodconfig — restrict build to currently loaded modules (lsmod).
+    # Reduces module count from ~3000 (defconfig default) to ~200-400, cutting
+    # genkernel build time from 30-60 min to 5-10 min. Safe because the hardware
+    # patch below re-adds essential drivers (NVMe, I2C HID, BT, ThinkPad,
+    # Surface, etc.) regardless of lsmod, so critical modules can't get pruned.
+    #
+    # Heuristic: skip if lsmod shows < 50 modules (degenerate live ISO or
+    # pre-chroot context where /proc/modules might not be representative of
+    # what target needs). Most Gentoo Minimal Install ISOs load 100+ modules,
+    # so this triggers in practice only when something is wrong.
+    #
+    # Edge case: a user installing from a non-Gentoo live ISO with different
+    # hardware drivers than target — niche modules may be cut. The hardware
+    # patch covers common laptop scenarios; truly niche cases require a kernel
+    # rebuild post-install (which dotfiles wizard's _gentoo_update handles).
+    local _mod_count
+    _mod_count=$(lsmod 2>/dev/null | tail -n +2 | wc -l 2>/dev/null || echo 0)
+    if [[ "${_mod_count}" -ge 50 ]]; then
+        local _before _after
+        _before=$(grep -c '=m$' "${kconfig}" 2>/dev/null || echo 0)
+        einfo "Optimizing config: localmodconfig (${_mod_count} modules currently loaded)..."
+        yes "" | make -C /usr/src/linux localmodconfig &>/dev/null || true
+        _after=$(grep -c '=m$' "${kconfig}" 2>/dev/null || echo 0)
+        einfo "  Modules: ${_before} → ${_after} (only currently used retained)"
+    else
+        einfo "Skipping localmodconfig — only ${_mod_count} modules loaded (live ISO not representative)"
+    fi
+
     einfo "Patching kernel config based on detected hardware..."
 
     # Always-on: essential for any modern laptop
