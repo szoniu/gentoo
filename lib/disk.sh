@@ -418,6 +418,22 @@ disk_execute_plan() {
         fi
     fi
 
+    # After auto/single-boot partitioning, any detected OS from pre-install hardware
+    # scan is now gone — partitions were wiped and reformatted. Clear DETECTED_OSES
+    # so _verify_grub_config doesn't generate false-positive "missing OS" warnings.
+    if [[ "${PARTITION_SCHEME:-auto}" == "auto" && "${DRY_RUN}" != "1" ]]; then
+        if [[ -n "${DETECTED_OSES_SERIALIZED:-}" ]]; then
+            einfo "Clearing pre-wipe OS detection (auto scheme erases all)"
+            declare -gA DETECTED_OSES=()
+            WINDOWS_DETECTED=0
+            LINUX_DETECTED=0
+            BITLOCKER_DETECTED=0
+            BITLOCKER_PARTITIONS=""
+            DETECTED_OSES_SERIALIZED=""
+            export WINDOWS_DETECTED LINUX_DETECTED BITLOCKER_DETECTED BITLOCKER_PARTITIONS DETECTED_OSES_SERIALIZED
+        fi
+    fi
+
     einfo "All disk operations completed"
 }
 
