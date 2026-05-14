@@ -215,11 +215,34 @@ _patch_kernel_config() {
 
     # IIO sensors detected (accelerometer, gyro, ambient light)
     if [[ "${SENSORS_DETECTED:-0}" == "1" ]]; then
-        einfo "  IIO sensors detected — adding HID_SENSOR modules"
+        einfo "  IIO sensors detected — adding HID_SENSOR + MXC modules"
         required_modules[CONFIG_HID_SENSOR_HUB]="m"
         required_modules[CONFIG_HID_SENSOR_ACCEL_3D]="m"
         required_modules[CONFIG_HID_SENSOR_GYRO_3D]="m"
         required_modules[CONFIG_HID_SENSOR_ALS]="m"
+        # Memsic MXC4005/MXC6655 — Goodix-era I2C accelerometer used by GPD Pocket,
+        # Surface Go 1, many low-cost x86 tablets. Not covered by HID_SENSOR_*.
+        required_modules[CONFIG_MXC4005]="m"
+        required_modules[CONFIG_BMA180]="m"
+        required_modules[CONFIG_KXCJK1013]="m"
+    fi
+
+    # WiFi by vendor — defconfig has these, but localmodconfig can prune them
+    # when installing from a live ISO with a different WiFi chip loaded.
+    if lspci -nn 2>/dev/null | grep -qiE 'intel.*(wireless|wi-fi)\b'; then
+        einfo "  Intel WiFi detected — adding iwlwifi"
+        required_modules[CONFIG_IWLWIFI]="m"
+        required_modules[CONFIG_IWLMVM]="m"
+    fi
+    if lspci -nn 2>/dev/null | grep -qiE 'mediatek.*(wireless|wi-fi|MT79)'; then
+        einfo "  MediaTek WiFi detected — adding mt76 (MT7921E/MT7925E)"
+        required_modules[CONFIG_MT7921E]="m"
+        required_modules[CONFIG_MT7925E]="m"
+    fi
+    if lspci -nn 2>/dev/null | grep -qiE 'realtek.*(8852|8821|8822)'; then
+        einfo "  Realtek WiFi detected — adding rtw89"
+        required_modules[CONFIG_RTW89]="m"
+        required_modules[CONFIG_RTW89_8852CE]="m"
     fi
 
     # ASUS ROG detected — ASUS WMI and platform drivers
