@@ -396,6 +396,28 @@ detect_esp() {
 
 # --- Installed OS Detection ---
 
+# detect_bitlocker — Find BitLocker-encrypted partitions. Windows 11 24H2 enables
+# BitLocker by default on consumer devices (incl. GPD Pocket 4). Encrypted partitions
+# show up in blkid as TYPE=BitLocker and cannot be shrunk by ntfsresize.
+detect_bitlocker() {
+    BITLOCKER_DETECTED=0
+    BITLOCKER_PARTITIONS=""
+
+    local part type
+    while IFS=' ' read -r part type; do
+        [[ -z "${part}" || -z "${type}" ]] && continue
+        if [[ "${type}" == "BitLocker" || "${type,,}" == "bitlocker" ]]; then
+            BITLOCKER_DETECTED=1
+            BITLOCKER_PARTITIONS+="${BITLOCKER_PARTITIONS:+ }${part}"
+            DETECTED_OSES["${part}"]="Windows (BitLocker encrypted)"
+            WINDOWS_DETECTED=1
+            ewarn "BitLocker encrypted partition: ${part}"
+        fi
+    done < <(lsblk -lno PATH,FSTYPE 2>/dev/null | awk '$2 != "" {print}')
+
+    export BITLOCKER_DETECTED BITLOCKER_PARTITIONS WINDOWS_DETECTED
+}
+
 # detect_installed_oses — Scan partitions for installed operating systems
 # Populates DETECTED_OSES associative array: partition → OS name
 detect_installed_oses() {
@@ -403,6 +425,9 @@ detect_installed_oses() {
     LINUX_DETECTED=0
 
     einfo "Scanning for installed operating systems..."
+
+    # BitLocker partitions can't be mounted but should still be flagged
+    detect_bitlocker
 
     local part fstype
     while IFS=' ' read -r part fstype; do
@@ -413,6 +438,14 @@ detect_installed_oses() {
         for esp in "${ESP_PARTITIONS[@]}"; do
             [[ "${part}" == "${esp}" ]] && continue 2
         done
+
+        # Skip BitLocker — already flagged, can't probe
+        if [[ -n "${BITLOCKER_PARTITIONS:-}" ]]; then
+            local blp
+            for blp in ${BITLOCKER_PARTITIONS}; do
+                [[ "${part}" == "${blp}" ]] && continue 2
+            done
+        fi
 
         case "${fstype}" in
             ext4|xfs)
@@ -634,6 +667,14 @@ get_hardware_summary() {
         done
     else
         summary+="Detected operating systems: none\n"
+    fi
+    if [[ "${BITLOCKER_DETECTED:-0}" == "1" ]]; then
+        summary+="\n"
+        summary+="⚠  WARNING: BitLocker encrypted partition(s) detected:\n"
+        summary+="    ${BITLOCKER_PARTITIONS}\n"
+        summary+="    Cannot shrink/resize while encrypted.\n"
+        summary+="    In Windows: Control Panel > BitLocker > Turn off,\n"
+        summary+="    then run 'powercfg /h off' + clean shutdown (Shift+Click).\n"
     fi
     echo -e "${summary}"
 }
