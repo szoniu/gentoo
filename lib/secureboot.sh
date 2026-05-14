@@ -186,19 +186,57 @@ _setup_shim() {
 
     mkdir -p "${efi_dir}"
 
-    # Find shim binaries (location varies: /usr/share/shim/15.8/, /usr/lib64/shim/, etc.)
+    # Find shim binaries. Gentoo's sys-boot/shim installs under /usr/share/shim/
+    # with a versioned subdir (e.g. /usr/share/shim/15.8/shimx64.efi), but a few
+    # other paths exist depending on USE flags and overlays. Search broadly.
     local shim_src=""
     local mm_src=""
-    shim_src=$(find /usr/share/shim /usr/lib/shim /usr/lib64/shim \
-        -name 'shimx64.efi' 2>/dev/null | head -1) || true
+    local search_root
+    for search_root in /usr/share/shim /usr/lib/shim /usr/lib64/shim \
+                       /usr/share/shim-signed /usr/lib/shim-signed \
+                       /usr/share/secureboot/shim; do
+        [[ -d "${search_root}" ]] || continue
+        shim_src=$(find "${search_root}" -name 'shimx64.efi' 2>/dev/null | head -1) || true
+        [[ -n "${shim_src}" ]] && break
+    done
+
+    # If not found anywhere — verify the package is installed at all
+    if [[ -z "${shim_src}" ]]; then
+        if ! ls /var/db/pkg/sys-boot/shim-* &>/dev/null; then
+            ewarn "sys-boot/shim package not installed — retrying emerge"
+            try "Re-installing shim" emerge --quiet --usepkg=n sys-boot/shim || true
+            # Search again post-emerge
+            for search_root in /usr/share/shim /usr/lib/shim /usr/lib64/shim; do
+                [[ -d "${search_root}" ]] || continue
+                shim_src=$(find "${search_root}" -name 'shimx64.efi' 2>/dev/null | head -1) || true
+                [[ -n "${shim_src}" ]] && break
+            done
+        fi
+    fi
+
+    # Last resort: dump where shim package thinks its files are
+    if [[ -z "${shim_src}" ]] && command -v qfile &>/dev/null; then
+        shim_src=$(qfile -Cf sys-boot/shim 2>/dev/null | grep -E 'shimx64\.efi$' | head -1) || true
+    fi
+    if [[ -z "${shim_src}" ]]; then
+        local contents
+        contents=$(ls /var/db/pkg/sys-boot/shim-*/CONTENTS 2>/dev/null | head -1) || true
+        if [[ -n "${contents}" ]]; then
+            shim_src=$(awk '/shimx64\.efi/ {print $2; exit}' "${contents}") || true
+        fi
+    fi
+
     if [[ -n "${shim_src}" ]]; then
         local shimdir
         shimdir=$(dirname "${shim_src}")
         mm_src="${shimdir}/mmx64.efi"
+        einfo "Found shim at: ${shim_src}"
     fi
 
     if [[ -z "${shim_src}" ]]; then
         ewarn "shim EFI binary not found — Secure Boot chainloading may not work"
+        ewarn "Manual fix post-install: emerge sys-boot/shim, find shimx64.efi,"
+        ewarn "  cp to ${efi_dir}/shimx64.efi, efibootmgr --create with shim loader"
         return 0
     fi
 
