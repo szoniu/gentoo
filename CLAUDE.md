@@ -144,9 +144,44 @@ Nowe pakiety wymagające `~amd64` dodawać w odpowiednim module `lib/`, nie w ma
 - **installkernel**: wymaga `USE="grub"` (`package.use/installkernel`) żeby wiedział, że ma konfigurować GRUB
 - **dracut**: wymaga `/etc/dracut.conf.d/root.conf` z `root=UUID=...` żeby initramfs znalazł root filesystem
 - **Intel microcode**: `sys-firmware/intel-microcode` instalowany automatycznie na CPU Intel (sprawdzamy `/proc/cpuinfo`)
+- **AMD microcode**: `sys-firmware/amd-microcode` instalowany automatycznie na CPU AMD (sprawdzamy `/proc/cpuinfo`)
 - **Intel SOF firmware**: `sys-firmware/sof-firmware` instalowany automatycznie na CPU Intel — wymagany dla audio na nowoczesnych ultrabookach (HP Dragonfly, Dell XPS, itp.)
 - **PipeWire ALSA**: `media-video/pipewire` wymaga `pipewire-alsa sound-server` w package.use żeby ALSA apps routowały przez PipeWire; globalna flaga `alsa` w USE
 - **cpuid2cpuflags**: uruchamiany w fazie portage_sync (PRZED @world) żeby pakiety budowały się z optymalizacjami CPU
+
+### Hardware patches kernela (lib/kernel.sh `_patch_kernel_config`)
+
+Tylko dla genkernel/surface-genkernel/surface-kernel (dist-kernel = binarka, pomijamy). Sekwencja:
+
+1. `make defconfig` jeśli brak `.config` (fresh install)
+2. **`make localmodconfig`** (jeśli `lsmod` pokazuje ≥50 modułów) — redukcja ~3000 → ~200-400 modułów. Czas build 30-60 min → 5-10 min
+3. **Force-add hardware modules** — niezależnie od lsmod, żeby krytyczne sterowniki nie zostały wycięte:
+   - Always-on: `BLK_DEV_NVME=y` (built-in!), I2C HID, RMI, USB-C, ACPI backlight, UVC webcam, HID_MULTITOUCH
+   - Intel CPU: i915, SOF audio (top+pci+intel)
+   - AMD CPU: `PINCTRL_AMD`
+   - **AMD GPU** (single lub hybrid iGPU/dGPU): `DRM_AMDGPU=m`, `DRM_RADEON=m`, `FB_EFI=y` (symetria z NVIDIA)
+   - NVIDIA GPU: `DRM=y`, `DRM_FBDEV_EMULATION=y`, `FB_EFI=y`
+   - Bluetooth wykryty: `BT`, `BT_HCIBTUSB`, dla AMD+BT też `BT_HCIBTUSB_MTK=y` (Framework AMD quirk)
+   - **WiFi by vendor (przez `lspci -nn`)**:
+     - Intel: `IWLWIFI`, `IWLMVM`
+     - MediaTek (MT7921E Framework AMD, MT7925E nowsze): oba drivery
+     - Realtek (RTL8852/8821/8822): `RTW89`, `RTW89_8852CE`
+   - Thunderbolt wykryty: `THUNDERBOLT`
+   - ThinkPad: `THINKPAD_ACPI`
+   - ASUS ROG: `ASUS_WMI`, `ASUS_NB_WMI`
+   - Surface: `SURFACE_AGGREGATOR*`, `SURFACE_HID`, `SURFACE_DTX`
+   - IIO sensors (HID + I2C): `HID_SENSOR_HUB`, `HID_SENSOR_ACCEL_3D`, `HID_SENSOR_GYRO_3D`, `HID_SENSOR_ALS`, plus **I2C accelerometers** (`MXC4005`, `BMA180`, `KXCJK1013`) dla x86 tabletów (GPD Pocket 4, Surface Go 1)
+   - WWAN LTE (Intel XMM7360): `USB_NET_QMI_WWAN`, `USB_SERIAL_OPTION`
+   - Fingerprint reader: `UHID` (potrzebny dla libfprint)
+4. `make olddefconfig` — domyka dependency tree
+5. Config zapisywany do `/tmp/genkernel-patched.config` — przeżyje `make mrproper` genkernela, używany przez `--kernel-config=`
+
+### Time sync (chrony OpenRC)
+
+Systemd ma `timesyncd` w bazie — działa od pierwszego boota. OpenRC nie ma nic — bez time-syncu pierwszy `emerge --sync` po reboocie umie pasc na SSL handshake jeśli zegar dryfnał. `system_finalize()` w `lib/system.sh`:
+
+- Tylko dla OpenRC: instaluje `net-misc/chrony`, `rc-update add chronyd default`, `rc-update add swclock boot` (load saved time przed chronyd discipline)
+- Dla systemd: nic — timesyncd wystarczy
 
 ### Hyprland Ecosystem (lib/portage.sh)
 

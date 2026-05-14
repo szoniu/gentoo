@@ -174,10 +174,14 @@ sudo emerge --depclean             # usunięcie nieużywanych zależności
 ### Wsparcie sprzętowe
 
 - **Microsoft Surface** — auto-detekcja urządzeń Surface (Pro, Book, Laptop, Go...). Dedykowany kernel z patchami `linux-surface`, daemon `iptsd` (touchscreen/rysik), `surface-control` (hardware). Opcje kernela Surface pojawiają się automatycznie w wizardzie.
+- **AMD Ryzen / Radeon** — pełne wsparcie Zen 1-5 (znver1/2/3/4/5 w cpu_march_database), `amd-microcode` automatycznie, AMD GPU DRM force-enabled (`DRM_AMDGPU`, `DRM_RADEON`) w hardware-aware kernel patches. Działa z dist-kernel i genkernel.
+- **GPD Pocket 4 / x86 tablety** — wsparcie I2C akcelerometrów (Memsic MXC4005/MXC6655, BMA180, KXCJK1013) dla auto-rotacji ekranu. Touchscreen Novatek przez generic `HID_MULTITOUCH`.
 - **Hybrid GPU (NVIDIA Optimus / PRIME)** — auto-detekcja laptopów z dwoma GPU (iGPU + dGPU). Konfiguracja PRIME render offload, `prime-run`, runtime power management.
 - **ASUS ROG / TUF** — auto-detekcja płyt ASUS ROG/TUF. Opcjonalna instalacja `asusctl` + `supergfxctl` z overlay zGentoo.
 - **Secure Boot (MOK signing)** — generowanie kluczy MOK, podpisywanie kerneli przez `sbsign`, instalacja shim, automatyczny enrollment. Działa z GRUB i dual-boot.
+- **WiFi by vendor** — Intel (AX2xx, AC9xxx), MediaTek (MT7921E/7925E), Realtek (RTL8852/8821/8822) force-enabled w kernel config żeby localmodconfig nie wyciął sterownika.
 - **Auto-detekcja peryferiów** — installer wykrywa i oferuje sterowniki/daemony dla: czytnik linii papilarnych (`fprintd`), Thunderbolt (`bolt`), sensory IIO (akcelerometr, żyroskop, ALS), kamera (`v4l-utils`), modem WWAN/LTE (`ModemManager`).
+- **Time sync na OpenRC** — `chrony` auto-instalacja i `rc-update add chronyd default` w finalize (bez tego pierwszy `emerge --sync` po reboocie umie pasc na SSL przy zegarze dryfującym).
 - **Noctalia Shell** — opcjonalny shell do compositorów Wayland (Hyprland/Niri/Sway), instalowany z repozytorium GURU.
 
 ## Dual-boot (Windows, Linux, multi-boot)
