@@ -300,16 +300,13 @@ kernel_install() {
     # Always install linux-firmware first
     try "Installing linux-firmware" emerge --quiet sys-kernel/linux-firmware
 
-    # Install Intel microcode for Intel CPUs (security + stability patches)
+    # Install Intel microcode for Intel CPUs (security + stability patches).
+    # AMD microcode is bundled in sys-kernel/linux-firmware (no separate package
+    # in Gentoo — different from Intel's licensing model).
     if grep -qi 'GenuineIntel' /proc/cpuinfo 2>/dev/null; then
         try "Installing Intel microcode" emerge --quiet sys-firmware/intel-microcode
         # SOF firmware for Intel HDA/SOF audio (HP Dragonfly, modern ultrabooks, etc.)
         try "Installing SOF audio firmware" emerge --quiet sys-firmware/sof-firmware
-    fi
-
-    # Install AMD microcode for AMD CPUs (security + stability patches)
-    if grep -qi 'AuthenticAMD' /proc/cpuinfo 2>/dev/null; then
-        try "Installing AMD microcode" emerge --quiet sys-firmware/amd-microcode
     fi
 
     # Configure installkernel with GRUB support
@@ -319,6 +316,16 @@ kernel_install() {
 
     # Install installkernel for automatic kernel installation
     try "Installing installkernel" emerge --quiet sys-kernel/installkernel
+
+    # Configure dracut BEFORE emerging the kernel — kernel packages run dracut
+    # in postinst and fail with "Chroot detected, no cmdline configured" if
+    # /etc/dracut.conf.d/root.conf doesn't exist yet. Only needed for dracut-based
+    # kernels; genkernel paths generate their own initramfs.
+    case "${kernel_type}" in
+        dist-kernel|surface-kernel)
+            _configure_dracut_root
+            ;;
+    esac
 
     case "${kernel_type}" in
         dist-kernel)
@@ -338,14 +345,6 @@ kernel_install() {
             ;;
     esac
 
-    # Configure dracut with root filesystem UUID (dist-kernel + surface-kernel use dracut;
-    # genkernel/surface-genkernel generate their own initramfs)
-    case "${kernel_type}" in
-        dist-kernel|surface-kernel)
-            _configure_dracut_root
-            ;;
-    esac
-
     einfo "Kernel installation complete"
 }
 
@@ -354,14 +353,38 @@ _configure_dracut_root() {
     local root_uuid
     root_uuid=$(get_uuid "${ROOT_PARTITION}" 2>/dev/null) || root_uuid=""
 
-    if [[ -n "${root_uuid}" ]]; then
-        mkdir -p /etc/dracut.conf.d
-        echo "kernel_cmdline=\"root=UUID=${root_uuid} rootfstype=${FILESYSTEM:-ext4}\"" \
-            > /etc/dracut.conf.d/root.conf
-        einfo "Dracut root configured: UUID=${root_uuid}"
-    else
+    if [[ -z "${root_uuid}" ]]; then
         ewarn "Could not determine root UUID for dracut config"
+        return 0
     fi
+
+    local fs="${FILESYSTEM:-ext4}"
+    local cmdline="root=UUID=${root_uuid} rootfstype=${fs}"
+
+    # Btrfs with subvolumes: kernel needs to know which subvolume is root.
+    # Default layout uses @ as the root subvolume (matches BTRFS_SUBVOLUMES preset).
+    if [[ "${fs}" == "btrfs" ]]; then
+        local root_subvol="@"
+        if [[ -n "${BTRFS_SUBVOLUMES:-}" ]]; then
+            # Parse BTRFS_SUBVOLUMES (format: "subvol1:mount1:subvol2:mount2:...")
+            # to find which subvol mounts at /
+            local IFS=':'
+            local -a parts
+            read -ra parts <<< "${BTRFS_SUBVOLUMES}"
+            local idx
+            for (( idx = 0; idx < ${#parts[@]}; idx += 2 )); do
+                if [[ "${parts[$((idx + 1))]:-}" == "/" ]]; then
+                    root_subvol="${parts[$idx]}"
+                    break
+                fi
+            done
+        fi
+        cmdline+=" rootflags=subvol=${root_subvol}"
+    fi
+
+    mkdir -p /etc/dracut.conf.d
+    echo "kernel_cmdline=\"${cmdline}\"" > /etc/dracut.conf.d/root.conf
+    einfo "Dracut root configured: ${cmdline}"
 }
 
 # kernel_install_dist — Install distribution kernel (pre-configured)
