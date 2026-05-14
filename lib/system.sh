@@ -271,6 +271,15 @@ system_finalize() {
         fi
     fi
 
+    # NTP time sync. Systemd ships timesyncd as part of base; OpenRC ships
+    # nothing — first emerge --sync after a bad clock fails SSL handshake.
+    if [[ "${INIT_SYSTEM:-systemd}" == "openrc" ]]; then
+        try "Installing chrony" emerge --quiet net-misc/chrony
+        try "Enabling chronyd" rc-update add chronyd default
+        # Pull initial offset on boot before chronyd starts disciplining
+        rc-update add swclock boot 2>/dev/null || true
+    fi
+
     # Enable default systemd services
     if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
         try "Enabling default systemd services" \
