@@ -165,6 +165,16 @@ _patch_kernel_config() {
         required_modules[CONFIG_PINCTRL_AMD]="m"
     fi
 
+    # AMD GPU detected — force amdgpu/radeon DRM so localmodconfig can't prune
+    # them when installing from a live ISO that doesn't load them (rare but possible)
+    if [[ "${GPU_VENDOR:-}" == "amd" ]] || [[ "${IGPU_VENDOR:-}" == "amd" ]] || [[ "${DGPU_VENDOR:-}" == "amd" ]]; then
+        einfo "  AMD GPU detected — adding DRM_AMDGPU, DRM_RADEON"
+        required_modules[CONFIG_DRM]="y"
+        required_modules[CONFIG_DRM_AMDGPU]="m"
+        required_modules[CONFIG_DRM_RADEON]="m"
+        required_modules[CONFIG_FB_EFI]="y"
+    fi
+
     # Fingerprint reader detected — UHID needed for libfprint communication
     if [[ "${FINGERPRINT_DETECTED:-0}" == "1" ]]; then
         einfo "  Fingerprint reader detected — adding UHID"
