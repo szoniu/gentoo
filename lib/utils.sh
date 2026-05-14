@@ -319,12 +319,19 @@ _scan_partition_for_resume() {
     local mp
     mp=$(mktemp -d "${TMPDIR:-/tmp}/gentoo-resume-scan.XXXXXX")
 
+    # For btrfs, try subvol=@ FIRST. Top-level mount succeeds but shows
+    # subvolumes as folders, so /tmp/gentoo-installer-checkpoints/ (which
+    # is on @ subvol) appears empty/missing. Only fall back to top-level
+    # if @ doesn't exist (e.g. non-default subvolume layout).
     local mounted=0
-    if mount -o ro "${part}" "${mp}" 2>/dev/null; then
-        mounted=1
-    elif [[ "${fstype}" == "btrfs" ]]; then
-        # Btrfs: try mounting default subvolume @
+    if [[ "${fstype}" == "btrfs" ]]; then
         if mount -o ro,subvol=@ "${part}" "${mp}" 2>/dev/null; then
+            mounted=1
+        elif mount -o ro "${part}" "${mp}" 2>/dev/null; then
+            mounted=1
+        fi
+    else
+        if mount -o ro "${part}" "${mp}" 2>/dev/null; then
             mounted=1
         fi
     fi
@@ -375,10 +382,16 @@ _recover_resume_data() {
     fi
 
     if [[ ${mounted} -eq 0 ]]; then
-        if mount -o ro "${part}" "${mp}" 2>/dev/null; then
-            mounted=1
-        elif [[ "${fstype}" == "btrfs" ]]; then
+        # Btrfs: prefer subvol=@ — top-level mount succeeds but doesn't show
+        # subvolume contents where checkpoints/config live (see _scan_partition).
+        if [[ "${fstype}" == "btrfs" ]]; then
             if mount -o ro,subvol=@ "${part}" "${mp}" 2>/dev/null; then
+                mounted=1
+            elif mount -o ro "${part}" "${mp}" 2>/dev/null; then
+                mounted=1
+            fi
+        else
+            if mount -o ro "${part}" "${mp}" 2>/dev/null; then
                 mounted=1
             fi
         fi
@@ -987,10 +1000,16 @@ infer_config_from_partition() {
         fi
         if [[ -z "${mp}" ]]; then
             mp=$(mktemp -d "${TMPDIR:-/tmp}/gentoo-infer.XXXXXX")
-            if mount -o ro "${part}" "${mp}" 2>/dev/null; then
-                need_unmount=1
-            elif [[ "${fstype}" == "btrfs" ]]; then
+            # Btrfs: prefer subvol=@ (top-level shows subvolumes as folders,
+            # /etc/fstab and friends are inside @, not at btrfs root).
+            if [[ "${fstype}" == "btrfs" ]]; then
                 if mount -o ro,subvol=@ "${part}" "${mp}" 2>/dev/null; then
+                    need_unmount=1
+                elif mount -o ro "${part}" "${mp}" 2>/dev/null; then
+                    need_unmount=1
+                fi
+            else
+                if mount -o ro "${part}" "${mp}" 2>/dev/null; then
                     need_unmount=1
                 fi
             fi
