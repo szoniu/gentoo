@@ -55,11 +55,14 @@ _install_kde_desktop() {
     # Install it first as a one-shot to break the cycle
     try "Bootstrapping Go compiler" emerge --oneshot --quiet dev-lang/go
 
-    # Install KDE Plasma
-    try "Installing KDE Plasma" emerge --quiet kde-plasma/plasma-meta
+    # Install KDE Plasma. --autounmask-write --autounmask-continue handles
+    # USE flag changes Portage discovers (e.g. ngtcp2 gnutls for samba/kio-extras,
+    # libdrm video_cards_radeon for xf86-video-ati). --keep-going lets the merge
+    # continue on transient build failures and finish remaining packages.
+    try "Installing KDE Plasma" emerge --quiet --autounmask-write --autounmask-continue --keep-going kde-plasma/plasma-meta
 
     # Install SDDM display manager
-    try "Installing SDDM" emerge --quiet x11-misc/sddm
+    try "Installing SDDM" emerge --quiet --autounmask-write --autounmask-continue x11-misc/sddm
 
     # Install KDE applications
     _install_kde_apps
@@ -173,10 +176,11 @@ _install_gnome_desktop() {
     try "Bootstrapping Go compiler" emerge --oneshot --quiet dev-lang/go
 
     # Install GNOME (meta package pulls gnome-shell, mutter, gnome-session, etc.)
-    try "Installing GNOME" emerge --quiet gnome-base/gnome
+    # See KDE block above for rationale on autounmask + keep-going flags.
+    try "Installing GNOME" emerge --quiet --autounmask-write --autounmask-continue --keep-going gnome-base/gnome
 
     # Install GDM display manager
-    try "Installing GDM" emerge --quiet gnome-base/gdm
+    try "Installing GDM" emerge --quiet --autounmask-write --autounmask-continue gnome-base/gdm
 
     # Install GNOME applications
     _install_gnome_apps
