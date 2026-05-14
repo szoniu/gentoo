@@ -180,8 +180,13 @@ sudo emerge --depclean             # usunięcie nieużywanych zależności
 - **ASUS ROG / TUF** — auto-detekcja płyt ASUS ROG/TUF. Opcjonalna instalacja `asusctl` + `supergfxctl` z overlay zGentoo.
 - **Secure Boot (MOK signing)** — generowanie kluczy MOK, podpisywanie kerneli przez `sbsign`, instalacja shim, automatyczny enrollment. Działa z GRUB i dual-boot.
 - **WiFi by vendor** — Intel (AX2xx, AC9xxx), MediaTek (MT7921E/7925E), Realtek (RTL8852/8821/8822) force-enabled w kernel config żeby localmodconfig nie wyciął sterownika.
+- **BitLocker detection** — auto-wykrywa BitLocker-encrypted partycje (Windows 11 24H2 fabrycznie włącza BL na consumer devices), pokazuje warning w hardware detect z instrukcją Windows-side fix.
 - **Auto-detekcja peryferiów** — installer wykrywa i oferuje sterowniki/daemony dla: czytnik linii papilarnych (`fprintd`), Thunderbolt (`bolt`), sensory IIO (akcelerometr, żyroskop, ALS), kamera (`v4l-utils`), modem WWAN/LTE (`ModemManager`).
 - **Time sync na OpenRC** — `chrony` auto-instalacja i `rc-update add chronyd default` w finalize (bez tego pierwszy `emerge --sync` po reboocie umie pasc na SSL przy zegarze dryfującym).
+- **Memory-aware emerge** — per-package MAKEOPTS limits ZAWSZE (nie tylko ≤8 GB RAM): `low-memory.conf` dla webkit/qtwebengine/rust/spidermonkey, `heavy-memory.conf` dla Qt6/KDE (zapobiega OOM cc1plus na 16-thread CPU + Qt6 build).
+- **AMD GPU xorg fix** — `xorg-drivers -video_cards_ati` auto-dopisywane w package.use dla amdgpu/radeonsi userów żeby nie ciągać starego DDX z USE conflict.
+- **Plasma/GNOME emerge robust** — z `--autounmask-write --autounmask-continue --keep-going` (auto-akceptuje USE changes, kontynuuje przy padach pojedynczych pakietów).
+- **`--resume` btrfs subvol** — wykrywa checkpointy + config na btrfs root z subwoluminami (próbuje `subvol=@` przed top-level).
 - **Noctalia Shell** — opcjonalny shell do compositorów Wayland (Hyprland/Niri/Sway), instalowany z repozytorium GURU.
 
 ## Dual-boot (Windows, Linux, multi-boot)

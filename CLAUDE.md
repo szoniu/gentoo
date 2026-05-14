@@ -183,6 +183,59 @@ Systemd ma `timesyncd` w bazie — działa od pierwszego boota. OpenRC nie ma ni
 - Tylko dla OpenRC: instaluje `net-misc/chrony`, `rc-update add chronyd default`, `rc-update add swclock boot` (load saved time przed chronyd discipline)
 - Dla systemd: nic — timesyncd wystarczy
 
+### Polityka pamięci dla emerge (`portage.sh` `generate_make_conf`)
+
+Per-package MAKEOPTS limits są ZAWSZE aplikowane (nie tylko ≤8 GB RAM jak wcześniej). Dwie warstwy w `/etc/portage/env/`:
+
+- **`low-memory.conf`** — severe limit `-j${small_jobs}` (1-2 zależnie od RAM) dla pakietów co zjadają 4-8 GB RAM per build job: `net-libs/webkit-gtk`, `dev-qt/qtwebengine`, `dev-lang/rust`, `dev-lang/spidermonkey`
+- **`heavy-memory.conf`** — moderate limit `-j${heavy_jobs}` (2-6 zależnie od RAM) dla Qt6/KDE (1-2 GB RAM per cc1plus, pełne `-j17` na 16-thread CPU OOM-killuje cc1plus nawet na 16 GB RAM): `dev-qt/qtbase`, `dev-qt/qtdeclarative`, `kde-frameworks/networkmanager-qt`, `kde-frameworks/kio`, `kde-frameworks/kirigami`, `kde-frameworks/ktexteditor`, `kde-plasma/libkscreen`, `kde-plasma/plasma-workspace`, `kde-plasma/plasma-desktop`, `kde-plasma/kwin`
+
+Tier sizing scaled by RAM:
+- >16 GB: small=-j2, heavy=-j6
+- 8-16 GB: small=-j2, heavy=-j4
+- 4-8 GB: small=-j2, heavy=-j2
+- ≤4 GB: small=-j1, heavy=-j4 (default)
+
+Mapowanie w `/etc/portage/package.env`.
+
+### AMD GPU + xorg-drivers
+
+Gdy `VIDEO_CARDS` zawiera `amdgpu` lub `radeonsi`, `generate_make_conf` zapisuje `/etc/portage/package.use/xorg-drivers` z `x11-base/xorg-drivers -video_cards_ati`. Bez tego `xorg-drivers` pociąga `xf86-video-ati` (legacy DDX) który wymaga `libdrm[video_cards_radeon]` → USE conflict przy plasma-meta. Tylko amdgpu+radeonsi jest używany przez Wayland Plasma na Radeon 780M+.
+
+### Plasma/GNOME emerge flags (`lib/desktop.sh`)
+
+`_install_plasma_desktop` i `_install_gnome_desktop` używają `emerge --quiet --autounmask-write --autounmask-continue --keep-going`. Powody:
+- **`--autounmask-write --autounmask-continue`** — Portage auto-zapisuje USE flag changes (np. `ngtcp2 gnutls` dla samba/kio-extras) i kontynuuje. Bez tego user wpada w try() recovery loop przy każdym change.
+- **`--keep-going`** — pojedynczy failed package nie zabija 200+ pakietów emerge. Build idzie dalej z innymi, user widzi summary failed packages na końcu (łatwiejsza diagnoza, więcej rzeczy zainstalowanych jako fallback).
+
+### BitLocker detection (`lib/hardware.sh` `detect_bitlocker`)
+
+Windows 11 24H2 włącza BitLocker fabrycznie na consumer devices (włącznie z GPD Pocket 4). Encrypted partycje:
+- Nie można shrinkować przez `ntfsresize` ("Volume is encrypted")
+- Nie da się mountować przez `_detect_ntfs_on_partition` → nie wykrywa Windows
+- `lsblk` pokazuje `FSTYPE=BitLocker` zamiast `ntfs`
+
+`detect_bitlocker()` skanuje `lsblk -lno PATH,FSTYPE` szukając `BitLocker`, ustawia `BITLOCKER_DETECTED=1`, `BITLOCKER_PARTITIONS`, dodaje do `DETECTED_OSES` jako "Windows (BitLocker encrypted)". `get_hardware_summary` w `tui/hw_detect.sh` wyświetla warning z instrukcją Windows-side fix (Control Panel → BitLocker → Turn off, `powercfg /h off`, Shift+Click Shut down). Warning-only, instalacja kontynuuje (user może wybrać inny dysk lub single-boot na innym).
+
+### Dracut config dla btrfs (`lib/kernel.sh` `_configure_dracut_root`)
+
+Wywoływane **PRZED** `kernel_install_dist` (nie po) — `emerge gentoo-kernel-bin` uruchamia dracut w postinst hook który WYMAGA `/etc/dracut.conf.d/root.conf` żeby zadziałać w chroot kontekście.
+
+Dla btrfs dodaje `rootflags=subvol=@` (lub innego subvol jeśli `BTRFS_SUBVOLUMES` mapuje inny do `/`). Bez tego po reboocie kernel nie znajdzie roota — bootuje na top-level btrfs gdzie tylko subwoluminy widoczne jako foldery.
+
+### --resume na btrfs subvol (`lib/utils.sh`)
+
+`_scan_partition_for_resume`, `_recover_resume_data`, `infer_config_from_partition` próbują `subvol=@` NAJPIERW dla btrfs partycji. Top-level mount succeeds ale gubi zawartość subwoluminu — checkpoints w `/tmp/gentoo-installer-checkpoints/` (na `@` subvol) niewidoczne z top-level. Pierwsza próba bez subvol = "Resume: Nothing Found" mimo że dane są na dysku. Fallback do top-level tylko gdy `subvol=@` nie istnieje.
+
+### shim binary search (`lib/secureboot.sh` `_setup_shim`)
+
+`sys-boot/shim` w Gentoo instaluje pliki w różnych lokalizacjach zależnie od wersji/USE flags. Search path:
+1. `/usr/share/shim`, `/usr/lib/shim`, `/usr/lib64/shim`
+2. `/usr/share/shim-signed`, `/usr/lib/shim-signed`
+3. `/usr/share/secureboot/shim`
+
+Jeśli `shimx64.efi` nie znaleziony — sprawdza czy `sys-boot/shim` zainstalowany w `/var/db/pkg/`. Jeśli nie — retry emerge (bez binpkg). Jeśli nadal nic — fallback do parsowania `/var/db/pkg/sys-boot/shim-*/CONTENTS` z `awk`. Error message wskazuje manual recovery (emerge, find, cp na ESP, efibootmgr).
+
 ### Hyprland Ecosystem (lib/portage.sh)
 
 `install_hyprland_ecosystem()` — opcja w `tui/extra_packages.sh` (tylko gdy desktop). Gdy `ENABLE_HYPRLAND=yes`:
