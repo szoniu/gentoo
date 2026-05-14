@@ -16,34 +16,79 @@ generate_make_conf() {
     mkdir -p "$(dirname "${make_conf}")"
     _write_make_conf > "${make_conf}"
 
-    # Per-package MAKEOPTS limits for memory-hungry packages on low-RAM systems
+    # AMD GPU users: explicitly disable the legacy ATI DDX driver. xorg-drivers
+    # otherwise pulls xf86-video-ati which transitively needs libdrm[video_cards_radeon],
+    # causing USE conflicts during plasma-meta emerge even though amdgpu+radeonsi
+    # (the modern stack) is all that's actually used by Wayland/X.
+    if [[ "${VIDEO_CARDS:-}" == *amdgpu* ]] || [[ "${VIDEO_CARDS:-}" == *radeonsi* ]]; then
+        mkdir -p "${MOUNTPOINT}/etc/portage/package.use"
+        cat > "${MOUNTPOINT}/etc/portage/package.use/xorg-drivers" << 'XDEOF'
+# Skip legacy ATI DDX driver — we use amdgpu kernel module + radeonsi mesa.
+# Without this, xorg-drivers pulls xf86-video-ati which forces libdrm USE conflicts.
+x11-base/xorg-drivers -video_cards_ati
+XDEOF
+    fi
+
+    # Per-package MAKEOPTS limits for memory-hungry packages. Each C++ build job
+    # for Qt6/KDE can use 1-2 GB RAM; with -j17 on a 16-thread CPU, parallel
+    # builds of networkmanager-qt/libkscreen/plasma-workspace can hit OOM even
+    # on 16 GB systems. Apply ALWAYS for known memory-hungry categories — the
+    # cost (longer build for these specific packages) is small compared to OOM
+    # killing cc1plus and failing the install.
     local ram_mb
     ram_mb=$(awk '/^MemTotal:/{printf "%d", $2/1024}' /proc/meminfo 2>/dev/null) || ram_mb=4096
-    if (( ram_mb <= 8192 )); then
-        local portage_env="${MOUNTPOINT}/etc/portage/env"
-        local portage_pkg_env="${MOUNTPOINT}/etc/portage/package.env"
-        mkdir -p "${portage_env}"
 
-        local low_ram_jobs=1
-        if (( ram_mb > 4096 )); then
-            low_ram_jobs=2
-        fi
+    local portage_env="${MOUNTPOINT}/etc/portage/env"
+    local portage_pkg_env="${MOUNTPOINT}/etc/portage/package.env"
+    mkdir -p "${portage_env}"
 
-        cat > "${portage_env}/low-memory.conf" << ENVEOF
-# Limit parallelism for memory-hungry packages (webkit-gtk, qtwebengine, rust)
-MAKEOPTS="-j${low_ram_jobs} -l${low_ram_jobs}.0"
+    # Tier sizing: small=very memory-hungry (qtwebengine, rust, webkit), large=just heavy (Qt6/KDE).
+    # Scale by RAM but cap conservatively for the heavy tier so 16 GB systems don't OOM.
+    local small_jobs=1 heavy_jobs=4
+    if (( ram_mb > 16384 )); then
+        small_jobs=2
+        heavy_jobs=6
+    elif (( ram_mb > 8192 )); then
+        small_jobs=2
+        heavy_jobs=4
+    elif (( ram_mb > 4096 )); then
+        small_jobs=2
+        heavy_jobs=2
+    fi
+
+    cat > "${portage_env}/low-memory.conf" << ENVEOF
+# Severe limit for packages that need 4-8 GB RAM per build job
+MAKEOPTS="-j${small_jobs} -l${small_jobs}.0"
 ENVEOF
 
-        cat > "${portage_pkg_env}" << 'PKGEOF'
-# Packages that need 4-8 GB RAM per build job
+    cat > "${portage_env}/heavy-memory.conf" << ENVEOF
+# Moderate limit for Qt6/KDE packages (1-2 GB RAM per cc1plus process)
+MAKEOPTS="-j${heavy_jobs} -l${heavy_jobs}.0"
+ENVEOF
+
+    cat > "${portage_pkg_env}" << 'PKGEOF'
+# Severely memory-hungry (4-8 GB RAM per build job)
 net-libs/webkit-gtk low-memory.conf
 dev-qt/qtwebengine low-memory.conf
 dev-lang/rust low-memory.conf
 dev-lang/spidermonkey low-memory.conf
+
+# Qt6 / KDE — 1-2 GB RAM per parallel cc1plus, full -j on 16-thread CPU hits OOM
+# even with 16 GB RAM (seen on AMD Ryzen 7 8840U + 16 GB: cc1plus killed during
+# kde-frameworks/networkmanager-qt compile).
+dev-qt/qtbase heavy-memory.conf
+dev-qt/qtdeclarative heavy-memory.conf
+kde-frameworks/networkmanager-qt heavy-memory.conf
+kde-frameworks/kio heavy-memory.conf
+kde-frameworks/kirigami heavy-memory.conf
+kde-frameworks/ktexteditor heavy-memory.conf
+kde-plasma/libkscreen heavy-memory.conf
+kde-plasma/plasma-workspace heavy-memory.conf
+kde-plasma/plasma-desktop heavy-memory.conf
+kde-plasma/kwin heavy-memory.conf
 PKGEOF
 
-        einfo "Per-package memory limits configured (RAM: ${ram_mb} MiB)"
-    fi
+    einfo "Per-package memory limits configured (RAM: ${ram_mb} MiB, small=-j${small_jobs}, heavy=-j${heavy_jobs})"
 
     einfo "make.conf generated at ${make_conf}"
 }
@@ -1049,7 +1094,11 @@ install_thunderbolt_tools() {
     if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
         try "Enabling bolt" systemctl enable bolt
     else
-        ewarn "bolt requires systemd — Thunderbolt authorization will not work on OpenRC"
+        # bolt uses D-Bus activation so CLI (boltctl) works on OpenRC, but the
+        # Plasma/GNOME auto-prompt "Authorize this device?" won't appear since
+        # the desktop integration expects systemd-style user services.
+        ewarn "bolt's GUI integration with Plasma/GNOME won't auto-start on OpenRC"
+        ewarn "CLI boltctl works manually: 'boltctl list', 'boltctl enroll <uuid>'"
     fi
 }
 
