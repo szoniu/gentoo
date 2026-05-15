@@ -235,6 +235,106 @@ detect_surface() {
     export SURFACE_DETECTED SURFACE_MODEL
 }
 
+# --- UMPC / Portrait Panel Detection ---
+
+# detect_umpc — Detect UMPCs with portrait-native panels and hardware quirks.
+# Sets panel orientation override + fbcon rotation so first boot displays
+# correctly (GRUB menu, console, SDDM/Plasma/GNOME). Also flags ALC287
+# Auto-Mute quirk and GPD fan-daemon need.
+#
+# panel_orientation= values (DRM cmdline override consumed by KMS):
+#   normal | upside_down | left_side_up | right_side_up
+# Pocket 4 + MiniBook X panels are physically rotated such that, without
+# correction, image top appears on user's LEFT. Empirically validated by
+# upstream community work (Rubenduburck/gpd-pocket-4-linux, sonnyp/linux-minibook-x):
+# correct value is "right_side_up" paired with framebuffer console rotate=1.
+#
+# fbcon=rotate values: 0=normal, 1=CW90, 2=180, 3=CCW90
+detect_umpc() {
+    UMPC_DETECTED=0
+    UMPC_VENDOR=""
+    UMPC_MODEL=""
+    UMPC_PANEL_ORIENTATION=""
+    UMPC_VIDEO_CONNECTOR=""
+    UMPC_FBCON_ROTATE=""
+    UMPC_ALC287_QUIRK=0
+    UMPC_GPD_FAN=0
+
+    local sys_vendor="" product_name="" board_name=""
+    [[ -f /sys/class/dmi/id/sys_vendor ]] && sys_vendor=$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null) || true
+    [[ -f /sys/class/dmi/id/product_name ]] && product_name=$(cat /sys/class/dmi/id/product_name 2>/dev/null) || true
+    [[ -f /sys/class/dmi/id/board_name ]] && board_name=$(cat /sys/class/dmi/id/board_name 2>/dev/null) || true
+
+    # GPD devices (sys_vendor == "GPD")
+    if [[ "${sys_vendor}" == "GPD" ]]; then
+        UMPC_VENDOR="GPD"
+        # Match by product_name AND board_name to disambiguate (some GPD models
+        # share product codes). Pocket = portrait, Win = landscape.
+        case "${product_name}${board_name}" in
+            *Pocket*4*|*G1628-04*)
+                UMPC_DETECTED=1
+                UMPC_MODEL="Pocket 4"
+                UMPC_PANEL_ORIENTATION="right_side_up"
+                UMPC_VIDEO_CONNECTOR="eDP-1"
+                UMPC_FBCON_ROTATE="1"
+                UMPC_ALC287_QUIRK=1
+                UMPC_GPD_FAN=1
+                ;;
+            *Pocket*3*|*G1618-03*)
+                UMPC_DETECTED=1
+                UMPC_MODEL="Pocket 3"
+                UMPC_PANEL_ORIENTATION="right_side_up"
+                UMPC_VIDEO_CONNECTOR="eDP-1"
+                UMPC_FBCON_ROTATE="1"
+                UMPC_GPD_FAN=1
+                ;;
+            *Win*Mini*|*G1617*)
+                UMPC_DETECTED=1
+                UMPC_MODEL="Win Mini"
+                # Landscape panel — no rotation needed
+                UMPC_GPD_FAN=1
+                ;;
+            *Win*Max*2*|*G1619-04*|*G1619-05*)
+                UMPC_DETECTED=1
+                UMPC_MODEL="Win Max 2"
+                UMPC_GPD_FAN=1
+                ;;
+            *Win*4*|*G1618-04*)
+                UMPC_DETECTED=1
+                UMPC_MODEL="Win 4"
+                UMPC_GPD_FAN=1
+                ;;
+        esac
+    fi
+
+    # Chuwi MiniBook X (Intel N100/N150, 10.51" 1920x1200 portrait-native panel
+    # driven over DSI bridge — connector is DSI-1, not eDP-1)
+    if [[ "${sys_vendor}" == CHUWI* ]]; then
+        case "${product_name}${board_name}" in
+            *MiniBook*X*)
+                UMPC_DETECTED=1
+                UMPC_VENDOR="CHUWI"
+                UMPC_MODEL="${product_name}"
+                UMPC_PANEL_ORIENTATION="right_side_up"
+                UMPC_VIDEO_CONNECTOR="DSI-1"
+                UMPC_FBCON_ROTATE="1"
+                ;;
+        esac
+    fi
+
+    if [[ "${UMPC_DETECTED}" == "1" ]]; then
+        einfo "UMPC detected: ${UMPC_VENDOR} ${UMPC_MODEL}"
+        if [[ -n "${UMPC_PANEL_ORIENTATION}" ]]; then
+            einfo "  Panel orientation: ${UMPC_PANEL_ORIENTATION} on ${UMPC_VIDEO_CONNECTOR} (fbcon=rotate:${UMPC_FBCON_ROTATE})"
+        fi
+        [[ "${UMPC_ALC287_QUIRK}" == "1" ]] && einfo "  ALC287 Auto-Mute quirk: will install runtime fix"
+        [[ "${UMPC_GPD_FAN}" == "1" ]] && einfo "  GPD fan: will write POST-INSTALL note (manual install required)"
+    fi
+
+    export UMPC_DETECTED UMPC_VENDOR UMPC_MODEL UMPC_PANEL_ORIENTATION
+    export UMPC_VIDEO_CONNECTOR UMPC_FBCON_ROTATE UMPC_ALC287_QUIRK UMPC_GPD_FAN
+}
+
 # --- Peripheral Detection ---
 
 # detect_bluetooth — Detect Bluetooth hardware via /sys/class/bluetooth
@@ -607,6 +707,7 @@ detect_all_hardware() {
     detect_gpu
     detect_asus_rog
     detect_surface
+    detect_umpc
     detect_bluetooth
     detect_fingerprint
     detect_thunderbolt
@@ -640,6 +741,12 @@ get_hardware_summary() {
     [[ "${GPU_VENDOR:-}" == "nvidia" ]] && summary+="  Open kernel: ${GPU_USE_NVIDIA_OPEN:-no}\n"
     [[ "${ASUS_ROG_DETECTED:-0}" == "1" ]] && summary+="  ASUS ROG/TUF: detected\n"
     [[ "${SURFACE_DETECTED:-0}" == "1" ]] && summary+="  Microsoft Surface: ${SURFACE_MODEL:-detected}\n"
+    if [[ "${UMPC_DETECTED:-0}" == "1" ]]; then
+        summary+="  UMPC: ${UMPC_VENDOR} ${UMPC_MODEL}\n"
+        if [[ -n "${UMPC_PANEL_ORIENTATION:-}" ]]; then
+            summary+="    Panel rotation fix: ${UMPC_PANEL_ORIENTATION} on ${UMPC_VIDEO_CONNECTOR}\n"
+        fi
+    fi
     [[ "${BLUETOOTH_DETECTED:-0}" == "1" ]] && summary+="  Bluetooth: detected\n"
     [[ "${FINGERPRINT_DETECTED:-0}" == "1" ]] && summary+="  Fingerprint reader: detected\n"
     [[ "${THUNDERBOLT_DETECTED:-0}" == "1" ]] && summary+="  Thunderbolt: detected\n"

@@ -356,6 +356,30 @@ Noctalia Shell to shell do **Wayland compositorów** (Niri/Hyprland/Sway), NIE d
 
 **Nowe CONFIG_VARS**: `BLUETOOTH_DETECTED`, `FINGERPRINT_DETECTED`, `ENABLE_FINGERPRINT`, `THUNDERBOLT_DETECTED`, `ENABLE_THUNDERBOLT`, `SENSORS_DETECTED`, `ENABLE_SENSORS`, `WEBCAM_DETECTED`, `WWAN_DETECTED`, `ENABLE_WWAN`
 
+### UMPC Support (GPD Pocket 4 / Pocket 3, GPD Win Mini/4/Max 2, Chuwi MiniBook X)
+
+**Problem**: Portrait-native panels in UMPCs are mounted physically rotated relative to the device casing. Without correction, the entire boot chain (GRUB → fbcon → SDDM/GDM → Plasma/GNOME) renders sideways — image top appears on user's LEFT instead of TOP.
+
+**Detection** (`lib/hardware.sh` `detect_umpc`): DMI-based. Sets `UMPC_DETECTED=0/1`, `UMPC_VENDOR`, `UMPC_MODEL`, `UMPC_PANEL_ORIENTATION` (right_side_up), `UMPC_VIDEO_CONNECTOR` (eDP-1 for GPD, DSI-1 for Chuwi), `UMPC_FBCON_ROTATE` (1 = 90° CW), plus per-device feature flags `UMPC_ALC287_QUIRK` and `UMPC_GPD_FAN`. Called from `detect_all_hardware`.
+
+**DMI matches**:
+- GPD Pocket 4 — `sys_vendor=GPD`, `product_name=G1628-04` (portrait, ALC287 quirk, fan note)
+- GPD Pocket 3 — `sys_vendor=GPD`, `product_name=G1618-03` (portrait, fan note)
+- GPD Win Mini — `G1617*` (landscape — no rotation, fan note only)
+- GPD Win 4 — `G1618-04` (landscape, fan note)
+- GPD Win Max 2 — `G1619-04`/`G1619-05` (landscape, fan note)
+- Chuwi MiniBook X — `sys_vendor=CHUWI*`, `product_name=*MiniBook X*` (portrait, DSI-1 connector, no fan/audio quirks)
+
+**Panel rotation** (`lib/bootloader.sh` `_configure_grub`): When `UMPC_PANEL_ORIENTATION` is set, appends to `GRUB_CMDLINE_LINUX_DEFAULT`: `fbcon=rotate:${UMPC_FBCON_ROTATE} video=${UMPC_VIDEO_CONNECTOR}:panel_orientation=${UMPC_PANEL_ORIENTATION}`. Persists across kernel updates because dotfiles wizard / installkernel only regenerate `grub.cfg` via `grub-mkconfig` from `/etc/default/grub`, never overwriting `GRUB_CMDLINE_LINUX_DEFAULT`. Empirically validated by Rubenduburck/gpd-pocket-4-linux and sonnyp/linux-minibook-x — `right_side_up` + `fbcon=rotate:1` is the canonical pair for both.
+
+**Runtime quirks** (`lib/umpc.sh` `umpc_apply_quirks`): Called from chroot phase `umpc_quirks` (after `extras`, before `finalize` — so alsa-utils from PipeWire stack is installed). Skipped silently when `UMPC_DETECTED=0`.
+
+- **ALC287 Auto-Mute fix** (`_umpc_install_alc287_unmute`): GPD Pocket 4 ships with Auto-Mute enabled and unreliable jack detection → speakers silent. Fix: install `/usr/local/sbin/alc287-unmute` which runs `amixer -c 0 sset 'Auto-Mute Mode' Disabled` plus unmute Master/Speaker/Headphone/PCM at every boot. Triggered by systemd unit `alc287-unmute.service` (After=sound.target, Type=oneshot, RemainAfterExit) OR OpenRC `/etc/local.d/alc287-unmute.start` (local service is part of default runlevel).
+- **GPD fan daemon note** (`_umpc_write_gpd_fan_note`): No Gentoo ebuild for `gpd-fan-daemon` in main tree or GURU. Writes manual install instructions to `/root/POST-INSTALL-NOTES.txt` (DKMS for `gpd-fan` kernel module + `cargo build` for userspace daemon from Cryolitia/gpd-fan-daemon).
+- **Quirks summary** (`_umpc_append_summary`): Logs everything applied + override instructions to `/root/POST-INSTALL-NOTES.txt` so user can audit and adjust panel orientation values if wrong on first boot.
+
+**New CONFIG_VARS**: `UMPC_DETECTED`, `UMPC_VENDOR`, `UMPC_MODEL`, `UMPC_PANEL_ORIENTATION`, `UMPC_VIDEO_CONNECTOR`, `UMPC_FBCON_ROTATE`, `UMPC_ALC287_QUIRK`, `UMPC_GPD_FAN`. **New checkpoint**: `umpc_quirks` (between `extras` and `finalize`).
+
 ### gum TUI backend
 
 Trzeci backend TUI obok `dialog` i `whiptail`. Statyczny binary zaszyty w repo jako `data/gum.tar.gz` (gum v0.17.0, ~4.5 MB). Zero zależności od sieci.
@@ -434,6 +458,7 @@ bash tests/test_validate.sh    # Config validation before install (31 assertions
 bash tests/test_shrink.sh      # Partition shrink planning and helpers (37 assertions)
 bash tests/test_surface.sh     # Surface detection, config vars, kernel types, inference (25 assertions)
 bash tests/test_peripherals.sh # Peripheral detection, config vars, inference (30 assertions)
+bash tests/test_umpc.sh        # UMPC detection (GPD Pocket/Win, Chuwi MiniBook X) + GRUB cmdline (36 assertions)
 ```
 
 Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `DRY_RUN=1` i `NON_INTERACTIVE=1`.
@@ -474,6 +499,7 @@ Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `D
 - **Shim binary w podkatalogu z wersją**: Gentoo `sys-boot/shim` instaluje `shimx64.efi` w `/usr/share/shim/15.8/` (podkatalog z wersją), nie bezpośrednio w `/usr/share/shim/`. `_setup_shim()` w `secureboot.sh` używa `find` rekursywnie zamiast sprawdzania fixed paths.
 - **`STAGE3_FILE` unbound przy resume**: Gdy `stage3_download` checkpoint przetrwa ale faza jest pominięta, `STAGE3_FILE` nie jest ustawione. `stage3_verify()`/`stage3_extract()` używają `_find_stage3_file()` do fallback — szuka `stage3-amd64-*.tar.xz` na `MOUNTPOINT`.
 - **`infer_config_from_partition` i testowanie**: Przy `_RESUME_TEST_DIR` ustawionym, `infer_config_from_partition` używa `_RESUME_TEST_DIR/mnt/<part>` zamiast prawdziwego mount. UUID resolver (`_resolve_uuid`) czyta z `_INFER_UUID_MAP` file zamiast `blkid -U`. Parsowanie make.conf: single-line only (nie obsługuje backslash continuation).
+- **`[[ -n "$x" ]] && cmd` pod `set -e` + `inherit_errexit` w funkcjach testowych**: Gdy `x` jest pustym stringiem, `[[ -n "" ]]` zwraca exit 1, `&&` short-circuituje, ostatnia komenda funkcji ma rc=1 → funkcja exituje z rc=1 → `set -e` zabija test. Rozwiązanie: użyć pełnego `if [[ -n "$x" ]]; then ...; fi`. Bug łapał się w test_umpc.sh przy opcjonalnym board_name.
 
 ## Debugowanie podczas instalacji na żywym sprzęcie
 
