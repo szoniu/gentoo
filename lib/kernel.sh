@@ -200,10 +200,19 @@ _patch_kernel_config() {
         required_modules[CONFIG_SND_SOC_INTEL_SOF_ES8336_MACH]="m"
     fi
 
-    # AMD CPU → pinctrl for I2C bus
+    # AMD CPU → pinctrl for I2C bus + SOF/ACP audio. Modern AMD laptops
+    # (Framework 13 AMD, Ryzen 7040 "Phoenix"/Rembrandt/Renoir) route audio
+    # through the AMD Audio Co-Processor via SOF. Symmetric to the Intel SOF
+    # block above — without these genkernel builds a kernel with no sound.
+    # olddefconfig pulls the ACP machine deps. Harmless on AMD without ACP.
     if grep -qi 'AuthenticAMD' /proc/cpuinfo 2>/dev/null; then
-        einfo "  AMD CPU detected — adding PINCTRL_AMD"
+        einfo "  AMD CPU detected — adding PINCTRL_AMD, SOF/ACP audio"
         required_modules[CONFIG_PINCTRL_AMD]="m"
+        required_modules[CONFIG_SND_SOC_SOF_AMD_TOPLEVEL]="y"
+        required_modules[CONFIG_SND_SOC_SOF_AMD_RENOIR]="m"
+        required_modules[CONFIG_SND_SOC_SOF_AMD_REMBRANDT]="m"
+        required_modules[CONFIG_SND_SOC_SOF_AMD_ACP63]="m"
+        required_modules[CONFIG_SND_SOC_AMD_ACP_COMMON]="m"
     fi
 
     # AMD GPU detected — force amdgpu/radeon DRM so localmodconfig can't prune
@@ -341,13 +350,17 @@ kernel_install() {
     # Always install linux-firmware first
     try "Installing linux-firmware" emerge --quiet sys-kernel/linux-firmware
 
+    # SOF audio firmware — needed by BOTH Intel (HDA/SOF ultrabooks) and AMD
+    # (ACP/SOF: Framework 13 AMD, Ryzen 7040 Phoenix/Rembrandt). linux-firmware
+    # does NOT carry the SOF topology/firmware for AMD ACP, so without this the
+    # speakers are silent on AMD even with dist-kernel. Install unconditionally.
+    try "Installing SOF audio firmware" emerge --quiet sys-firmware/sof-firmware
+
     # Install Intel microcode for Intel CPUs (security + stability patches).
     # AMD microcode is bundled in sys-kernel/linux-firmware (no separate package
     # in Gentoo — different from Intel's licensing model).
     if grep -qi 'GenuineIntel' /proc/cpuinfo 2>/dev/null; then
         try "Installing Intel microcode" emerge --quiet sys-firmware/intel-microcode
-        # SOF firmware for Intel HDA/SOF audio (HP Dragonfly, modern ultrabooks, etc.)
-        try "Installing SOF audio firmware" emerge --quiet sys-firmware/sof-firmware
     fi
 
     # Configure installkernel with GRUB support
