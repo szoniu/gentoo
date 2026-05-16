@@ -105,30 +105,37 @@ detect_gpu() {
         # Also: NVIDIA is always dGPU, Intel is always iGPU
         local igpu_idx=-1 dgpu_idx=-1
         local i
+        # Classify by vendor first; defer AMD until we know the full set.
+        # NVIDIA is always discrete, Intel always integrated. The old "AMD
+        # on PCI bus 00 = iGPU" heuristic was wrong: modern AMD APU iGPUs
+        # sit on a high bus (c1:/64:), never 00 (that's the Intel iGPU
+        # slot) — so AMD-iGPU + NVIDIA-dGPU laptops (Legion AMD, ROG AMD)
+        # were misclassified and lost hybrid/PRIME/nvidia-modeset.
+        local -a amd_idxs=()
         for (( i=0; i<${#gpu_lines[@]}; i++ )); do
-            local slot="${gpu_slots[$i]}"
             local vendor="${gpu_vendors[$i]}"
-            local slot_bus="${slot%%:*}"
-
-            # NVIDIA is always discrete
-            if [[ "${vendor}" == "nvidia" ]]; then
-                dgpu_idx=${i}
-                continue
-            fi
-
-            # Intel is always integrated
-            if [[ "${vendor}" == "intel" ]]; then
-                igpu_idx=${i}
-                continue
-            fi
-
-            # AMD: use PCI slot heuristic — bus 00 = iGPU, otherwise dGPU
-            if [[ "${slot_bus}" == "00" ]]; then
-                igpu_idx=${i}
-            else
-                dgpu_idx=${i}
-            fi
+            case "${vendor}" in
+                nvidia) dgpu_idx=${i} ;;
+                intel)  igpu_idx=${i} ;;
+                amd)    amd_idxs+=("${i}") ;;
+            esac
         done
+
+        if (( ${#amd_idxs[@]} == 1 )); then
+            if [[ ${dgpu_idx} -ge 0 && ${igpu_idx} -lt 0 ]]; then
+                igpu_idx=${amd_idxs[0]}        # AMD iGPU + NVIDIA dGPU
+            elif [[ ${igpu_idx} -ge 0 && ${dgpu_idx} -lt 0 ]]; then
+                dgpu_idx=${amd_idxs[0]}        # Intel iGPU + AMD dGPU
+            else
+                dgpu_idx=${amd_idxs[0]}        # AMD as the extra GPU
+            fi
+        elif (( ${#amd_idxs[@]} >= 2 )); then
+            # AMD iGPU + AMD dGPU (e.g. Framework 16). Same amdgpu driver
+            # and VIDEO_CARDS either way — assign deterministically so the
+            # hybrid setup is reported correctly.
+            igpu_idx=${amd_idxs[0]}
+            dgpu_idx=${amd_idxs[1]}
+        fi
 
         # If we found both iGPU and dGPU — hybrid setup
         if [[ ${igpu_idx} -ge 0 && ${dgpu_idx} -ge 0 ]]; then
