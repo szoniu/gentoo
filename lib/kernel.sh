@@ -146,6 +146,12 @@ _patch_kernel_config() {
     local -A required_modules=(
         # NVMe storage (must be built-in, not module — needed before root mount)
         [CONFIG_BLK_DEV_NVME]="y"
+        # Intel VMD / RST "RAID On" — Dell XPS, many Lenovo/HP laptops ship
+        # with the NVMe behind the VMD controller by default; without this
+        # the disk is invisible. Built-in (same reason as NVMe). The common
+        # footgun: user installs after switching BIOS to AHCI, then reverts
+        # to RAID On for a Windows dual-boot → unbootable. Harmless w/o VMD.
+        [CONFIG_VMD]="y"
         # eMMC storage — UMPCs/tablets (Chuwi MiniBook X, GPD, x86 tablets) boot
         # from /dev/mmcblk0, not NVMe. Must be built-in for the same reason as
         # NVMe: defconfig ships SDHCI_ACPI as =m and localmodconfig (run from a
@@ -181,11 +187,17 @@ _patch_kernel_config() {
 
     # Intel CPU → Intel GPU, SOF audio, thermald support
     if grep -qi 'GenuineIntel' /proc/cpuinfo 2>/dev/null; then
-        einfo "  Intel CPU detected — adding i915, SOF audio"
+        einfo "  Intel CPU detected — adding i915, SOF audio, pinctrl"
         required_modules[CONFIG_DRM_I915]="m"
         required_modules[CONFIG_SND_SOC_SOF_TOPLEVEL]="y"
         required_modules[CONFIG_SND_SOC_SOF_PCI_DEV]="m"
         required_modules[CONFIG_SND_SOC_SOF_INTEL_TOPLEVEL]="y"
+        # Intel pinctrl — symmetric to CONFIG_PINCTRL_AMD below. The I2C/GPIO
+        # controller behind the I2C-HID touchpad needs this; without it the
+        # touchpad IRQ never fires (e.g. Dell XPS 13 Plus on a stray ISO).
+        required_modules[CONFIG_PINCTRL_INTEL]="y"
+        required_modules[CONFIG_PINCTRL_ALDERLAKE]="m"
+        required_modules[CONFIG_PINCTRL_TIGERLAKE]="m"
     fi
 
     # UMPC audio: Chuwi MiniBook X (and many low-cost Intel UMPCs/x86 tablets)
@@ -198,6 +210,20 @@ _patch_kernel_config() {
         einfo "  UMPC detected — adding ES8336 SOF audio machine driver"
         required_modules[CONFIG_SND_SOC_ES8316]="m"
         required_modules[CONFIG_SND_SOC_INTEL_SOF_ES8336_MACH]="m"
+    fi
+
+    # Cirrus CS35L41 smart-amp speakers (Dell XPS 13 Plus, many Dell/Lenovo
+    # /HP laptops) — exposed as the ACPI HID CSC3551 with multiple amp
+    # instances bound via serial-multi-instantiate. Vendor-agnostic gate on
+    # the ACPI device. Without these the speakers are silent (headphone jack
+    # via plain HDA/SOF may still work). olddefconfig pulls the machine deps.
+    if ls -d /sys/bus/acpi/devices/CSC3551:* &>/dev/null 2>&1; then
+        einfo "  CS35L41 smart-amp detected — adding codec + SSP AMP machine"
+        required_modules[CONFIG_SND_SOC_CS35L41]="m"
+        required_modules[CONFIG_SND_SOC_CS35L41_SPI]="m"
+        required_modules[CONFIG_SND_SOC_CS35L41_I2C]="m"
+        required_modules[CONFIG_SERIAL_MULTI_INSTANTIATE]="m"
+        required_modules[CONFIG_SND_SOC_INTEL_SOF_CS35L41_MACH]="m"
     fi
 
     # AMD CPU → pinctrl for I2C bus + SOF/ACP audio. Modern AMD laptops
