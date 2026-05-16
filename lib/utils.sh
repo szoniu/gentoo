@@ -208,8 +208,16 @@ has_network() {
 # checkpoint_set — Mark a phase as completed
 checkpoint_set() {
     local name="$1"
+    local meta="${2:-}"
     mkdir -p "${CHECKPOINT_DIR}"
-    touch "${CHECKPOINT_DIR}/${name}"
+    # Optional metadata is stored as the checkpoint file's content so a later
+    # resume can tell *what* was done, not just *that* it was done (e.g. which
+    # kernel type was built — see checkpoint_validate "kernel").
+    if [[ -n "${meta}" ]]; then
+        printf '%s\n' "${meta}" > "${CHECKPOINT_DIR}/${name}"
+    else
+        touch "${CHECKPOINT_DIR}/${name}"
+    fi
     einfo "Checkpoint set: ${name}"
 }
 
@@ -243,7 +251,21 @@ checkpoint_validate() {
         chroot)
             [[ -f "${MOUNTPOINT}${CHECKPOINT_DIR_SUFFIX}/finalize" ]] ;;
         kernel)
-            ls "${MOUNTPOINT}/boot/vmlinuz-"* &>/dev/null 2>&1 || ls /boot/vmlinuz-* &>/dev/null 2>&1 ;;
+            # A vmlinuz must exist on the target...
+            if ! ls "${MOUNTPOINT}/boot/vmlinuz-"* &>/dev/null 2>&1 && \
+               ! ls /boot/vmlinuz-* &>/dev/null 2>&1; then
+                return 1
+            fi
+            # ...and it must be the kernel type the user wants *now*. The
+            # checkpoint file records the type it was built for; if the user
+            # switched (e.g. dist-kernel → genkernel on a re-run or --resume)
+            # the recorded type won't match KERNEL_TYPE, so the phase must
+            # re-run instead of silently keeping the old kernel.
+            local recorded
+            recorded=$(cat "${CHECKPOINT_DIR}/kernel" 2>/dev/null) || true
+            recorded="${recorded//[[:space:]]/}"
+            [[ -z "${recorded}" ]] && return 0  # legacy checkpoint (no type) — trust it
+            [[ "${recorded}" == "${KERNEL_TYPE:-dist-kernel}" ]] ;;
         *)
             return 0 ;;  # trust checkpoint for the rest
     esac

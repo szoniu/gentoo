@@ -25,6 +25,25 @@ _set_kernel_extraversion() {
     einfo "Kernel EXTRAVERSION set to: ${current}${suffix}"
 }
 
+# _set_kernel_keyword — Record the ~amd64 keyword for the chosen kernel source
+# package and DROP the keyword line of the other one. The keyword file was
+# previously append-only: switching dist-kernel ⇄ genkernel left BOTH
+# "sys-kernel/gentoo-kernel-bin ~amd64" and "sys-kernel/gentoo-sources ~amd64"
+# behind, which then made _infer_from_kernel_keywords (resume/inference)
+# mis-detect the kernel type (it checks gentoo-kernel-bin first and returns).
+# Surface keywords live in a separate file (package.accept_keywords/surface-*)
+# and are intentionally untouched here.
+_set_kernel_keyword() {
+    local keep="$1" drop="$2"
+    local kw_file="/etc/portage/package.accept_keywords/kernel"
+    mkdir -p /etc/portage/package.accept_keywords
+    if [[ -f "${kw_file}" ]]; then
+        sed -i "\|^${drop} |d" "${kw_file}" 2>/dev/null || true
+    fi
+    grep -qxF "${keep} ~amd64" "${kw_file}" 2>/dev/null || \
+        echo "${keep} ~amd64" >> "${kw_file}" 2>/dev/null || true
+}
+
 # _apply_surface_config_fragment — Apply official linux-surface config fragment
 # The fragment sets critical options like SERIAL_DEV_BUS=y, SAM modules,
 # camera drivers, IPTS/ITHC, sensors, etc. Without this, battery and other
@@ -391,10 +410,9 @@ _configure_dracut_root() {
 kernel_install_dist() {
     einfo "Installing distribution kernel..."
 
-    # Accept ~amd64 for latest kernel if needed
-    mkdir -p /etc/portage/package.accept_keywords
-    grep -qxF "sys-kernel/gentoo-kernel-bin ~amd64" /etc/portage/package.accept_keywords/kernel 2>/dev/null || \
-        echo "sys-kernel/gentoo-kernel-bin ~amd64" >> /etc/portage/package.accept_keywords/kernel 2>/dev/null || true
+    # Accept ~amd64 for latest kernel if needed (drops a stale genkernel
+    # keyword line if the user previously chose genkernel)
+    _set_kernel_keyword "sys-kernel/gentoo-kernel-bin" "sys-kernel/gentoo-sources"
 
     # Try binary kernel first (much faster)
     # --autounmask-write --autounmask-continue: deps may also need ~amd64,
@@ -419,10 +437,21 @@ kernel_install_dist() {
 kernel_install_genkernel() {
     einfo "Installing kernel with genkernel..."
 
-    # Accept ~amd64 for latest kernel sources
-    mkdir -p /etc/portage/package.accept_keywords
-    grep -qxF "sys-kernel/gentoo-sources ~amd64" /etc/portage/package.accept_keywords/kernel 2>/dev/null || \
-        echo "sys-kernel/gentoo-sources ~amd64" >> /etc/portage/package.accept_keywords/kernel 2>/dev/null || true
+    # Accept ~amd64 for latest kernel sources (drops a stale dist-kernel
+    # keyword line if the user previously chose dist-kernel)
+    _set_kernel_keyword "sys-kernel/gentoo-sources" "sys-kernel/gentoo-kernel-bin"
+
+    # If a dist-kernel was installed on a previous run (re-install / --resume
+    # with a changed choice), purge it: otherwise GRUB lists and may default
+    # to the stale binary kernel next to the genkernel build, and its dracut
+    # initramfs / root.conf linger. No-op on a clean install.
+    if ls -d /var/db/pkg/sys-kernel/gentoo-kernel* &>/dev/null 2>&1; then
+        ewarn "Removing previously-installed dist-kernel (switching to genkernel)"
+        emerge --unmerge --quiet sys-kernel/gentoo-kernel-bin sys-kernel/gentoo-kernel &>/dev/null || true
+        rm -f /boot/vmlinuz-*-gentoo-dist /boot/initramfs-*-gentoo-dist* \
+              /boot/System.map-*-gentoo-dist /boot/config-*-gentoo-dist 2>/dev/null || true
+        rm -f /etc/dracut.conf.d/root.conf 2>/dev/null || true
+    fi
 
     # Install gentoo-sources
     # --autounmask-write --autounmask-continue: deps may also need ~amd64

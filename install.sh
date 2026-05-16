@@ -370,7 +370,7 @@ _do_chroot_phases() {
         maybe_exec 'before_kernel'
         kernel_install
         maybe_exec 'after_kernel'
-        checkpoint_set "kernel"
+        checkpoint_set "kernel" "${KERNEL_TYPE:-dist-kernel}"
     else
         einfo "Skipping kernel (checkpoint reached)"
     fi
