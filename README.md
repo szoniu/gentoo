@@ -486,7 +486,13 @@ bash tests/test_validate.sh     # Config validation before install
 bash tests/test_surface.sh      # Surface detection, kernel types, inference
 bash tests/test_peripherals.sh  # Peripheral detection + inference
 bash tests/test_shrink.sh       # Shrink wizard partition resizing
+bash tests/test_umpc.sh         # UMPC detection (GPD/Chuwi) + GRUB cmdline
 ```
+
+> Testy zakładają środowisko GNU/Linux (GNU coreutils + GNU sed) — tak jak
+> docelowe Gentoo Live ISO. Na macOS/BSD część asercji `test_resume.sh`
+> i `test_infer_config.sh` zgłosi fałszywe niepowodzenia (`stat -c`,
+> `sed ...; T; q` to rozszerzenia GNU). Uruchamiaj testy na Linuksie.
 
 ## Struktura projektu
 

@@ -461,7 +461,7 @@ bash tests/test_peripherals.sh # Peripheral detection, config vars, inference (3
 bash tests/test_umpc.sh        # UMPC detection (GPD Pocket/Win, Chuwi MiniBook X) + GRUB cmdline (36 assertions)
 ```
 
-Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `DRY_RUN=1` i `NON_INTERACTIVE=1`.
+Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `DRY_RUN=1` i `NON_INTERACTIVE=1`. **Wymagają GNU coreutils + GNU sed** (środowisko docelowe = Gentoo Live ISO). Na macOS/BSD `test_resume.sh` (assertion permissji — `stat -c` to GNU-only) i `test_infer_config.sh` (parsowanie HOSTNAME/KEYMAP — `sed '...; T; q'` używa GNU-only `T`) zgłaszają fałszywe FAIL-e mimo poprawnego kodu. Weryfikację zmian rób na Linuksie.
 
 ## Znane wzorce i pułapki
 
