@@ -45,6 +45,7 @@ readonly USE_FLAGS_DESKTOP="${USE_FLAGS_DESKTOP_COMMON} ${USE_FLAGS_KDE}"
 get_use_flags() {
     local init_system="${1:-systemd}"
     local gpu_vendor="${2:-}"
+    local igpu_vendor="${3:-}"
 
     local use_flags
     case "${DESKTOP_TYPE:-plasma}" in
@@ -79,6 +80,18 @@ get_use_flags() {
             ;;
         intel)
             use_flags+=" ${USE_FLAGS_INTEL}"
+            ;;
+    esac
+
+    # Hybrid GPU: the dGPU vendor is in gpu_vendor (e.g. nvidia), but on
+    # Advanced Optimus the iGPU (AMD/Intel) is the primary display and does
+    # video decode — pull its USE flags (vaapi) too, else hw-decode is lost.
+    case "${igpu_vendor}" in
+        amd)
+            [[ " ${use_flags} " == *" ${USE_FLAGS_AMD} "* ]] || use_flags+=" ${USE_FLAGS_AMD}"
+            ;;
+        intel)
+            [[ " ${use_flags} " == *" ${USE_FLAGS_INTEL} "* ]] || use_flags+=" ${USE_FLAGS_INTEL}"
             ;;
     esac
 

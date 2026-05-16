@@ -316,9 +316,16 @@ _patch_kernel_config() {
         required_modules[CONFIG_MT7925E]="m"
     fi
     if lspci -nn 2>/dev/null | grep -qiE 'realtek.*(8852|8821|8822)'; then
-        einfo "  Realtek WiFi detected — adding rtw89"
+        einfo "  Realtek WiFi detected — adding rtw89 (all 8852 variants)"
         required_modules[CONFIG_RTW89]="m"
         required_modules[CONFIG_RTW89_8852CE]="m"
+        # Lenovo Legion and many others ship 8852BE/8852AE, not only CE.
+        # localmodconfig keeps just the loaded one; force all so genkernel
+        # has WiFi regardless of the exact card variant.
+        required_modules[CONFIG_RTW89_8852BE]="m"
+        required_modules[CONFIG_RTW89_8852AE]="m"
+        required_modules[CONFIG_RTW89_8822CE]="m"
+        required_modules[CONFIG_RTW89_8821CE]="m"
     fi
 
     # ASUS ROG detected — ASUS WMI and platform drivers

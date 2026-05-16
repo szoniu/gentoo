@@ -321,6 +321,46 @@ system_finalize() {
         einfo "Power management installed"
     fi
 
+    # Lenovo Legion: per-key RGB, fan curves, power/conservation mode are
+    # driven by the out-of-tree lenovo-legion-laptop module — no ebuild in
+    # the main tree or GURU (same situation as GPD's fan daemon). Write a
+    # POST-INSTALL note so the user knows it needs manual setup, instead of
+    # silently shipping without RGB/fan control.
+    if grep -qi 'LENOVO' /sys/class/dmi/id/sys_vendor 2>/dev/null && \
+       { grep -qi 'Legion' /sys/class/dmi/id/product_family 2>/dev/null || \
+         grep -qi 'Legion' /sys/class/dmi/id/product_name 2>/dev/null; }; then
+        einfo "Lenovo Legion detected — writing POST-INSTALL note"
+        mkdir -p /root
+        local lnotes=/root/POST-INSTALL-NOTES.txt
+        touch "${lnotes}"; chmod 0600 "${lnotes}"
+        local legion_model
+        legion_model=$(cat /sys/class/dmi/id/product_version 2>/dev/null) || legion_model="Legion"
+        cat >> "${lnotes}" << LEGIONEOF
+
+=== Lenovo Legion control (${legion_model}) ===
+
+Per-key RGB keyboard, custom fan curves, power/performance modes and
+battery conservation mode need the out-of-tree lenovo-legion-laptop
+kernel module — there is no Gentoo ebuild yet. The system works without
+it (fans on firmware defaults), but those features are unavailable until
+you install it manually:
+
+  # emerge --ask sys-kernel/dkms
+  git clone https://github.com/johnfanv2/LenovoLegionLinux.git
+  cd LenovoLegionLinux/kernel_module
+  sudo make dkms-install      # builds + registers via DKMS
+  sudo modprobe legion-laptop
+
+Userspace (GUI/CLI for fan curves, RGB, power modes):
+  https://github.com/johnfanv2/LenovoLegionLinux  (LenovoLegionLinux app)
+
+AMD Legion: amd_pstate is active on modern kernels; for finer control
+add 'amd_pstate=active' to GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub
+and run grub-mkconfig -o /boot/grub/grub.cfg.
+
+LEGIONEOF
+    fi
+
     # Install cpuid2cpuflags and update make.conf
     portage_install_cpuflags
 

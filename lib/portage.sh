@@ -132,7 +132,7 @@ _write_make_conf() {
     fi
 
     local use_flags
-    use_flags=$(get_use_flags "${INIT_SYSTEM:-systemd}" "${GPU_VENDOR:-}")
+    use_flags=$(get_use_flags "${INIT_SYSTEM:-systemd}" "${GPU_VENDOR:-}" "${IGPU_VENDOR:-}")
 
     cat << MAKECONF
 # /etc/portage/make.conf
