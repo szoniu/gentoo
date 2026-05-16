@@ -198,6 +198,11 @@ _patch_kernel_config() {
         required_modules[CONFIG_PINCTRL_INTEL]="y"
         required_modules[CONFIG_PINCTRL_ALDERLAKE]="m"
         required_modules[CONFIG_PINCTRL_TIGERLAKE]="m"
+        # Meteor/Lunar Lake (Core Ultra — ROG Zephyrus G16 GU605 2024 etc.)
+        # have their own pinctrl; without it the I2C-HID touchpad/sensors
+        # GPIO never comes up on a genkernel build.
+        required_modules[CONFIG_PINCTRL_METEORLAKE]="m"
+        required_modules[CONFIG_PINCTRL_LUNARLAKE]="m"
     fi
 
     # UMPC audio: Chuwi MiniBook X (and many low-cost Intel UMPCs/x86 tablets)
@@ -310,7 +315,10 @@ _patch_kernel_config() {
         required_modules[CONFIG_IWLWIFI]="m"
         required_modules[CONFIG_IWLMVM]="m"
     fi
-    if lspci -nn 2>/dev/null | grep -qiE 'mediatek.*(wireless|wi-fi|MT79)'; then
+    # Match bare "mediatek" or the 14c3 PCI vendor id too — on a live ISO
+    # without a fresh pci.ids, MT7922 shows as "MEDIATEK Corp. Device 0616"
+    # (no Wireless/Wi-Fi/MT79 string) and the old regex missed it → no WiFi.
+    if lspci -nn 2>/dev/null | grep -qiE 'mediatek|\[14c3:'; then
         einfo "  MediaTek WiFi detected — adding mt76 (MT7921E/MT7925E)"
         required_modules[CONFIG_MT7921E]="m"
         required_modules[CONFIG_MT7925E]="m"
@@ -326,6 +334,26 @@ _patch_kernel_config() {
         required_modules[CONFIG_RTW89_8852AE]="m"
         required_modules[CONFIG_RTW89_8822CE]="m"
         required_modules[CONFIG_RTW89_8821CE]="m"
+    fi
+    # Broadcom WiFi (Intel MacBooks: BCM4360/BCM43602/BCM4364, also some PC
+    # laptops). brcmfmac covers BCM43602/4364; BCM4360 often still needs the
+    # proprietary net-wireless/broadcom-sta (wl) — see the Apple POST-INSTALL
+    # note. Gate on a Broadcom *network controller* (not tg3 ethernet) or Mac.
+    if [[ "${APPLE_DETECTED:-0}" == "1" ]] || \
+       lspci -nn 2>/dev/null | grep -i 'network controller' | grep -qiE 'broadcom|\[14e4:'; then
+        einfo "  Broadcom WiFi/Mac detected — adding brcmfmac/b43/brcmsmac"
+        required_modules[CONFIG_CFG80211]="m"
+        required_modules[CONFIG_MAC80211]="m"
+        required_modules[CONFIG_BRCMUTIL]="m"
+        required_modules[CONFIG_BRCMFMAC]="m"
+        required_modules[CONFIG_BRCMFMAC_PCIE]="y"
+        required_modules[CONFIG_BRCMFMAC_USB]="y"
+        required_modules[CONFIG_BRCMSMAC]="m"
+        required_modules[CONFIG_BCMA]="m"
+        required_modules[CONFIG_BCMA_HOST_PCI]="y"
+        required_modules[CONFIG_B43]="m"
+        required_modules[CONFIG_SSB]="m"
+        required_modules[CONFIG_SSB_PCIHOST]="y"
     fi
 
     # ASUS ROG detected — ASUS WMI and platform drivers

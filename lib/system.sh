@@ -361,6 +361,46 @@ and run grub-mkconfig -o /boot/grub/grub.cfg.
 LEGIONEOF
     fi
 
+    # Apple Mac (Intel): Broadcom WiFi often needs the proprietary wl driver
+    # and/or firmware extracted from macOS; the bootloader was installed to
+    # the removable path. T2 Macs are not really supported. Tell the user.
+    if [[ "${APPLE_DETECTED:-0}" == "1" ]]; then
+        einfo "Apple Mac detected — writing POST-INSTALL note"
+        mkdir -p /root
+        local anotes=/root/POST-INSTALL-NOTES.txt
+        touch "${anotes}"; chmod 0600 "${anotes}"
+        cat >> "${anotes}" << APPLEEOF
+
+=== Apple Mac (${APPLE_MODEL:-Intel Mac}) ===
+
+GRUB was installed to the removable-media path (\\EFI\\BOOT\\BOOTX64.EFI)
+because Apple firmware does not persist normal UEFI boot entries. If the
+Mac still boots straight into macOS, hold Option (Alt) at chime and pick
+the EFI Boot volume; optionally bless it from macOS.
+
+Wi-Fi (Broadcom):
+  - BCM43602 / BCM4364: brcmfmac (in-kernel). Firmware ships in
+    sys-kernel/linux-firmware; if Wi-Fi stays down, the firmware may
+    need extracting from macOS (see linux-wifi / t2linux wiki).
+  - BCM4360 (most 2013-2017 MacBook Pro): needs the proprietary driver
+      # echo "net-wireless/broadcom-sta ~amd64" >> /etc/portage/package.accept_keywords/broadcom
+      # emerge --ask net-wireless/broadcom-sta
+    Use USB tethering / a USB Wi-Fi dongle for the first emerge.
+
+Other Mac bits not handled by the installer: apple-gmux/vga_switcheroo
+(dual-GPU MBP), facetimehd (FaceTime camera), applesmc (fans/keyboard
+backlight) — all out-of-tree, install manually if needed.
+APPLEEOF
+        if [[ "${APPLE_T2_DETECTED:-0}" == "1" ]]; then
+            cat >> "${anotes}" << 'T2EOF'
+
+*** Apple T2 chip: NOT SUPPORTED by this installer. The internal SSD and
+keyboard need the out-of-tree apple-bce module + t2linux kernel. If you
+got this far the install likely used external media. See t2linux.org. ***
+T2EOF
+        fi
+    fi
+
     # Install cpuid2cpuflags and update make.conf
     portage_install_cpuflags
 

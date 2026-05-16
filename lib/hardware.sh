@@ -195,17 +195,20 @@ detect_gpu() {
 detect_asus_rog() {
     ASUS_ROG_DETECTED=0
 
-    local board_vendor="" product_name=""
-    if [[ -f /sys/class/dmi/id/board_vendor ]]; then
-        board_vendor=$(cat /sys/class/dmi/id/board_vendor 2>/dev/null) || true
-    fi
-    if [[ -f /sys/class/dmi/id/product_name ]]; then
-        product_name=$(cat /sys/class/dmi/id/product_name 2>/dev/null) || true
-    fi
+    local board_vendor="" product_name="" product_family="" board_name=""
+    [[ -f /sys/class/dmi/id/board_vendor ]] && board_vendor=$(cat /sys/class/dmi/id/board_vendor 2>/dev/null) || true
+    [[ -f /sys/class/dmi/id/product_name ]] && product_name=$(cat /sys/class/dmi/id/product_name 2>/dev/null) || true
+    [[ -f /sys/class/dmi/id/product_family ]] && product_family=$(cat /sys/class/dmi/id/product_family 2>/dev/null) || true
+    [[ -f /sys/class/dmi/id/board_name ]] && board_name=$(cat /sys/class/dmi/id/board_name 2>/dev/null) || true
 
-    if [[ "${board_vendor}" == *"ASUSTeK"* ]] && [[ "${product_name}" =~ (ROG|TUF) ]]; then
+    # Some ASUS BIOSes put the marketing name ("ROG Zephyrus ...") only in
+    # product_family or board_name, with product_name being a bare board
+    # code (e.g. GU605MI). Match ROG/TUF across all of them so detection
+    # doesn't silently fail on those revisions.
+    if [[ "${board_vendor}" == *"ASUSTeK"* ]] && \
+       [[ "${product_name}${product_family}${board_name}" =~ (ROG|TUF) ]]; then
         ASUS_ROG_DETECTED=1
-        einfo "ASUS ROG/TUF hardware detected: ${product_name}"
+        einfo "ASUS ROG/TUF hardware detected: ${product_name:-${product_family}}"
     fi
 
     export ASUS_ROG_DETECTED
@@ -233,6 +236,35 @@ detect_surface() {
     fi
 
     export SURFACE_DETECTED SURFACE_MODEL
+}
+
+# --- Apple Mac Detection ---
+
+# detect_apple — Detect Intel MacBook/Mac hardware via DMI, and whether it
+# has the Apple T2 security chip (2018+). T2 Macs need the out-of-tree
+# apple-bce/t2linux kernel to even see the internal SSD and keyboard, which
+# this installer does NOT ship — so T2 is flagged for a hard warning.
+detect_apple() {
+    APPLE_DETECTED=0
+    APPLE_T2_DETECTED=0
+    APPLE_MODEL=""
+
+    local sys_vendor=""
+    [[ -f /sys/class/dmi/id/sys_vendor ]] && sys_vendor=$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null) || true
+
+    if [[ "${sys_vendor}" == "Apple Inc."* ]]; then
+        APPLE_DETECTED=1
+        [[ -f /sys/class/dmi/id/product_name ]] && APPLE_MODEL=$(cat /sys/class/dmi/id/product_name 2>/dev/null) || true
+        einfo "Apple Mac detected: ${APPLE_MODEL:-unknown}"
+        # T2 Macs expose an Apple-vendor (0x106b) PCI device (the T2 bridge);
+        # pre-T2 Intel Macs do not. lspci is present on the Gentoo live ISO.
+        if lspci -nn 2>/dev/null | grep -qi '\[106b:'; then
+            APPLE_T2_DETECTED=1
+            ewarn "Apple T2 chip detected — NOT supported by this installer"
+        fi
+    fi
+
+    export APPLE_DETECTED APPLE_T2_DETECTED APPLE_MODEL
 }
 
 # --- UMPC / Portrait Panel Detection ---
@@ -750,6 +782,7 @@ detect_all_hardware() {
     detect_gpu
     detect_asus_rog
     detect_surface
+    detect_apple
     detect_umpc
     detect_bluetooth
     detect_fingerprint
@@ -784,6 +817,14 @@ get_hardware_summary() {
     [[ "${GPU_VENDOR:-}" == "nvidia" ]] && summary+="  Open kernel: ${GPU_USE_NVIDIA_OPEN:-no}\n"
     [[ "${ASUS_ROG_DETECTED:-0}" == "1" ]] && summary+="  ASUS ROG/TUF: detected\n"
     [[ "${SURFACE_DETECTED:-0}" == "1" ]] && summary+="  Microsoft Surface: ${SURFACE_MODEL:-detected}\n"
+    if [[ "${APPLE_DETECTED:-0}" == "1" ]]; then
+        if [[ "${APPLE_T2_DETECTED:-0}" == "1" ]]; then
+            summary+="  Apple Mac: ${APPLE_MODEL:-detected} — !! T2 chip NOT SUPPORTED\n"
+            summary+="    (internal SSD/keyboard need apple-bce + t2linux kernel)\n"
+        else
+            summary+="  Apple Mac: ${APPLE_MODEL:-detected} (limited — GRUB removable, Broadcom Wi-Fi may need wl)\n"
+        fi
+    fi
     if [[ "${UMPC_DETECTED:-0}" == "1" ]]; then
         summary+="  UMPC: ${UMPC_VENDOR} ${UMPC_MODEL}\n"
         if [[ -n "${UMPC_PANEL_ORIENTATION:-}" ]]; then

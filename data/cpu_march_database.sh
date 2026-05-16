@@ -66,6 +66,10 @@ CPU_MARCH_MAP["GenuineIntel:6:154:154"]="alderlake"
 CPU_MARCH_MAP["GenuineIntel:6:183:183"]="raptorlake"
 CPU_MARCH_MAP["GenuineIntel:6:186:186"]="raptorlake"
 CPU_MARCH_MAP["GenuineIntel:6:191:191"]="raptorlake"
+CPU_MARCH_MAP["GenuineIntel:6:170:170"]="meteorlake"   # Meteor Lake (Core Ultra 1xxH, ROG Zephyrus G16 GU605 2024)
+CPU_MARCH_MAP["GenuineIntel:6:197:197"]="arrowlake"    # Arrow Lake-H/U
+CPU_MARCH_MAP["GenuineIntel:6:198:198"]="arrowlake"    # Arrow Lake-S
+CPU_MARCH_MAP["GenuineIntel:6:189:189"]="lunarlake"    # Lunar Lake (Core Ultra 2xxV)
 
 # lookup_cpu_march — Find -march flag for current CPU
 # Returns march flag or "x86-64" as fallback
@@ -91,8 +95,12 @@ lookup_cpu_march() {
             *)  echo "x86-64" ;;
         esac
     elif [[ "${vendor}" == "GenuineIntel" ]]; then
-        if (( model >= 183 )); then
+        if (( model >= 192 )); then
+            echo "arrowlake"
+        elif (( model >= 183 )); then
             echo "raptorlake"
+        elif (( model >= 170 )); then
+            echo "meteorlake"
         elif (( model >= 151 )); then
             echo "alderlake"
         elif (( model >= 140 )); then

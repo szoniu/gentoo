@@ -1149,7 +1149,16 @@ setup_rog_overlay() {
         try "Installing eselect-repository" emerge --quiet app-eselect/eselect-repository
     fi
 
-    try "Enabling zGentoo overlay" eselect repository enable zgentoo
+    # Prefer the official eselect entry, but it depends on the bundled
+    # repositories.xml — if zgentoo isn't listed there, add it by explicit
+    # git URL (like the Surface overlay) so a missing/stale repositories.xml
+    # doesn't make asusctl/supergfxctl uninstallable.
+    if eselect repository list 2>/dev/null | grep -qi 'zgentoo'; then
+        try "Enabling zGentoo overlay" eselect repository enable zgentoo
+    else
+        try "Adding zGentoo overlay (git)" \
+            eselect repository add zgentoo git https://github.com/Sma-Das/zGentoo.git
+    fi
     try "Syncing zGentoo overlay" emerge --sync zgentoo
 }
 

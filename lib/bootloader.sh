@@ -26,9 +26,24 @@ bootloader_install() {
     local grub_target="/efi"
     local grub_id="Gentoo"
 
-    try "Installing GRUB to ESP" \
+    # Apple firmware does not reliably persist UEFI NVRAM boot entries — it
+    # rebuilds the boot list from its own bless database, so a normal
+    # grub-install (Gentoo/grubx64.efi + efibootmgr entry) leaves the Mac
+    # unable to find GRUB after a reboot. Install to the removable-media
+    # fallback path (\EFI\BOOT\BOOTX64.EFI) which Apple always tries.
+    if [[ "${APPLE_DETECTED:-0}" == "1" ]]; then
+        einfo "Apple Mac — installing GRUB to removable-media path (BOOTX64.EFI)"
+        try "Installing GRUB to ESP (Apple removable)" \
+            grub-install --target=x86_64-efi --efi-directory="${grub_target}" \
+            --bootloader-id="${grub_id}" --removable --recheck
+        # Also install the normal entry as a best-effort secondary
         grub-install --target=x86_64-efi --efi-directory="${grub_target}" \
-        --bootloader-id="${grub_id}" --recheck
+            --bootloader-id="${grub_id}" --recheck &>/dev/null || true
+    else
+        try "Installing GRUB to ESP" \
+            grub-install --target=x86_64-efi --efi-directory="${grub_target}" \
+            --bootloader-id="${grub_id}" --recheck
+    fi
 
     # Configure GRUB
     _configure_grub
