@@ -252,6 +252,10 @@ _patch_kernel_config() {
         required_modules[CONFIG_VIDEO_OV2740]="m"
         required_modules[CONFIG_VIDEO_OV01A10]="m"
         required_modules[CONFIG_VIDEO_HI556]="m"
+        # Dell Latitude/Precision and some Lenovo/HP SKUs use other sensors
+        required_modules[CONFIG_VIDEO_OV05C10]="m"
+        required_modules[CONFIG_VIDEO_OV08X40]="m"
+        required_modules[CONFIG_VIDEO_OV13B10]="m"
     fi
 
     # AMD CPU → pinctrl for I2C bus + SOF/ACP audio. Modern AMD laptops
@@ -316,6 +320,22 @@ _patch_kernel_config() {
     if grep -qiE 'HP|Hewlett-Packard' /sys/class/dmi/id/sys_vendor 2>/dev/null; then
         einfo "  HP detected — adding HP_WMI"
         required_modules[CONFIG_HP_WMI]="m"
+    fi
+
+    # Dell detected (DMI) — dell-laptop/dell-wmi/dell-smbios drive Fn keys,
+    # keyboard backlight, battery charge thresholds, rfkill, and on Latitude/
+    # Precision the hardware Privacy mic/camera mute LED + kill switch.
+    # localmodconfig on a live ISO that never loaded them would prune them.
+    # Symmetric to ThinkPad/HP/ASUS above.
+    if grep -qi 'Dell' /sys/class/dmi/id/sys_vendor 2>/dev/null; then
+        einfo "  Dell detected — adding DELL_LAPTOP/WMI/SMBIOS"
+        required_modules[CONFIG_DELL_LAPTOP]="m"
+        required_modules[CONFIG_DELL_WMI]="m"
+        required_modules[CONFIG_DELL_SMBIOS]="m"
+        required_modules[CONFIG_DELL_SMBIOS_WMI]="y"
+        required_modules[CONFIG_DELL_SMBIOS_SMM]="y"
+        required_modules[CONFIG_DELL_RBTN]="m"
+        required_modules[CONFIG_DELL_WMI_PRIVACY]="y"
     fi
 
     # NVIDIA GPU detected — ensure DRM support for nvidia-drivers

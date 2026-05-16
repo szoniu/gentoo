@@ -420,7 +420,7 @@ sensors and built PipeWire with the libcamera plugin. After first boot:
 
   1. Firmware: ships in sys-kernel/linux-firmware (intel/ipu/). If the
      camera is dead, ensure linux-firmware is recent and the sensor
-     module loaded:  dmesg | grep -iE 'ipu6|ov02c10|ov2740|hi556|int3472'
+     module loaded:  dmesg | grep -iE 'ipu6|ov0[125]|ov2740|ov08x|ov13b|hi556|int3472'
   2. Test with libcamera:  cam -l   (lists cameras),  qcam  (preview)
   3. PipeWire exposes it to Wayland/Pipewire-aware apps automatically
      (KDE/GNOME camera, Firefox via PipeWire). Verify:  wpctl status
