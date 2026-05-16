@@ -286,6 +286,15 @@ _patch_kernel_config() {
         required_modules[CONFIG_THINKPAD_ACPI]="m"
     fi
 
+    # HP detected (DMI) — hp-wmi drives Fn keys, keyboard backlight, rfkill
+    # and the thermal platform_profile (performance/quiet — important on HP
+    # Omen gaming laptops). localmodconfig on a live ISO that never loaded
+    # hp_wmi would otherwise prune it. Symmetric to ThinkPad/ASUS above.
+    if grep -qiE 'HP|Hewlett-Packard' /sys/class/dmi/id/sys_vendor 2>/dev/null; then
+        einfo "  HP detected — adding HP_WMI"
+        required_modules[CONFIG_HP_WMI]="m"
+    fi
+
     # NVIDIA GPU detected — ensure DRM support for nvidia-drivers
     if [[ "${GPU_VENDOR:-}" == "nvidia" ]] || [[ "${DGPU_VENDOR:-}" == "nvidia" ]]; then
         einfo "  NVIDIA GPU detected — adding DRM, FB_EFI"

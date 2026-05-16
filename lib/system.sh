@@ -361,6 +361,47 @@ and run grub-mkconfig -o /boot/grub/grub.cfg.
 LEGIONEOF
     fi
 
+    # HP Omen: per-key RGB and aggressive fan curves need out-of-tree
+    # modules with no Gentoo ebuild (hp-omen-linux-module + omen-fan) —
+    # same situation as Legion. hp-wmi (in-kernel) only gives the 3-step
+    # platform_profile. Without a note the user's gaming laptop ships
+    # with no RGB and firmware-default fans (throttling / loud).
+    if grep -qiE 'HP|Hewlett-Packard' /sys/class/dmi/id/sys_vendor 2>/dev/null && \
+       { grep -qi 'OMEN' /sys/class/dmi/id/product_family 2>/dev/null || \
+         grep -qi 'OMEN' /sys/class/dmi/id/product_name 2>/dev/null; }; then
+        einfo "HP Omen detected — writing POST-INSTALL note"
+        mkdir -p /root
+        local onotes=/root/POST-INSTALL-NOTES.txt
+        touch "${onotes}"; chmod 0600 "${onotes}"
+        local omen_model
+        omen_model=$(cat /sys/class/dmi/id/product_name 2>/dev/null) || omen_model="OMEN"
+        cat >> "${onotes}" << OMENEOF
+
+=== HP Omen control (${omen_model}) ===
+
+Function keys, keyboard backlight and the thermal platform_profile work
+via the in-kernel hp-wmi driver:
+  cat /sys/firmware/acpi/platform_profile_choices
+  echo performance | sudo tee /sys/firmware/acpi/platform_profile
+
+Per-key RGB and custom fan curves need out-of-tree modules — no Gentoo
+ebuild exists yet:
+
+  # emerge --ask sys-kernel/dkms
+  git clone https://github.com/pelrun/hp-omen-linux-module.git
+  cd hp-omen-linux-module && sudo make dkms-install
+  sudo modprobe hp-wmi    # then /sys/devices/platform/hp-wmi/rgb_zones/*
+
+  # Fan control daemon (custom curves):
+  git clone https://github.com/alou-S/omen-fan.git
+  # follow its README (Python; installs an omen-fan systemd service)
+
+power-profiles-daemon (already installed) maps onto platform_profile, so
+GNOME/KDE power modes will switch HP performance/quiet out of the box.
+
+OMENEOF
+    fi
+
     # Apple Mac (Intel): Broadcom WiFi often needs the proprietary wl driver
     # and/or firmware extracted from macOS; the bootloader was installed to
     # the removable path. T2 Macs are not really supported. Tell the user.
