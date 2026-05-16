@@ -146,6 +146,16 @@ _patch_kernel_config() {
     local -A required_modules=(
         # NVMe storage (must be built-in, not module — needed before root mount)
         [CONFIG_BLK_DEV_NVME]="y"
+        # eMMC storage — UMPCs/tablets (Chuwi MiniBook X, GPD, x86 tablets) boot
+        # from /dev/mmcblk0, not NVMe. Must be built-in for the same reason as
+        # NVMe: defconfig ships SDHCI_ACPI as =m and localmodconfig (run from a
+        # USB-booted live ISO that never touched the eMMC) prunes it → kernel
+        # panic "unable to mount root fs". Harmless on machines without eMMC.
+        [CONFIG_MMC]="y"
+        [CONFIG_MMC_BLOCK]="y"
+        [CONFIG_MMC_SDHCI]="y"
+        [CONFIG_MMC_SDHCI_PCI]="y"
+        [CONFIG_MMC_SDHCI_ACPI]="y"
         # I2C HID touchpads (ThinkPad, Dell XPS, HP, Framework, most modern laptops)
         [CONFIG_I2C_HID_ACPI]="m"
         [CONFIG_I2C_DESIGNWARE_PLATFORM]="m"
@@ -176,6 +186,18 @@ _patch_kernel_config() {
         required_modules[CONFIG_SND_SOC_SOF_TOPLEVEL]="y"
         required_modules[CONFIG_SND_SOC_SOF_PCI_DEV]="m"
         required_modules[CONFIG_SND_SOC_SOF_INTEL_TOPLEVEL]="y"
+    fi
+
+    # UMPC audio: Chuwi MiniBook X (and many low-cost Intel UMPCs/x86 tablets)
+    # use the Everest ES8336 codec on an SSP/I2C link driven by SOF. The
+    # generic SOF toplevel above is necessary but NOT sufficient — the speakers
+    # stay silent without the ES8336 machine driver + ES8316 codec, which
+    # defconfig leaves =n and localmodconfig can't recover. olddefconfig pulls
+    # in the SOF/HDA machine deps. Harmless module on devices without ES8336.
+    if [[ "${UMPC_DETECTED:-0}" == "1" ]]; then
+        einfo "  UMPC detected — adding ES8336 SOF audio machine driver"
+        required_modules[CONFIG_SND_SOC_ES8316]="m"
+        required_modules[CONFIG_SND_SOC_INTEL_SOF_ES8336_MACH]="m"
     fi
 
     # AMD CPU → pinctrl for I2C bus
