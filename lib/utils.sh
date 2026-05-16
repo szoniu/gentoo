@@ -182,6 +182,18 @@ is_root() {
     [[ "$(id -u)" -eq 0 ]]
 }
 
+# is_supported_arch — This installer is hardwired for amd64/x86-64 (stage3
+# URL, portage profiles, GRUB x86_64-efi target, bundled x86-64 gum binary).
+# On any other arch (e.g. aarch64 — Microsoft Surface Laptop 7 / Snapdragon X,
+# ARM laptops/SBCs) it would download an amd64 stage3, WIPE THE DISK, then
+# die on the first chroot exec. Refuse before anything destructive.
+is_supported_arch() {
+    case "$(uname -m 2>/dev/null)" in
+        x86_64|amd64) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # ensure_dns — Add fallback nameserver if DNS resolution fails
 ensure_dns() {
     # Quick check — if DNS works, nothing to do
