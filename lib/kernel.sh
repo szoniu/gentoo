@@ -222,13 +222,36 @@ _patch_kernel_config() {
     # instances bound via serial-multi-instantiate. Vendor-agnostic gate on
     # the ACPI device. Without these the speakers are silent (headphone jack
     # via plain HDA/SOF may still work). olddefconfig pulls the machine deps.
-    if ls -d /sys/bus/acpi/devices/CSC3551:* &>/dev/null 2>&1; then
+    # CSC3551 (Dell/ASUS/HP) or CLSA0100 (some Lenovo ThinkPad X1 Gen11/12).
+    if ls -d /sys/bus/acpi/devices/CSC3551:* &>/dev/null 2>&1 || \
+       ls -d /sys/bus/acpi/devices/CLSA0100:* &>/dev/null 2>&1; then
         einfo "  CS35L41 smart-amp detected — adding codec + SSP AMP machine"
         required_modules[CONFIG_SND_SOC_CS35L41]="m"
         required_modules[CONFIG_SND_SOC_CS35L41_SPI]="m"
         required_modules[CONFIG_SND_SOC_CS35L41_I2C]="m"
         required_modules[CONFIG_SERIAL_MULTI_INSTANTIATE]="m"
         required_modules[CONFIG_SND_SOC_INTEL_SOF_CS35L41_MACH]="m"
+    fi
+
+    # Intel IPU6 MIPI camera (Tiger/Alder/Raptor/Meteor/Lunar Lake — modern
+    # ThinkPad X1, Dell, HP). NOT a USB UVC webcam; needs the IPU6 driver +
+    # the INT3472 power/clock bridge + IPU bridge + the MEI Visual Sensing
+    # Controller + the actual sensor driver. defconfig leaves these =n and
+    # localmodconfig can't recover them. userspace (libcamera/pipewire) is
+    # handled in desktop.sh; this just makes the kernel side present.
+    if lspci -nn 2>/dev/null | grep -qiE '\[8086:(7d19|9a19|465d|a75d|645d|7d99)\]|image (signal )?process'; then
+        einfo "  Intel IPU6 camera detected — adding ipu6/INT3472/VSC + sensors"
+        required_modules[CONFIG_VIDEO_INTEL_IPU6]="m"
+        required_modules[CONFIG_IPU_BRIDGE]="m"
+        required_modules[CONFIG_INTEL_SKL_INT3472]="m"
+        required_modules[CONFIG_INTEL_MEI_VSC]="m"
+        required_modules[CONFIG_INTEL_MEI_VSC_HW]="m"
+        required_modules[CONFIG_INTEL_VSC]="m"
+        # Common X1/Dell/HP front sensors
+        required_modules[CONFIG_VIDEO_OV02C10]="m"
+        required_modules[CONFIG_VIDEO_OV2740]="m"
+        required_modules[CONFIG_VIDEO_OV01A10]="m"
+        required_modules[CONFIG_VIDEO_HI556]="m"
     fi
 
     # AMD CPU → pinctrl for I2C bus + SOF/ACP audio. Modern AMD laptops
@@ -319,7 +342,11 @@ _patch_kernel_config() {
 
     # WiFi by vendor — defconfig has these, but localmodconfig can prune them
     # when installing from a live ISO with a different WiFi chip loaded.
-    if lspci -nn 2>/dev/null | grep -qiE 'intel.*(wireless|wi-fi)\b'; then
+    # Match "Wireless"/"Wi-Fi"/bare "WiFi" (Meteor Lake CNVi reports
+    # "...CNVi WiFi" — no separator) and the Intel CNVi/BE200/AX PCI ids
+    # (8086:272b BE200, 7e40/7f70 MTL CNVi, 51f0/54f0 ADL/RPL) so a stale
+    # pci.ids on the live ISO ("Device [8086:272b]") doesn't lose WiFi.
+    if lspci -nn 2>/dev/null | grep -qiE 'intel.*(wireless|wi-?fi)|\[8086:(272b|7e40|7f70|51f0|54f0|7af0|a0f0|43f0|2725)\]'; then
         einfo "  Intel WiFi detected — adding iwlwifi"
         required_modules[CONFIG_IWLWIFI]="m"
         required_modules[CONFIG_IWLMVM]="m"

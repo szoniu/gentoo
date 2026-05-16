@@ -433,10 +433,20 @@ _install_pipewire() {
     # pipewire-alsa: ALSA plugin so ALSA apps route through PipeWire
     # sound-server is now set by desktop profile (2026-01-15 news item)
     mkdir -p /etc/portage/package.use
-    grep -qxF "media-video/pipewire pipewire-alsa" /etc/portage/package.use/pipewire 2>/dev/null || \
-        echo "media-video/pipewire pipewire-alsa" >> /etc/portage/package.use/pipewire 2>/dev/null || true
+    # Intel IPU6 MIPI camera (modern ThinkPad X1 / Dell / HP): the kernel
+    # side exposes the camera only through libcamera — apps need PipeWire
+    # built with the libcamera SPA plugin + media-libs/libcamera, otherwise
+    # the webcam is invisible even with a working IPU6 driver.
+    local pw_use="media-video/pipewire pipewire-alsa"
+    if lspci -nn 2>/dev/null | grep -qiE '\[8086:(7d19|9a19|465d|a75d|645d|7d99)\]|image (signal )?process'; then
+        einfo "Intel IPU6 camera — enabling PipeWire libcamera + libcamera"
+        pw_use+=" libcamera"
+        try "Installing libcamera" emerge --quiet media-libs/libcamera || true
+    fi
+    grep -qxF "${pw_use}" /etc/portage/package.use/pipewire 2>/dev/null || \
+        echo "${pw_use}" >> /etc/portage/package.use/pipewire 2>/dev/null || true
 
-    try "Installing PipeWire" emerge --quiet media-video/pipewire
+    try "Installing PipeWire" emerge --quiet --autounmask-write --autounmask-continue media-video/pipewire
     try "Installing WirePlumber" emerge --quiet media-video/wireplumber
 
     if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then

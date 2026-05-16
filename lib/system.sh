@@ -402,6 +402,39 @@ GNOME/KDE power modes will switch HP performance/quiet out of the box.
 OMENEOF
     fi
 
+    # Intel IPU6 MIPI camera (modern ThinkPad X1 / Dell / HP): kernel side
+    # is force-added and PipeWire was built with libcamera, but the firmware
+    # path and an apps-compatibility shim still warrant a note.
+    if lspci -nn 2>/dev/null | grep -qiE '\[8086:(7d19|9a19|465d|a75d|645d|7d99)\]|image (signal )?process'; then
+        einfo "Intel IPU6 camera detected — writing POST-INSTALL note"
+        mkdir -p /root
+        local inotes=/root/POST-INSTALL-NOTES.txt
+        touch "${inotes}"; chmod 0600 "${inotes}"
+        cat >> "${inotes}" << 'IPU6EOF'
+
+=== Intel IPU6 MIPI camera ===
+
+This laptop's webcam is an Intel IPU6 MIPI device, not a USB UVC cam.
+The installer enabled the in-kernel IPU6/INT3472/VSC drivers + common
+sensors and built PipeWire with the libcamera plugin. After first boot:
+
+  1. Firmware: ships in sys-kernel/linux-firmware (intel/ipu/). If the
+     camera is dead, ensure linux-firmware is recent and the sensor
+     module loaded:  dmesg | grep -iE 'ipu6|ov02c10|ov2740|hi556|int3472'
+  2. Test with libcamera:  cam -l   (lists cameras),  qcam  (preview)
+  3. PipeWire exposes it to Wayland/Pipewire-aware apps automatically
+     (KDE/GNOME camera, Firefox via PipeWire). Verify:  wpctl status
+  4. Apps that demand a classic /dev/video0 (some Electron/Chromium,
+     Zoom) need a v4l2 shim:
+       emerge --ask media-video/v4l2loopback
+       # plus a libcamera->v4l2 bridge (v4l2-relayd) — see the
+       # Gentoo wiki "IPU6" / linux-intel-ipu6 docs.
+  5. Older mainline (< ~6.10) lacks the in-tree IPU6 driver — then use
+     the out-of-tree intel-ipu6-dkms + ipu6-camera-bins (Gentoo wiki).
+
+IPU6EOF
+    fi
+
     # Apple Mac (Intel): Broadcom WiFi often needs the proprietary wl driver
     # and/or firmware extracted from macOS; the bootloader was installed to
     # the removable path. T2 Macs are not really supported. Tell the user.
