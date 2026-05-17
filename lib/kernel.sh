@@ -266,6 +266,9 @@ _patch_kernel_config() {
         required_modules[CONFIG_VIDEO_OV05C10]="m"
         required_modules[CONFIG_VIDEO_OV08X40]="m"
         required_modules[CONFIG_VIDEO_OV13B10]="m"
+        # GalaxyCore — common on budget Acer Swift / Asus SKUs
+        required_modules[CONFIG_VIDEO_GC05A2]="m"
+        required_modules[CONFIG_VIDEO_GC08A3]="m"
     fi
 
     # AMD CPU → pinctrl for I2C bus + SOF/ACP audio. Modern AMD laptops
@@ -356,6 +359,17 @@ _patch_kernel_config() {
     if grep -qi 'LENOVO' /sys/class/dmi/id/sys_vendor 2>/dev/null; then
         einfo "  Lenovo detected — adding IDEAPAD_LAPTOP"
         required_modules[CONFIG_IDEAPAD_LAPTOP]="m"
+    fi
+
+    # Acer (DMI) — acer-wmi drives Fn keys, keyboard backlight, wireless/
+    # airplane LED + rfkill, thermal platform_profile and (newer Swift/
+    # Aspire) battery health/charge limit. localmodconfig on a live ISO
+    # that never loaded acer_wmi would prune it. Symmetric to HP/Dell/
+    # Lenovo/ASUS.
+    if grep -qi 'Acer' /sys/class/dmi/id/sys_vendor 2>/dev/null; then
+        einfo "  Acer detected — adding ACER_WMI"
+        required_modules[CONFIG_ACER_WMI]="m"
+        required_modules[CONFIG_ACER_WIRELESS]="m"
     fi
 
     # NVIDIA GPU detected — ensure DRM support for nvidia-drivers
