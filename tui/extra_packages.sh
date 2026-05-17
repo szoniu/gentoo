@@ -34,8 +34,11 @@ screen_extra_packages() {
         checklist_args+=("thunderbolt" "Thunderbolt device manager (bolt — requires systemd)" "on")
     fi
 
-    # Conditional: IIO sensors (only shown when sensors detected)
-    if [[ "${SENSORS_DETECTED:-0}" == "1" ]]; then
+    # Conditional: IIO sensors. Also offered for a detected convertible /
+    # 2-in-1 even when the live ISO didn't enumerate the accelerometer —
+    # otherwise the chicken-and-egg leaves a Yoga-class device with no
+    # auto-rotation tooling.
+    if [[ "${SENSORS_DETECTED:-0}" == "1" || "${CONVERTIBLE_DETECTED:-0}" == "1" ]]; then
         checklist_args+=("iio-sensors" "Auto-rotation / ambient light sensor proxy" "on")
     fi
 

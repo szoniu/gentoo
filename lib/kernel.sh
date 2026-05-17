@@ -168,6 +168,15 @@ _patch_kernel_config() {
         [CONFIG_I2C_DESIGNWARE_CORE]="m"
         # HID multitouch (touchscreens, precision touchpads)
         [CONFIG_HID_MULTITOUCH]="m"
+        # Wacom AES/EMR pen (2-in-1 / convertible digitizers — Yoga, etc.).
+        # Harmless without a Wacom digitizer.
+        [CONFIG_HID_WACOM]="m"
+        # 2-in-1 convertible: SW_TABLET_MODE switch (laptop/tablet/tent/
+        # stand), rotation-lock + volume/power buttons in tablet mode. Bind
+        # only via the ACPI HID — harmless on regular clamshells. Without
+        # these a convertible behaves like a plain laptop.
+        [CONFIG_INTEL_VBTN]="m"
+        [CONFIG_INTEL_HID]="m"
         # Synaptics RMI4 (ThinkPad trackpads)
         [CONFIG_HID_RMI]="m"
         [CONFIG_RMI4_SMB]="m"
@@ -222,9 +231,10 @@ _patch_kernel_config() {
     # instances bound via serial-multi-instantiate. Vendor-agnostic gate on
     # the ACPI device. Without these the speakers are silent (headphone jack
     # via plain HDA/SOF may still work). olddefconfig pulls the machine deps.
-    # CSC3551 (Dell/ASUS/HP) or CLSA0100 (some Lenovo ThinkPad X1 Gen11/12).
-    if ls -d /sys/bus/acpi/devices/CSC3551:* &>/dev/null 2>&1 || \
-       ls -d /sys/bus/acpi/devices/CLSA0100:* &>/dev/null 2>&1; then
+    # CSC335x (Dell/ASUS/HP) or CLSA01xx (Lenovo ThinkPad X1 / Yoga —
+    # CLSA0100/CLSA0101 depending on SKU).
+    if ls -d /sys/bus/acpi/devices/CSC335*:* &>/dev/null 2>&1 || \
+       ls -d /sys/bus/acpi/devices/CLSA01*:* &>/dev/null 2>&1; then
         einfo "  CS35L41 smart-amp detected — adding codec + SSP AMP machine"
         required_modules[CONFIG_SND_SOC_CS35L41]="m"
         required_modules[CONFIG_SND_SOC_CS35L41_SPI]="m"
@@ -338,6 +348,16 @@ _patch_kernel_config() {
         required_modules[CONFIG_DELL_WMI_PRIVACY]="y"
     fi
 
+    # Lenovo non-ThinkPad (Yoga/IdeaPad/Legion) — ideapad-laptop drives Fn
+    # keys, battery conservation mode, rfkill/airplane, camera privacy
+    # toggle and FnLock. The ThinkPad block above is gated on "ThinkPad" in
+    # product_family so it never fires here. Harmless on ThinkPad (won't
+    # bind). Symmetric to HP/Dell/ASUS.
+    if grep -qi 'LENOVO' /sys/class/dmi/id/sys_vendor 2>/dev/null; then
+        einfo "  Lenovo detected — adding IDEAPAD_LAPTOP"
+        required_modules[CONFIG_IDEAPAD_LAPTOP]="m"
+    fi
+
     # NVIDIA GPU detected — ensure DRM support for nvidia-drivers
     if [[ "${GPU_VENDOR:-}" == "nvidia" ]] || [[ "${DGPU_VENDOR:-}" == "nvidia" ]]; then
         einfo "  NVIDIA GPU detected — adding DRM, FB_EFI"
@@ -346,13 +366,20 @@ _patch_kernel_config() {
         required_modules[CONFIG_FB_EFI]="y"
     fi
 
-    # IIO sensors detected (accelerometer, gyro, ambient light)
-    if [[ "${SENSORS_DETECTED:-0}" == "1" ]]; then
-        einfo "  IIO sensors detected — adding HID_SENSOR + MXC modules"
+    # IIO sensors — accelerometer/gyro/ALS for screen auto-rotation. Also
+    # force this for a detected convertible even if the live ISO didn't
+    # load the accel (hid-sensor-hub/ISH): otherwise SENSORS_DETECTED=0 and
+    # a 2-in-1 ships with no auto-rotation (chicken-and-egg).
+    if [[ "${SENSORS_DETECTED:-0}" == "1" || "${CONVERTIBLE_DETECTED:-0}" == "1" ]]; then
+        einfo "  IIO sensors / convertible — adding HID_SENSOR + accel modules"
         required_modules[CONFIG_HID_SENSOR_HUB]="m"
         required_modules[CONFIG_HID_SENSOR_ACCEL_3D]="m"
         required_modules[CONFIG_HID_SENSOR_GYRO_3D]="m"
         required_modules[CONFIG_HID_SENSOR_ALS]="m"
+        required_modules[CONFIG_HID_SENSOR_INCLINOMETER_3D]="m"
+        # Intel Sensor Hub (ISH) — modern ThinkPad/Yoga route orientation
+        # through ISH, not raw i2c-hid.
+        required_modules[CONFIG_INTEL_ISH_HID]="m"
         # Memsic MXC4005/MXC6655 — Goodix-era I2C accelerometer used by GPD Pocket,
         # Surface Go 1, many low-cost x86 tablets. Not covered by HID_SENSOR_*.
         required_modules[CONFIG_MXC4005]="m"

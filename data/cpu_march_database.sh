@@ -97,6 +97,8 @@ lookup_cpu_march() {
     elif [[ "${vendor}" == "GenuineIntel" ]]; then
         if (( model >= 192 )); then
             echo "arrowlake"
+        elif (( model >= 189 )); then
+            echo "lunarlake"
         elif (( model >= 183 )); then
             echo "raptorlake"
         elif (( model >= 170 )); then

@@ -480,6 +480,24 @@ detect_sensors() {
     export SENSORS_DETECTED
 }
 
+# detect_convertible — Detect 2-in-1 / convertible chassis via DMI. The
+# accelerometer for screen auto-rotation often isn't loaded on the live
+# ISO (hid-sensor-hub/ISH), so detect_sensors() misses it and the IIO
+# kernel block + iio-sensor-proxy get skipped — leaving a convertible
+# with no auto-rotation. chassis_type 31 = Convertible, 32 = Detachable
+# (SMBIOS spec); also flag Lenovo Yoga by name as a fallback.
+detect_convertible() {
+    CONVERTIBLE_DETECTED=0
+    local ctype="" pname=""
+    [[ -f /sys/class/dmi/id/chassis_type ]] && ctype=$(cat /sys/class/dmi/id/chassis_type 2>/dev/null) || true
+    [[ -f /sys/class/dmi/id/product_name ]] && pname=$(cat /sys/class/dmi/id/product_name 2>/dev/null) || true
+    if [[ "${ctype}" == "31" || "${ctype}" == "32" ]] || [[ "${pname}" == *Yoga* ]]; then
+        CONVERTIBLE_DETECTED=1
+        einfo "Convertible / 2-in-1 chassis detected (auto-rotation enabled)"
+    fi
+    export CONVERTIBLE_DETECTED
+}
+
 # detect_webcam — Detect webcam via /sys/class/video4linux
 detect_webcam() {
     WEBCAM_DETECTED=0
@@ -795,6 +813,7 @@ detect_all_hardware() {
     detect_fingerprint
     detect_thunderbolt
     detect_sensors
+    detect_convertible
     detect_webcam
     detect_wwan
     detect_disks
