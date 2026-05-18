@@ -211,9 +211,19 @@ screen_progress() {
     local total=${#INSTALL_PHASES[@]}
     local i=0
 
-    # Mount filesystems early so checkpoint validation can check target disk contents
-    if checkpoint_reached "disks" && ! mountpoint -q "${MOUNTPOINT}" 2>/dev/null; then
-        mount_filesystems 2>/dev/null || true
+    # Mount filesystems early so checkpoint validation sees REAL target
+    # contents. Gating this solely on the 'disks' checkpoint was a latent
+    # data-loss bug: resuming an existing system that has no 'disks'
+    # checkpoint left the target unmounted, so _validate_and_clean_checkpoints
+    # checked ${MOUNTPOINT} (empty) and wrongly pruned valid
+    # stage3_extract/portage_preconfig — after which stage3_extract re-ran
+    # and its cleanup wiped a fully built system. Also mount when resuming
+    # a target that already holds a Gentoo, regardless of the checkpoint.
+    if ! mountpoint -q "${MOUNTPOINT}" 2>/dev/null; then
+        if checkpoint_reached "disks" || \
+           { [[ "${MODE:-}" == "resume" ]] && _resume_target_has_system; }; then
+            mount_filesystems 2>/dev/null || true
+        fi
     fi
 
     # Check for previous progress and handle resume
@@ -319,7 +329,17 @@ _execute_phase() {
             preflight_checks
             ;;
         disks)
-            disk_execute_plan
+            # Resume + existing system on root but no 'disks' checkpoint:
+            # reformatting here would wipe a fully built system. Refuse
+            # the destructive plan, mount what's there, continue.
+            if [[ "${MODE:-}" == "resume" ]] && _resume_target_has_system; then
+                ewarn "Resume: ${ROOT_PARTITION:-${RESUME_FOUND_PARTITION:-?}} already holds an"
+                ewarn "installed Gentoo (/etc/gentoo-release present) but the 'disks'"
+                ewarn "checkpoint is missing. Refusing to reformat — mounting the"
+                ewarn "existing system and continuing (resume-safe)."
+            else
+                disk_execute_plan
+            fi
             mount_filesystems
             checkpoint_migrate_to_target
             _save_config_to_target

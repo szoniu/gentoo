@@ -465,6 +465,34 @@ _recover_resume_data() {
     return 0
 }
 
+# _resume_target_has_system — True if the planned root partition already
+# holds an extracted Gentoo (has /etc/gentoo-release). A missing 'disks'
+# checkpoint does NOT mean the disk is empty: checkpoint-migration
+# glitches, checkpoint_validate pruning, or an aborted re-run can drop it
+# while a fully built system (hours of compile) still sits on disk.
+# Probes read-only so it is side-effect free. ROOT_PARTITION is set by
+# the wizard/inference before the install phases; RESUME_FOUND_PARTITION
+# is the fallback for the "could not fully infer config" resume path.
+_resume_target_has_system() {
+    [[ "${DRY_RUN:-0}" == "1" ]] && return 1
+    local root="${ROOT_PARTITION:-}"
+    [[ -b "${root}" ]] || root="${RESUME_FOUND_PARTITION:-}"
+    [[ -b "${root}" ]] || return 1
+    local probe found=1 opt
+    probe=$(mktemp -d) || return 1
+    for opt in "ro,subvol=@" "ro"; do
+        if mount -o "${opt}" "${root}" "${probe}" 2>/dev/null; then
+            if [[ -f "${probe}/etc/gentoo-release" || -f "${probe}/@/etc/gentoo-release" ]]; then
+                found=0
+            fi
+            umount "${probe}" 2>/dev/null || umount -l "${probe}" 2>/dev/null || true
+            [[ ${found} -eq 0 ]] && break
+        fi
+    done
+    rmdir "${probe}" 2>/dev/null || true
+    return ${found}
+}
+
 # try_resume_from_disk — Scan all partitions for resume data (checkpoints + config)
 # Returns: 0 = config + checkpoints found, 1 = only checkpoints, 2 = nothing found
 # Sets: RESUME_FOUND_PARTITION, RESUME_HAS_CONFIG
