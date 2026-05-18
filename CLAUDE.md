@@ -188,7 +188,7 @@ Systemd ma `timesyncd` w bazie — działa od pierwszego boota. OpenRC nie ma ni
 Per-package MAKEOPTS limits są ZAWSZE aplikowane (nie tylko ≤8 GB RAM jak wcześniej). Dwie warstwy w `/etc/portage/env/`:
 
 - **`low-memory.conf`** — severe limit `-j${small_jobs}` (1-2 zależnie od RAM) dla pakietów co zjadają 4-8 GB RAM per build job: `net-libs/webkit-gtk`, `dev-qt/qtwebengine`, `dev-lang/rust`, `dev-lang/spidermonkey`
-- **`heavy-memory.conf`** — moderate limit `-j${heavy_jobs}` (2-6 zależnie od RAM) dla Qt6/KDE (1-2 GB RAM per cc1plus, pełne `-j17` na 16-thread CPU OOM-killuje cc1plus nawet na 16 GB RAM): `dev-qt/qtbase`, `dev-qt/qtdeclarative`, `kde-frameworks/networkmanager-qt`, `kde-frameworks/kio`, `kde-frameworks/kirigami`, `kde-frameworks/ktexteditor`, `kde-plasma/libkscreen`, `kde-plasma/plasma-workspace`, `kde-plasma/plasma-desktop`, `kde-plasma/kwin`
+- **`heavy-memory.conf`** — moderate limit `-j${heavy_jobs}` (2-6 zależnie od RAM) dla Qt6/KDE (1-2 GB RAM per cc1plus, pełne `-j17` na 16-thread CPU OOM-killuje cc1plus nawet na 16 GB RAM): `dev-qt/qtbase`, `dev-qt/qtdeclarative`, `kde-frameworks/networkmanager-qt`, `kde-frameworks/kio`, `kde-frameworks/kirigami`, `kde-frameworks/ktexteditor`, `kde-plasma/libkscreen`, `kde-plasma/plasma-workspace`, `kde-plasma/plasma-desktop`, `kde-plasma/kwin`, `kde-plasma/plasma-vault` (OOM na GPD Pocket 4)
 
 Tier sizing scaled by RAM:
 - >16 GB: small=-j2, heavy=-j6
