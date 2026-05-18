@@ -54,23 +54,40 @@ try() {
                 "log"      "View last 50 lines of log" \
                 "abort"    "Abort installation") || choice="abort"
         else
-            # No dialog (e.g. inside chroot) — simple text menu
+            # No dialog (e.g. inside chroot) — simple text menu.
+            #
+            # Inside the chroot /dev/tty often has NO controlling terminal
+            # (open() -> ENXIO) even though our stdin is still the real
+            # terminal inherited through `chroot`. The old code read only
+            # from /dev/tty and, on failure, defaulted _reply="a" -> abort:
+            # any chroot-phase failure silently nuked the whole install +
+            # teardown before the operator could even pick. Now: try
+            # /dev/tty, then fall back to stdin, and NEVER silently choose
+            # the destructive abort — an unreadable menu retries (visible,
+            # interruptible, fixable from another console) instead.
             echo "" >&2
             echo "=== FAILED: ${desc} ===" >&2
             echo "  (r)etry  | (s)hell  | (c)ontinue  | (a)bort" >&2
-            local _reply=""
-            if [[ -e /dev/tty ]]; then
-                read -r -p "Choice [r/s/c/a]: " _reply < /dev/tty || _reply="a"
-            else
-                # /dev/tty missing (broken chroot) — try stdin, fall back to abort
-                read -r -p "Choice [r/s/c/a]: " _reply 2>/dev/null || _reply="a"
+            local _reply="" _got=0
+            if [[ -e /dev/tty ]] && read -r -p "Choice [r/s/c/a]: " _reply < /dev/tty 2>/dev/null; then
+                _got=1
+            elif [[ -t 0 ]] && read -r -p "Choice [r/s/c/a]: " _reply; then
+                _got=1
             fi
-            case "${_reply}" in
-                r*) choice="retry" ;;
-                s*) choice="shell" ;;
-                c*) choice="continue" ;;
-                *)  choice="abort" ;;
-            esac
+            if [[ ${_got} -eq 0 ]]; then
+                ewarn "No readable terminal for recovery menu — retrying in 15s"
+                ewarn "(fix it from another console, or press Ctrl-C to abort)"
+                sleep 15
+                choice="retry"
+            else
+                case "${_reply}" in
+                    r*) choice="retry" ;;
+                    s*) choice="shell" ;;
+                    c*) choice="continue" ;;
+                    a*) choice="abort" ;;
+                    *)  choice="retry" ;;
+                esac
+            fi
         fi
 
         case "${choice}" in

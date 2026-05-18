@@ -24,8 +24,12 @@ generate_make_conf() {
         mkdir -p "${MOUNTPOINT}/etc/portage/package.use"
         cat > "${MOUNTPOINT}/etc/portage/package.use/xorg-drivers" << 'XDEOF'
 # Skip legacy ATI DDX driver — we use amdgpu kernel module + radeonsi mesa.
-# Without this, xorg-drivers pulls xf86-video-ati which forces libdrm USE conflicts.
-x11-base/xorg-drivers -video_cards_ati
+# Without this, xorg-drivers pulls xf86-video-ati which forces
+# libdrm[video_cards_radeon] and a keyword-masked xf86-video-ati-22.0.0,
+# freezing the plasma-meta resume list. In the current tree the DDX is
+# gated by video_cards_radeon (video_cards_ati is effectively a no-op
+# alias now); list both so older and current trees are both covered.
+x11-base/xorg-drivers -video_cards_radeon -video_cards_ati
 XDEOF
     fi
 
