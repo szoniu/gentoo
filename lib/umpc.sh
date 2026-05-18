@@ -102,7 +102,9 @@ LOCALEOF
 # _umpc_write_gpd_fan_note — Append manual install instructions for
 # gpd-fan-daemon to /root/POST-INSTALL-NOTES.txt. No ebuild exists in
 # main or GURU, so we cannot auto-emerge. Without the daemon, fans run
-# on ACPI defaults — usable but louder than Windows.
+# on ACPI defaults — usable but louder than Windows. The daemon enable
+# step is init-system-specific: upstream ships a systemd unit only, so
+# for OpenRC we document a hand-written openrc-run service instead.
 _umpc_write_gpd_fan_note() {
     einfo "  Writing GPD fan daemon POST-INSTALL note..."
 
@@ -133,9 +135,41 @@ To set up smarter fan curves manually post-install:
      cd gpd-fan-daemon
      cargo build --release
      install -m 0755 target/release/gpd-fan-daemon /usr/local/sbin/
+
+NOTEEOF
+
+    if [[ "${INIT_SYSTEM}" == "openrc" ]]; then
+        cat >> "${notes}" << 'NOTEEOF'
+3. Enable the daemon (OpenRC) — upstream ships only a systemd unit,
+   so create an openrc-run service. Paste this block flush-left:
+
+cat > /etc/init.d/gpd-fan-daemon << 'EOF'
+#!/sbin/openrc-run
+name="gpd-fan-daemon"
+description="GPD fan curve daemon"
+command="/usr/local/sbin/gpd-fan-daemon"
+command_background="yes"
+pidfile="/run/gpd-fan-daemon.pid"
+
+depend() {
+	after modules
+}
+EOF
+chmod 0755 /etc/init.d/gpd-fan-daemon
+rc-update add gpd-fan-daemon default
+rc-service gpd-fan-daemon start
+
+NOTEEOF
+    else
+        cat >> "${notes}" << 'NOTEEOF'
+3. Enable the daemon (systemd):
      install -m 0644 gpd-fan-daemon.service /etc/systemd/system/
      systemctl enable --now gpd-fan-daemon.service
 
+NOTEEOF
+    fi
+
+    cat >> "${notes}" << 'NOTEEOF'
 For temperature/fan monitoring without the daemon:
      # emerge --ask sys-apps/lm-sensors
      sensors-detect --auto
