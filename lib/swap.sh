@@ -2,48 +2,84 @@
 # swap.sh — zram-generator/zram-init, optional swap file/partition, build-time swap
 source "${LIB_DIR}/protection.sh"
 
-# Minimum RAM (KiB) for heavy compilation (SpiderMonkey, Rust, etc.)
-: "${BUILD_SWAP_THRESHOLD_KIB:=8388608}"  # 8 GiB
+# Target TOTAL memory (RAM+swap, KiB) for the chroot build. The global
+# MAKEOPTS is -j(nproc+1); heavy C++ (KDE/Qt moc, breeze, oxygen, etc.)
+# can use ~1.5-2 GiB per cc1plus. 8 GiB was far too low — a 12 GiB GPD
+# Pocket 4 sailed past the old threshold and then OOM-killed cc1plus on
+# breeze/oxygen/plasma-vault/kimageformats. Top up to 24 GiB total so
+# -j17 heavy builds have headroom (combined with per-package throttle).
+: "${BUILD_SWAP_TARGET_KIB:=25165824}"  # 24 GiB
 readonly BUILD_SWAP_FILE="${MOUNTPOINT:-/mnt/gentoo}/build-swap"
 
-# ensure_build_swap — Create temporary swap if RAM is insufficient for compilation
-# Called from outer process (before chroot). Swap is kernel-level so it works inside chroot too.
+# ensure_build_swap — Create temporary swap if RAM is insufficient for compilation.
+# Called from the outer process before the chroot phase (both CLI run_pre_chroot
+# and TUI _execute_chroot_phase). Swap is kernel-level so it works inside chroot.
+# Idempotent: safe to call from multiple sites / on --resume.
 ensure_build_swap() {
     [[ "${DRY_RUN:-0}" == "1" ]] && return 0
 
-    local mem_total_kib
-    mem_total_kib=$(awk '/MemTotal/{print $2}' /proc/meminfo) || return 0
+    # Already active? (multiple call sites + resume re-entry)
+    if swapon --show=NAME --noheadings 2>/dev/null | grep -qF "${BUILD_SWAP_FILE}"; then
+        return 0
+    fi
 
-    local swap_total_kib
+    local mem_total_kib swap_total_kib
+    mem_total_kib=$(awk '/MemTotal/{print $2}' /proc/meminfo) || return 0
     swap_total_kib=$(awk '/SwapTotal/{print $2}' /proc/meminfo) || true
     : "${swap_total_kib:=0}"
 
     local available_kib=$(( mem_total_kib + swap_total_kib ))
-
-    if (( available_kib >= BUILD_SWAP_THRESHOLD_KIB )); then
+    if (( available_kib >= BUILD_SWAP_TARGET_KIB )); then
         return 0
     fi
 
-    local needed_kib=$(( BUILD_SWAP_THRESHOLD_KIB - available_kib ))
+    local needed_kib=$(( BUILD_SWAP_TARGET_KIB - available_kib ))
     local needed_mib=$(( (needed_kib + 1023) / 1024 ))
 
-    einfo "Low memory detected: $(( mem_total_kib / 1024 )) MiB RAM + $(( swap_total_kib / 1024 )) MiB swap"
-    einfo "Creating temporary ${needed_mib} MiB build swap..."
+    einfo "Low build memory: $(( mem_total_kib / 1024 )) MiB RAM + $(( swap_total_kib / 1024 )) MiB swap"
+    einfo "Creating ${needed_mib} MiB temporary build swap (target $(( BUILD_SWAP_TARGET_KIB / 1024 / 1024 )) GiB total)..."
 
     if [[ -f "${BUILD_SWAP_FILE}" ]]; then
         swapoff "${BUILD_SWAP_FILE}" 2>/dev/null || true
         rm -f "${BUILD_SWAP_FILE}"
     fi
 
-    dd if=/dev/zero of="${BUILD_SWAP_FILE}" bs=1M count="${needed_mib}" status=none 2>/dev/null || {
-        ewarn "Could not create build swap file (not enough disk space?)"
-        return 0
-    }
-    chmod 0600 "${BUILD_SWAP_FILE}"
-    mkswap "${BUILD_SWAP_FILE}" >/dev/null 2>&1 || { rm -f "${BUILD_SWAP_FILE}"; return 0; }
-    swapon "${BUILD_SWAP_FILE}" 2>/dev/null || { rm -f "${BUILD_SWAP_FILE}"; return 0; }
+    # btrfs needs a NOCOW, hole-free swapfile or swapon fails with "has
+    # holes" — the old plain dd+mkswap path silently failed on every
+    # btrfs target. Prefer btrfs-progs mkswapfile (does mkswap itself),
+    # fall back to chattr +C, then plain dd for ext4/xfs.
+    local made=0
+    if [[ "${FILESYSTEM:-}" == "btrfs" ]] && command -v btrfs >/dev/null 2>&1; then
+        if btrfs filesystem mkswapfile --size "${needed_mib}m" "${BUILD_SWAP_FILE}" 2>/dev/null; then
+            made=1
+        fi
+    fi
+    if (( made == 0 )); then
+        rm -f "${BUILD_SWAP_FILE}" 2>/dev/null || true
+        if [[ "${FILESYSTEM:-}" == "btrfs" ]]; then
+            : > "${BUILD_SWAP_FILE}" 2>/dev/null || true
+            chattr +C "${BUILD_SWAP_FILE}" 2>/dev/null || true
+        fi
+        if ! dd if=/dev/zero of="${BUILD_SWAP_FILE}" bs=1M count="${needed_mib}" status=none 2>/dev/null; then
+            ewarn "Could not create build swap file (disk space?) — build may OOM on low RAM"
+            rm -f "${BUILD_SWAP_FILE}" 2>/dev/null || true
+            return 0
+        fi
+        chmod 0600 "${BUILD_SWAP_FILE}"
+        if ! mkswap "${BUILD_SWAP_FILE}" >/dev/null 2>&1; then
+            ewarn "mkswap failed for build swap — build may OOM on low RAM"
+            rm -f "${BUILD_SWAP_FILE}"
+            return 0
+        fi
+    fi
 
-    einfo "Temporary build swap active: ${needed_mib} MiB"
+    if ! swapon "${BUILD_SWAP_FILE}" 2>/dev/null; then
+        ewarn "swapon failed for build swap (FILESYSTEM=${FILESYSTEM:-?}) — build may OOM on low RAM"
+        rm -f "${BUILD_SWAP_FILE}"
+        return 0
+    fi
+
+    einfo "Temporary build swap active: ${needed_mib} MiB ($(( BUILD_SWAP_TARGET_KIB / 1024 / 1024 )) GiB total)"
 }
 
 # cleanup_build_swap — Remove temporary build swap

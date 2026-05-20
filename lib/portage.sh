@@ -100,6 +100,11 @@ kde-plasma/kwin heavy-memory.conf
 # plasma-vault/service.cpp pulls NetworkManagerQt+KIO+Qt headers; full -j
 # OOM-killed cc1plus on a GPD Pocket 4 (Radeon 780M UMPC) during plasma-meta.
 kde-plasma/plasma-vault heavy-memory.conf
+# breeze/oxygen (style+icons, heavy QML+C++ moc) and kimageformats also
+# OOM-killed cc1plus on the same 12 GB Pocket 4 during plasma-meta.
+kde-plasma/breeze heavy-memory.conf
+kde-plasma/oxygen heavy-memory.conf
+kde-frameworks/kimageformats heavy-memory.conf
 PKGEOF
 
     einfo "Per-package memory limits configured (RAM: ${ram_mb} MiB, small=-j${small_jobs}, heavy=-j${heavy_jobs})"

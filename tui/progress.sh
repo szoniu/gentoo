@@ -310,9 +310,19 @@ _execute_chroot_phase() {
     copy_installer_to_chroot
     copy_dns_info
 
+    # Top up swap before the heavy in-chroot emerge. The installer's
+    # configured swap (zram/swapfile) only activates on the booted system,
+    # so the chroot build runs with whatever the live env has — on a 12 GiB
+    # GPD Pocket 4 that meant 0 swap and OOM-killed cc1plus. Kernel-level,
+    # so it covers the chrooted compiles too. (CLI run_pre_chroot already
+    # does this; the TUI path was missing it.)
+    ensure_build_swap
+
     chroot_setup
     run_chroot_phase
     chroot_teardown
+
+    cleanup_build_swap
 
     checkpoint_set "chroot"
 }
