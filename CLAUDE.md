@@ -225,6 +225,8 @@ Wywoływane **PRZED** `kernel_install_dist` (nie po) — `emerge gentoo-kernel-b
 
 Dla btrfs dodaje `rootflags=subvol=@` (lub innego subvol jeśli `BTRFS_SUBVOLUMES` mapuje inny do `/`). Bez tego po reboocie kernel nie znajdzie roota — bootuje na top-level btrfs gdzie tylko subwoluminy widoczne jako foldery.
 
+**GRUB cmdline NIE dubluje rootflags**: `_configure_grub` w `lib/bootloader.sh` celowo NIE wpisuje `rootflags=subvol=@` do `GRUB_CMDLINE_LINUX` — `grub-mkconfig`/`10_linux` sam wykrywa subwol zamontowanego roota i wstrzykuje **właściwy** `rootflags=subvol=<actual>`. Wpisywanie ręczne dawało duplikat `rootflags=subvol=@ rootflags=subvol=@` na cmdline (złapane na GPD Pocket 4), a zahardkodowane `@` byłoby błędne dla roota na innym subwolu. `bootloader_install` ma safety net: jeśli po `grub-mkconfig` w `grub.cfg` BRAK `rootflags=subvol=` → wpisuje ręcznie do `/etc/default/grub` i regeneruje. (To osobne od dracut root.conf powyżej — dracut to initramfs, to jest kernel cmdline.)
+
 ### --resume na btrfs subvol (`lib/utils.sh`)
 
 `_scan_partition_for_resume`, `_recover_resume_data`, `infer_config_from_partition` próbują `subvol=@` NAJPIERW dla btrfs partycji. Top-level mount succeeds ale gubi zawartość subwoluminu — checkpoints w `/tmp/gentoo-installer-checkpoints/` (na `@` subvol) niewidoczne z top-level. Pierwsza próba bez subvol = "Resume: Nothing Found" mimo że dane są na dysku. Fallback do top-level tylko gdy `subvol=@` nie istnieje.

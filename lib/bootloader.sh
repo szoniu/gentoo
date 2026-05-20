@@ -54,6 +54,22 @@ bootloader_install() {
     # Generate GRUB config
     try "Generating GRUB configuration" grub-mkconfig -o /boot/grub/grub.cfg
 
+    # btrfs safety net: 10_linux normally injects rootflags=subvol=<root>
+    # by detecting the mounted subvolume (so we don't add it ourselves and
+    # avoid a duplicate). If it somehow didn't, the kernel would mount the
+    # btrfs top-level and never find the system — so re-add it explicitly
+    # and regenerate.
+    if [[ "${FILESYSTEM:-}" == "btrfs" ]] && \
+       ! grep -q 'rootflags=subvol=' /boot/grub/grub.cfg 2>/dev/null; then
+        ewarn "grub-mkconfig did not add rootflags=subvol= — injecting it manually"
+        if grep -q '^GRUB_CMDLINE_LINUX=' /etc/default/grub 2>/dev/null; then
+            sed -i 's|^GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX="rootflags=subvol=@"|' /etc/default/grub
+        else
+            echo 'GRUB_CMDLINE_LINUX="rootflags=subvol=@"' >> /etc/default/grub
+        fi
+        try "Re-generating GRUB configuration (btrfs rootflags)" grub-mkconfig -o /boot/grub/grub.cfg
+    fi
+
     # Verify GRUB detected all known operating systems
     _verify_grub_config
 
@@ -81,11 +97,15 @@ _configure_grub() {
         root_param="root=${ROOT_PARTITION}"
     fi
 
-    # Add filesystem-specific parameters
+    # Filesystem-specific parameters. NOTE: we deliberately do NOT add
+    # rootflags=subvol=@ for btrfs here. grub-mkconfig's 10_linux detects
+    # the btrfs subvolume of the mounted root and injects the correct
+    # rootflags=subvol=<actual> itself. Adding it manually produced a
+    # DUPLICATE "rootflags=subvol=@ rootflags=subvol=@" on the kernel
+    # cmdline (seen on GPD Pocket 4), and the hardcoded "@" would be wrong
+    # for a non-@ root subvolume. A post-mkconfig safety net in
+    # bootloader_install re-adds it only if 10_linux somehow didn't.
     local extra_params=""
-    if [[ "${FILESYSTEM:-ext4}" == "btrfs" ]]; then
-        extra_params="rootflags=subvol=@"
-    fi
 
     # UMPC portrait-panel quirk: fbcon for early console + panel_orientation
     # for KMS-aware compositors (KWin, Mutter). Without this the first boot
