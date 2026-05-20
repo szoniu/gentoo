@@ -23,13 +23,20 @@ generate_make_conf() {
     if [[ "${VIDEO_CARDS:-}" == *amdgpu* ]] || [[ "${VIDEO_CARDS:-}" == *radeonsi* ]]; then
         mkdir -p "${MOUNTPOINT}/etc/portage/package.use"
         cat > "${MOUNTPOINT}/etc/portage/package.use/xorg-drivers" << 'XDEOF'
-# Skip legacy ATI DDX driver — we use amdgpu kernel module + radeonsi mesa.
-# Without this, xorg-drivers pulls xf86-video-ati which forces
-# libdrm[video_cards_radeon] and a keyword-masked xf86-video-ati-22.0.0,
-# freezing the plasma-meta resume list. In the current tree the DDX is
-# gated by video_cards_radeon (video_cards_ati is effectively a no-op
-# alias now); list both so older and current trees are both covered.
-x11-base/xorg-drivers -video_cards_radeon -video_cards_ati
+# Skip the legacy ATI DDX (xf86-video-ati) — Wayland/X on Radeon 780M+
+# uses the amdgpu kernel module + radeonsi mesa, never this DDX.
+# x11-base/xorg-drivers maps BOTH video_cards_radeon AND
+# video_cards_radeonsi to xf86-video-ati (the ATI DDX covers old radeon
+# and modern radeonsi GPUs for Xorg 2D). With VIDEO_CARDS="amdgpu
+# radeonsi" the radeonsi flag alone still drags in xf86-video-ati ->
+# libdrm[video_cards_radeon] + keyword-masked xf86-video-ati-22.0.0,
+# freezing the plasma-meta resume list. Disable radeon AND radeonsi
+# *for xorg-drivers only* (mesa keeps radeonsi from the global
+# VIDEO_CARDS); xorg-drivers then uses video_cards_amdgpu ->
+# xf86-video-amdgpu. video_cards_ati is a legacy no-op alias, kept for
+# older trees. Empirically required on GPD Pocket 4 (Radeon 780M):
+# -video_cards_radeon alone was NOT enough, radeonsi still pulled it.
+x11-base/xorg-drivers -video_cards_radeon -video_cards_radeonsi -video_cards_ati
 XDEOF
     fi
 
