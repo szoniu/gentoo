@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # umpc.sh — Runtime quirks for UMPCs (GPD Pocket/Win, Chuwi MiniBook X).
-# Panel rotation is handled via GRUB cmdline in bootloader.sh. This module
-# installs:
+# Panel rotation for console + Wayland session is handled via GRUB cmdline
+# in bootloader.sh. This module installs:
 #   - ALC287 Auto-Mute disable (Pocket 4 speakers are silent without it)
+#   - SDDM X11 greeter rotation (Xorg ignores the kernel panel_orientation
+#     quirk, so the login screen alone stays portrait without this)
 #   - POST-INSTALL note for gpd-fan-daemon (no Gentoo ebuild yet)
 source "${LIB_DIR}/protection.sh"
 
@@ -15,6 +17,13 @@ umpc_apply_quirks() {
 
     if [[ "${UMPC_ALC287_QUIRK:-0}" == "1" ]]; then
         _umpc_install_alc287_unmute
+    fi
+
+    # SDDM's X11 greeter doesn't honor the kernel panel_orientation quirk
+    # (only the console + Wayland session do), so the login screen stays
+    # portrait. Rotate it explicitly via xrandr in Xsetup.
+    if [[ -n "${UMPC_FBCON_ROTATE:-}" ]] && [[ "${UMPC_FBCON_ROTATE}" != "0" ]]; then
+        _umpc_rotate_sddm_greeter
     fi
 
     if [[ "${UMPC_GPD_FAN:-0}" == "1" ]]; then
@@ -97,6 +106,54 @@ UNITEOF
 LOCALEOF
         chmod 0755 /etc/local.d/alc287-unmute.start
     fi
+}
+
+# _umpc_rotate_sddm_greeter — Rotate the SDDM X11 login greeter.
+# The kernel panel_orientation quirk (set in the GRUB cmdline) rotates the
+# fbcon console and is honored by the Plasma *Wayland* session, but SDDM's
+# greeter runs on Xorg, which ignores panel_orientation — so the login
+# screen alone stays portrait on a UMPC. Fix: rotate it with xrandr from
+# Xsetup. Two gotchas learned on a GPD Pocket 4:
+#   - Xorg names the panel "eDP" (NOT the DRM name "eDP-1") — auto-detect
+#     the connected output instead of hardcoding it.
+#   - x11-apps/xrandr is NOT pulled in by plasma-meta; without it Xsetup
+#     fails silently (command not found) and nothing rotates.
+# fbcon rotate value -> xrandr rotation: 1=right (90 CW), 2=inverted,
+# 3=left (90 CCW). Verified: Pocket 4 fbcon=rotate:1 <-> xrandr right.
+_umpc_rotate_sddm_greeter() {
+    # Only meaningful when SDDM is the display manager (Plasma). GDM's
+    # Wayland greeter honors panel_orientation on its own.
+    if [[ ! -d /usr/share/sddm ]]; then
+        einfo "  No SDDM present — skipping greeter rotation"
+        return 0
+    fi
+
+    local rot
+    case "${UMPC_FBCON_ROTATE}" in
+        1) rot="right" ;;
+        2) rot="inverted" ;;
+        3) rot="left" ;;
+        *) return 0 ;;
+    esac
+
+    einfo "  Rotating SDDM greeter (xrandr --rotate ${rot})..."
+
+    # xrandr is required and not pulled by plasma-meta.
+    try "Installing x11-apps/xrandr (SDDM greeter rotation)" \
+        emerge --quiet x11-apps/xrandr
+
+    mkdir -p /usr/share/sddm/scripts
+    cat > /usr/share/sddm/scripts/Xsetup << XSETUPEOF
+#!/bin/sh
+# Xsetup — rotate the SDDM X11 greeter to match the UMPC panel.
+# Xorg names the internal panel "eDP" (not the DRM "eDP-1"), so detect
+# the connected output rather than hardcoding it. Written by the Gentoo
+# installer (umpc_quirks) for UMPCs with a rotated panel.
+_out=\$(xrandr | awk '/ connected/{print \$1; exit}')
+[ -n "\${_out}" ] && xrandr --output "\${_out}" --rotate ${rot}
+XSETUPEOF
+    chmod 0755 /usr/share/sddm/scripts/Xsetup
+    einfo "  SDDM greeter rotation configured (output auto-detected, --rotate ${rot})"
 }
 
 # _umpc_write_gpd_fan_note — Append manual install instructions for
