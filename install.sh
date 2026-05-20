@@ -378,6 +378,29 @@ _do_chroot_phases() {
         einfo "Skipping system config (checkpoint reached)"
     fi
 
+    # Phase 7b: Users — create the login account + passwords EARLY, before
+    # the long, failure-prone kernel/desktop phases. Doing this LAST (after
+    # desktop) meant any desktop failure left root with no password and no
+    # user account — an unloginnable box. This locked out a real GPD Pocket
+    # 4 after a desktop-phase failure. Create the login as soon as the base
+    # system is configured so later failures never cost you a way in.
+    if ! checkpoint_reached "users"; then
+        einfo "--- Phase: Users ---"
+        if [[ -z "${ROOT_PASSWORD_HASH:-}" ]]; then
+            eerror "No root password hash in config — system would be unloginnable!"
+            eerror "Not marking 'users' complete; set credentials (re-run wizard) and resume."
+        fi
+        maybe_exec 'before_users'
+        system_create_users
+        maybe_exec 'after_users'
+        # Only checkpoint when a root password was actually set, so a resume
+        # with empty/unrecovered credentials retries instead of silently
+        # leaving an unloginnable system.
+        [[ -n "${ROOT_PASSWORD_HASH:-}" ]] && checkpoint_set "users"
+    else
+        einfo "Skipping users (checkpoint reached)"
+    fi
+
     # Phase 8: Kernel
     if ! checkpoint_reached "kernel"; then
         einfo "--- Phase: Kernel ---"
@@ -456,17 +479,6 @@ _do_chroot_phases() {
         checkpoint_set "desktop"
     else
         einfo "Skipping desktop (checkpoint reached)"
-    fi
-
-    # Phase 14: Users
-    if ! checkpoint_reached "users"; then
-        einfo "--- Phase: Users ---"
-        maybe_exec 'before_users'
-        system_create_users
-        maybe_exec 'after_users'
-        checkpoint_set "users"
-    else
-        einfo "Skipping users (checkpoint reached)"
     fi
 
     # Phase 15: Extras
