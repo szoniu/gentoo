@@ -83,6 +83,17 @@ net-libs/webkit-gtk low-memory.conf
 dev-qt/qtwebengine low-memory.conf
 dev-lang/rust low-memory.conf
 dev-lang/spidermonkey low-memory.conf
+# LLVM/clang: heaviest build in the tree, pulled in by media-libs/mesa for the
+# AMD radeonsi/RADV shader compiler (e.g. Radeon 780M). Category moved
+# sys-devel/ -> llvm-core/ in 2024; both atoms listed so the throttle applies
+# whichever the synced tree uses.
+llvm-core/llvm low-memory.conf
+llvm-core/clang low-memory.conf
+sys-devel/llvm low-memory.conf
+sys-devel/clang low-memory.conf
+# gnome-base/mutter: GNOME compositor, heavy parallel C compile that OOM-killed
+# cc1plus on the 12 GB GPD Pocket 4 (no Qt-style throttle covered it before).
+gnome-base/mutter low-memory.conf
 
 # Qt6 / KDE — 1-2 GB RAM per parallel cc1plus, full -j on 16-thread CPU hits OOM
 # even with 16 GB RAM (seen on AMD Ryzen 7 8840U + 16 GB: cc1plus killed during
