@@ -59,7 +59,11 @@ _install_kde_desktop() {
     # USE flag changes Portage discovers (e.g. ngtcp2 gnutls for samba/kio-extras,
     # libdrm video_cards_radeon for xf86-video-ati). --keep-going lets the merge
     # continue on transient build failures and finish remaining packages.
-    try "Installing KDE Plasma" emerge --quiet --autounmask-write --autounmask-continue --keep-going kde-plasma/plasma-meta
+    # --changed-use rebuilds already-installed deps whose USE changed vs config —
+    # critical for x11-base/xorg-drivers so our package.use disabling
+    # video_cards_radeon/radeonsi actually drops the legacy xf86-video-ati DDX
+    # (which fails to build against modern xorg-server on AMD 780M).
+    try "Installing KDE Plasma" emerge --quiet --autounmask-write --autounmask-continue --keep-going --changed-use kde-plasma/plasma-meta
 
     # Install SDDM display manager
     try "Installing SDDM" emerge --quiet --autounmask-write --autounmask-continue x11-misc/sddm
@@ -176,8 +180,11 @@ _install_gnome_desktop() {
     try "Bootstrapping Go compiler" emerge --oneshot --quiet dev-lang/go
 
     # Install GNOME (meta package pulls gnome-shell, mutter, gnome-session, etc.)
-    # See KDE block above for rationale on autounmask + keep-going flags.
-    try "Installing GNOME" emerge --quiet --autounmask-write --autounmask-continue --keep-going gnome-base/gnome
+    # See KDE block above for rationale on autounmask + keep-going + changed-use
+    # flags (the latter rebuilds installed xorg-drivers so it drops xf86-video-ati
+    # per our package.use — without it the GNOME merge dies building that DDX on
+    # AMD 780M).
+    try "Installing GNOME" emerge --quiet --autounmask-write --autounmask-continue --keep-going --changed-use gnome-base/gnome
 
     # Install GDM display manager
     try "Installing GDM" emerge --quiet --autounmask-write --autounmask-continue gnome-base/gdm
