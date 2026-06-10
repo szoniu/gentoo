@@ -1,6 +1,7 @@
 # CLAUDE.md — Kontekst projektu dla Claude Code
 
 > Szczegóły wsparcia sprzętowego (Surface, ASUS ROG/hybrid GPU, UMPC/GPD/Chuwi, Secure Boot, peripherals, kernel hardware patches, AMD GPU+xorg, BitLocker) są w **[docs/HARDWARE.md](docs/HARDWARE.md)**. Ten plik trzyma architekturę, polityki budowania i pułapki.
+> Notatki per-urządzenie z realnych instalacji na **GPD Pocket 4** (rola/kierunek OS, twarde fakty sprzętowe, pułapki resume, historia bugfixów, otwarte TODO) → **[docs/POCKET4.md](docs/POCKET4.md)**.
 
 ## Co to jest
 
