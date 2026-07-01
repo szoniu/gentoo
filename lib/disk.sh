@@ -482,28 +482,35 @@ mount_filesystems() {
             try "Mounting @ subvolume" \
                 mount -o subvol=@,compress=zstd,noatime "${ROOT_PARTITION}" "${MOUNTPOINT}"
 
-            # Mount other subvolumes
-            if [[ -n "${BTRFS_SUBVOLUMES:-}" ]]; then
-                local IFS=':'
-                local -a parts
-                read -ra parts <<< "${BTRFS_SUBVOLUMES}"
-                local idx
-                for (( idx = 0; idx < ${#parts[@]}; idx += 2 )); do
-                    local subvol="${parts[$idx]}"
-                    local mpoint="${parts[$((idx + 1))]}"
-                    [[ "${subvol}" == "@" ]] && continue
-                    if ! mountpoint -q "${MOUNTPOINT}${mpoint}" 2>/dev/null; then
-                        mkdir -p "${MOUNTPOINT}${mpoint}"
-                        try "Mounting subvolume ${subvol} at ${mpoint}" \
-                            mount -o "subvol=${subvol},compress=zstd,noatime" \
-                            "${ROOT_PARTITION}" "${MOUNTPOINT}${mpoint}"
-                    fi
-                done
-            fi
         else
             # Simple mount for ext4/xfs
             try "Mounting root filesystem" mount "${ROOT_PARTITION}" "${MOUNTPOINT}"
         fi
+    fi
+
+    # Mount non-@ btrfs subvolumes (@home, @var-log, @snapshots) UNCONDITIONALLY —
+    # even when root was already mounted (e.g. --resume). If this is skipped, a
+    # resumed `users` phase runs with @home NOT mounted and `useradd -m` writes the
+    # home into @ instead of @home; at boot the empty @home mounts over it and the
+    # home directory "disappears" (login fails, SDDM bounces to the greeter).
+    # Caught on a real HP ProBook 450 G8 resume. The per-mount `mountpoint -q`
+    # guard makes this a no-op when the subvolume is already mounted.
+    if [[ "${FILESYSTEM:-ext4}" == "btrfs" && -n "${BTRFS_SUBVOLUMES:-}" ]]; then
+        local IFS=':'
+        local -a parts
+        read -ra parts <<< "${BTRFS_SUBVOLUMES}"
+        local idx
+        for (( idx = 0; idx < ${#parts[@]}; idx += 2 )); do
+            local subvol="${parts[$idx]}"
+            local mpoint="${parts[$((idx + 1))]}"
+            [[ "${subvol}" == "@" ]] && continue
+            if ! mountpoint -q "${MOUNTPOINT}${mpoint}" 2>/dev/null; then
+                mkdir -p "${MOUNTPOINT}${mpoint}"
+                try "Mounting subvolume ${subvol} at ${mpoint}" \
+                    mount -o "subvol=${subvol},compress=zstd,noatime" \
+                    "${ROOT_PARTITION}" "${MOUNTPOINT}${mpoint}"
+            fi
+        done
     fi
 
     # Mount ESP
