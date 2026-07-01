@@ -525,11 +525,27 @@ _do_chroot_phases() {
 run_post_install() {
     einfo "=== Post-installation ==="
 
+    # Capture the skipped-step record (written on the target during the chroot
+    # phase) BEFORE unmounting — option B. Steps that failed and were
+    # "continued" don't fail the install, so this is the only signal that the
+    # system came out incomplete (e.g. GURU/git/firefox never installed).
+    local skipped_report=""
+    if [[ "${DRY_RUN}" != "1" ]]; then
+        local _sk="${MOUNTPOINT}/var/log/gentoo-installer-skipped.log"
+        [[ -s "${_sk}" ]] && skipped_report=$(cat "${_sk}" 2>/dev/null) || true
+    fi
+
     # Unmount everything
     unmount_filesystems
 
     local complete_msg=""
     complete_msg+="Gentoo Linux has been successfully installed!\n\n"
+    if [[ -n "${skipped_report}" ]]; then
+        complete_msg+="⚠️  SOME STEPS WERE SKIPPED after a failure (chosen 'continue').\n"
+        complete_msg+="    The system may be INCOMPLETE — review and finish these manually\n"
+        complete_msg+="    (full list in /var/log/gentoo-installer-skipped.log):\n\n"
+        complete_msg+="${skipped_report}\n\n"
+    fi
     complete_msg+="You can now reboot into your new system.\n\n"
     complete_msg+="Remember to remove the installation media.\n\n"
     if [[ "${ENABLE_SECUREBOOT:-no}" == "yes" ]]; then
@@ -604,6 +620,9 @@ main() {
     if [[ "${MODE}" == "chroot" && "${DRY_RUN:-0}" != "1" ]]; then
         LOG_FILE="/var/log/gentoo-installer.log"
         LOG_APPEND=1
+        # Skipped-step record (option B) — durable on @var-log so the
+        # end-of-install warning can list what failed-and-was-continued.
+        SKIPPED_LOG="/var/log/gentoo-installer-skipped.log"
     fi
     init_logging
 

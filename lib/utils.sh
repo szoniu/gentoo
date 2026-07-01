@@ -106,6 +106,14 @@ try() {
                 ;;
             continue)
                 ewarn "Skipping: ${desc} (user chose to continue)"
+                # Durable record (option B): a "continue" swallows the failure
+                # and the phase may still set its checkpoint, so without this an
+                # incomplete install looks complete. run_post_install surfaces
+                # this file as a prominent end-of-install warning. SKIPPED_LOG
+                # points at the target's @var-log during the chroot phase.
+                { printf '%s\t%s\tcmd: %s\n' \
+                    "$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo '?')" \
+                    "${desc}" "$*" >> "${SKIPPED_LOG}"; } 2>/dev/null || true
                 [[ ${_stderr_redirected} -eq 1 ]] && exec 2>>"${LOG_FILE}"
                 declare -f _live_preview_redraw &>/dev/null && _live_preview_redraw
                 return 0
