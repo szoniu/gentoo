@@ -301,14 +301,16 @@ system_finalize() {
     # Install power management for laptops
     if [[ -d /sys/class/power_supply/BAT0 ]] || [[ -d /sys/class/power_supply/BAT1 ]]; then
         einfo "Battery detected — installing power management..."
+        # power-profiles-daemon works with BOTH systemd and OpenRC and
+        # integrates natively with the KDE Plasma / GNOME power applet.
+        # (app-laptop/tlp was removed from the main tree — it no longer
+        #  resolves under OpenRC; PPD is the maintained in-tree choice.)
+        try "Installing power-profiles-daemon" \
+            emerge --quiet --keep-going sys-power/power-profiles-daemon || true
         if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
-            try "Installing power-profiles-daemon" \
-                emerge --quiet --keep-going sys-power/power-profiles-daemon || true
             systemctl enable power-profiles-daemon 2>/dev/null || true
         else
-            try "Installing TLP" \
-                emerge --quiet --keep-going app-laptop/tlp || true
-            rc-update add tlp default 2>/dev/null || true
+            rc-update add power-profiles-daemon default 2>/dev/null || true
         fi
         # Install thermald for Intel CPUs
         if grep -qi 'GenuineIntel' /proc/cpuinfo 2>/dev/null; then
@@ -316,6 +318,8 @@ system_finalize() {
                 emerge --quiet --keep-going sys-power/thermald || true
             if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
                 systemctl enable thermald 2>/dev/null || true
+            else
+                rc-update add thermald default 2>/dev/null || true
             fi
         fi
         einfo "Power management installed"
