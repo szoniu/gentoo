@@ -73,6 +73,13 @@ die_trace() {
 # Initialize log file
 init_logging() {
     mkdir -p "$(dirname "${LOG_FILE}")"
-    : > "${LOG_FILE}"
+    if [[ "${LOG_APPEND:-0}" == "1" && -f "${LOG_FILE}" ]]; then
+        # Preserve earlier runs' logs across --resume; mark a new session so
+        # phases from different resume attempts stay distinguishable.
+        printf '\n===== new session (mode=%s) %s =====\n' \
+            "${MODE:-?}" "$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || true)" >> "${LOG_FILE}"
+    else
+        : > "${LOG_FILE}"
+    fi
     einfo "Logging to ${LOG_FILE}"
 }

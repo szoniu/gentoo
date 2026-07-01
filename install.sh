@@ -545,11 +545,14 @@ run_post_install() {
             complete_msg+="  mokutil --import /root/secureboot/MOK.der\n\n"
         fi
     fi
-    # Copy log to installed system so it survives reboot
+    # Copy the outer-process log (disk/stage3/mount — pre-chroot work) to the
+    # installed system so it survives reboot. The chroot-phase log already
+    # lands directly on /var/log/gentoo-installer.log (durable @var-log), so
+    # write the outer log to a SEPARATE file to avoid clobbering it.
     if [[ "${DRY_RUN}" != "1" && -f "${LOG_FILE}" ]]; then
-        cp "${LOG_FILE}" "${MOUNTPOINT}/var/log/gentoo-installer.log" 2>/dev/null || true
+        cp "${LOG_FILE}" "${MOUNTPOINT}/var/log/gentoo-installer-outer.log" 2>/dev/null || true
     fi
-    complete_msg+="Log file saved to: /var/log/gentoo-installer.log"
+    complete_msg+="Logs saved to: /var/log/gentoo-installer.log (chroot) + -outer.log"
 
     dialog_msgbox "Installation Complete" "${complete_msg}"
 
@@ -591,6 +594,17 @@ preflight_checks() {
 
 # --- Entry point ---
 main() {
+    # Chroot-phase log MUST survive a reboot: /var/log is the @var-log
+    # subvolume (durable) while /tmp is tmpfs (wiped on reboot). Without this a
+    # failed/interrupted install left NO log after --resume + reboot, making a
+    # post-mortem impossible (bit us on a real HP ProBook 450 G8 resume — the
+    # only persistent copy used to be made at the very end of a *successful*
+    # run). Append so each resume run adds to the log instead of truncating
+    # earlier phases.
+    if [[ "${MODE}" == "chroot" && "${DRY_RUN:-0}" != "1" ]]; then
+        LOG_FILE="/var/log/gentoo-installer.log"
+        LOG_APPEND=1
+    fi
     init_logging
 
     einfo "========================================="
