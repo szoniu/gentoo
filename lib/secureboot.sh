@@ -137,11 +137,34 @@ SBATEOF
     einfo "Rebuilding GRUB with SBAT section..."
     local grub_tmp="/tmp/grubx64-sbat.efi"
 
+    # Embed a REDIRECT STUB, not the full /boot/grub/grub.cfg. Baking the real
+    # menu into the signed standalone freezes it: every later kernel update
+    # rewrites the EXTERNAL /boot/grub/grub.cfg, which a full-menu standalone
+    # never reads, so new kernels silently vanish from the boot menu (and there
+    # is no way to add them without rebuilding+resigning the .efi by hand).
+    # The stub just points GRUB at the on-disk grub.cfg — which stays live.
+    # grub.cfg itself need not be signed: shim verifies the GRUB binary and the
+    # kernel, not the config. `set prefix` at the external grub dir lets the
+    # external config's `insmod` (gfxterm/png/theme) load modules from disk, so
+    # the graphical menu keeps working too — not just a bare text console.
+    local root_uuid grub_dir stub="/tmp/grub-redirect.cfg"
+    root_uuid=$(get_uuid "${ROOT_PARTITION}")
+    if [[ "${FILESYSTEM:-}" == "btrfs" ]]; then
+        grub_dir="/@/boot/grub"   # root lives on subvol @; GRUB sees the top tree
+    else
+        grub_dir="/boot/grub"
+    fi
+    cat > "${stub}" << STUBEOF
+search --no-floppy --fs-uuid --set=root ${root_uuid}
+set prefix=(\$root)${grub_dir}
+configfile (\$root)${grub_dir}/grub.cfg
+STUBEOF
+
     try "Building standalone GRUB with SBAT" \
         grub-mkstandalone --format=x86_64-efi --output="${grub_tmp}" \
         --sbat="${sbat_csv}" \
         --modules="part_gpt part_msdos fat ext2 btrfs xfs normal boot linux search search_fs_uuid search_fs_file configfile echo test" \
-        "boot/grub/grub.cfg=/boot/grub/grub.cfg"
+        "boot/grub/grub.cfg=${stub}"
 
     # Sign with MOK key
     try "Signing GRUB with SBAT" \
@@ -150,7 +173,7 @@ SBATEOF
     # Replace on ESP
     mkdir -p "${efi_dir}"
     cp "${grub_tmp}" "${efi_dir}/grubx64.efi"
-    rm -f "${grub_tmp}"
+    rm -f "${grub_tmp}" "${stub}"
 
     einfo "GRUB rebuilt with SBAT and signed"
 }
