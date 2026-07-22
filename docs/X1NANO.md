@@ -104,10 +104,21 @@ sudo -k && sudo true
 ### 3. WWAN — najbardziej ryzykowny punkt
 
 ```bash
+zgrep -E 'CONFIG_(WWAN|IOSM)=' /proc/config.gz 2>/dev/null || grep -E 'CONFIG_(WWAN|IOSM)=' /boot/config-$(uname -r)
+```
+> **Zrób to PIERWSZE.** Rozstrzyga, czy w ogóle jest o czym rozmawiać. Oczekiwane:
+> `CONFIG_WWAN=m` i `CONFIG_IOSM=m`. Dla `dist-kernel` (rekomendowanego) instalator
+> **nie uruchamia** `_patch_kernel_config` — bierzemy config binarki taki, jaki jest.
+> Baza dist-kernela to config Fedory, więc `IOSM` powinien tam być, ale **nie jest to
+> przez nas wymuszone ani zweryfikowane** — stąd ta komenda. Jeśli `IOSM` brakuje:
+> przesiadka na genkernel (niżej) załatwia sprawę, bo tam wymuszamy go jawnie.
+
+```bash
 lspci -nnk -d 8086:7360
 ```
-> Musi pokazać `Kernel driver in use: iosm`. Brak sekcji `Kernel driver` = kernel bez
-> `CONFIG_IOSM` (patrz „Znane ryzyka").
+> Musi pokazać `Kernel driver in use: iosm`. Sterownik w configu, a mimo to brak
+> sekcji `Kernel driver` = ta rewizja L850-GL nie dogaduje się z `iosm` (patrz
+> „Znane ryzyka").
 
 ```bash
 ls -l /etc/ModemManager/fcc-unlock.d/ | head
@@ -156,7 +167,8 @@ Zaimplementowane w lipcu 2026 właśnie pod tę maszynę:
   Huawei). Intelowe `8087` **celowo pominięte** — to też każdy Intel Bluetooth.
 - **`lib/kernel.sh` `_patch_kernel_config()`** — dla WWAN dorzuca `CONFIG_WWAN=m` +
   `CONFIG_IOSM=m` (ścieżka PCIe) obok dotychczasowych USB (`qmi_wwan`, `cdc_mbim`,
-  `option`). Dotyczy tylko genkernel/surface; dist-kernel ma to w binarce.
+  `option`). **Dotyczy tylko genkernel/surface** — przy `dist-kernel` ta funkcja w ogóle
+  nie jest wołana, więc liczy się config binarki (do sprawdzenia komendą z checklisty).
   `WWAN` jako `=m`, nie `=y`: upstream deklaruje `depends on GNSS || GNSS = n`,
   więc przy `GNSS=m` wariant `=y` jest niedozwolony i `make olddefconfig` skasowałby
   go po cichu **razem z `IOSM`**. `IOSM` ma tylko `depends on PCI` + `select NET_DEVLINK`.
@@ -191,10 +203,29 @@ Zaimplementowane w lipcu 2026 właśnie pod tę maszynę:
 - **Edycja `/etc/pam.d/system-auth` należy do `sys-auth/pambase`.** Po update'cie pambase
   plik wyjdzie jako konflikt w `etc-update`/`dispatch-conf` — wpis `pam_fprintd` trzeba
   wtedy przeklikać z powrotem. Nie zginie po cichu, ale trzeba na to uważać.
-- **Przejście dist-kernel → genkernel po instalacji** (wizardem z `~/dotfiles`,
-  `_gentoo_switch_to_genkernel`): wizard ma **własny** `_gentoo_patch_kernel_config()`,
-  niezależny od tego instalatora — zob. `~/dotfiles/docs/kernel-build-paths.md`. Jeśli
-  nie ma tam `CONFIG_IOSM`, po przesiadce modem zniknie. Sprawdź przed migracją.
+## Przejście dist-kernel → genkernel po instalacji
+
+Ścieżka jest **zachowana end-to-end** — wizard z `~/dotfiles` (`_gentoo_switch_to_genkernel`)
+ma własny, niezależny `_gentoo_patch_kernel_config()` (zob. `~/dotfiles/docs/kernel-build-paths.md`),
+w którym ta sama poprawka WWAN/IOSM została zaaplikowana osobno (dotfiles `c1d3ed3`).
+Stan po przesiadce:
+
+| Element | Co go trzyma po przesiadce |
+|---|---|
+| Modem WWAN | `mods[CONFIG_WWAN]=m` + `CONFIG_IOSM=m` w wizardzie, gate `lspci` na `8086:7360`/`7560` |
+| Fingerprint | `mods[CONFIG_UHID]=m`, gate `lsusb` na `06cb:` — czytnik jest zawsze wyliczony, więc gate zapala się niezależnie od tego, czy palec był używany |
+| WiFi / ThinkPad Fn | `IWLWIFI`/`IWLMVM`, `THINKPAD_ACPI` — force-add w wizardzie |
+| fprintd + PAM, USE-flagi, fcc-unlock | userspace — wymiana kernela ich nie dotyka |
+
+Dwie rzeczy do wiedzy przy samej migracji:
+
+- **Gate `lspci` działa nawet przy zablokowanym radiu.** FCC lock blokuje nadajnik, nie
+  enumerację na szynie PCI — karta jest widoczna w `lspci` zawsze, więc blok WWAN się zapali.
+- **Po buildzie sprawdź, czy opcje przetrwały.** Wizard od hardeningu #5 sam wypisuje
+  `[!] olddefconfig wyrzucił …` do logu, ale i tak warto zerknąć:
+  `grep -E 'CONFIG_(WWAN|IOSM)=' /usr/src/linux/.config`.
+- GRUB zachowuje dist-kernel jako fallback — jeśli `-custom` nie wstanie, wybierasz
+  `gentoo-kernel-bin` i nic nie jest stracone.
 
 ## Do zweryfikowania na żywym sprzęcie
 
