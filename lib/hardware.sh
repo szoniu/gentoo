@@ -515,13 +515,37 @@ detect_webcam() {
     export WEBCAM_DETECTED
 }
 
-# detect_wwan — Detect WWAN LTE modem via PCI (Intel XMM7360)
+# detect_wwan — Detect WWAN LTE/5G modem (PCIe or USB)
+#
+# Two transports, two kernel driver families:
+#   PCIe — Intel XMM7360 (Fibocom L850-GL, ThinkPad X1 Nano/Carbon gen 7-9) and
+#          XMM7560 (L860-GL). Both bind the in-tree `iosm` driver (CONFIG_IOSM,
+#          PCI IDs 8086:7360 / 8086:7560).
+#   USB  — Quectel (2c7c), Fibocom USB variants (2cb7), Telit (1bc7),
+#          Cinterion/Thales (1e2d), Sierra (1199), Huawei (12d1). These use
+#          cdc_mbim / qmi_wwan / option.
+# Intel's own USB vendor ID (8087) is deliberately NOT matched — it is also
+# every Intel Bluetooth controller, which would make this fire on any laptop.
 detect_wwan() {
     WWAN_DETECTED=0
-    if lspci -nnd 8086:7360 2>/dev/null | grep -q .; then
+
+    # PCIe modems by exact ID, plus any device the PCI class marks as a
+    # cellular controller (catches vendors/IDs not listed here).
+    if lspci -nnd 8086:7360 2>/dev/null | grep -q . ; then
         WWAN_DETECTED=1
-        einfo "WWAN modem detected: Intel XMM7360 LTE Advanced"
+        einfo "WWAN modem detected: Intel XMM7360 LTE Advanced (PCIe)"
+    elif lspci -nnd 8086:7560 2>/dev/null | grep -q . ; then
+        WWAN_DETECTED=1
+        einfo "WWAN modem detected: Intel XMM7560 (PCIe)"
+    elif lspci -nn 2>/dev/null | grep -qi 'cellular'; then
+        WWAN_DETECTED=1
+        einfo "WWAN modem detected: cellular controller (PCIe)"
+    elif command -v lsusb &>/dev/null && \
+         lsusb 2>/dev/null | grep -qiE '2c7c:|2cb7:|1bc7:|1e2d:|1199:|12d1:'; then
+        WWAN_DETECTED=1
+        einfo "WWAN modem detected: USB modem"
     fi
+
     export WWAN_DETECTED
 }
 

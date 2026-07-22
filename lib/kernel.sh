@@ -469,10 +469,27 @@ _patch_kernel_config() {
         required_modules[CONFIG_SURFACE_DTX]="m"
     fi
 
-    # WWAN LTE modem detected
+    # WWAN LTE/5G modem detected. Both transports are enabled unconditionally —
+    # detect_wwan() does not record which one was found, and the unused modules
+    # cost nothing (they never bind without matching hardware).
+    #
+    # CONFIG_WWAN + CONFIG_IOSM are the PCIe path: Intel XMM7360 (Fibocom
+    # L850-GL — ThinkPad X1 Nano gen 1, X1 Carbon gen 7-9) and XMM7560
+    # (L860-GL) are both in iosm's PCI table (8086:7360 / 8086:7560, in-tree
+    # since 5.18). Without CONFIG_IOSM a PCIe modem has NO driver at all —
+    # the USB modules below are useless for it. This was the actual gap: only
+    # the USB drivers used to be added here, so genkernel builds shipped a
+    # kernel that could never see an X1 Nano's modem.
+    #
+    # Caveat worth knowing: on some L850-GL firmware revisions iosm binds but
+    # exposes no MBIM control channel, and the out-of-tree xmm7360-pci driver
+    # is needed instead. install_wwan_tools() warns about this at install time.
     if [[ "${WWAN_DETECTED:-0}" == "1" ]]; then
-        einfo "  WWAN modem detected — adding WWAN modules"
+        einfo "  WWAN modem detected — adding WWAN modules (PCIe iosm + USB)"
+        required_modules[CONFIG_WWAN]="y"
+        required_modules[CONFIG_IOSM]="m"
         required_modules[CONFIG_USB_NET_QMI_WWAN]="m"
+        required_modules[CONFIG_USB_NET_CDC_MBIM]="m"
         required_modules[CONFIG_USB_SERIAL_OPTION]="m"
     fi
 

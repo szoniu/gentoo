@@ -41,7 +41,7 @@ Tylko dla genkernel/surface-genkernel/surface-kernel (dist-kernel = binarka, pom
    - ASUS ROG: `ASUS_WMI`, `ASUS_NB_WMI`
    - Surface: `SURFACE_AGGREGATOR*`, `SURFACE_HID`, `SURFACE_DTX`
    - IIO sensors (HID + I2C): `HID_SENSOR_HUB`, `HID_SENSOR_ACCEL_3D`, `HID_SENSOR_GYRO_3D`, `HID_SENSOR_ALS`, plus **I2C accelerometers** (`MXC4005`, `BMA180`, `KXCJK1013`) dla x86 tabletów (GPD Pocket 4, Surface Go 1)
-   - WWAN LTE (Intel XMM7360): `USB_NET_QMI_WWAN`, `USB_SERIAL_OPTION`
+   - WWAN LTE/5G — **obie magistrale naraz**: PCIe `WWAN=y` + `IOSM=m` (Intel XMM7360 = Fibocom L850-GL, XMM7560 = L860-GL; in-tree od 5.18) oraz USB `USB_NET_QMI_WWAN`, `USB_NET_CDC_MBIM`, `USB_SERIAL_OPTION`. Sam zestaw USB to była realna luka — modem PCIe nie miał wtedy ŻADNEGO sterownika (złapane przy X1 Nano Gen 1, zob. [X1NANO.md](X1NANO.md))
    - Fingerprint reader: `UHID` (potrzebny dla libfprint)
 4. `make olddefconfig` — domyka dependency tree
 5. Config zapisywany do `/tmp/genkernel-patched.config` — przeżyje `make mrproper` genkernela, używany przez `--kernel-config=`
@@ -169,7 +169,7 @@ Jeśli `shimx64.efi` nie znaleziony — sprawdza czy `sys-boot/shim` zainstalowa
 - `detect_thunderbolt()` — `/sys/bus/thunderbolt/devices/[0-9]*` lub `lspci -nn | grep thunderbolt|USB4`
 - `detect_sensors()` — `/sys/bus/iio/devices/iio:device*/name` matching accel/gyro/als/light/incli
 - `detect_webcam()` — `/sys/class/video4linux/video*/name`
-- `detect_wwan()` — `lspci -nnd 8086:7360` (Intel XMM7360 LTE Advanced)
+- `detect_wwan()` — PCIe: `lspci -nnd 8086:7360` (XMM7360 / Fibocom L850-GL), `8086:7560` (XMM7560 / L860-GL), fallback `lspci -nn | grep -i cellular`; USB: `lsusb` po vendor ID 2c7c (Quectel), 2cb7 (Fibocom), 1bc7 (Telit), 1e2d (Cinterion), 1199 (Sierra), 12d1 (Huawei). **Intelowe 8087 celowo pominięte** — to również każdy Intel Bluetooth, matchowanie go dawałoby WWAN na każdym laptopie
 
 **Auto z desktopem** (jak PipeWire):
 - Bluetooth (`net-wireless/bluez`) — `_install_bluetooth()` w `lib/desktop.sh`
@@ -177,10 +177,13 @@ Jeśli `shimx64.efi` nie znaleziony — sprawdza czy `sys-boot/shim` zainstalowa
 - AMD microcode (`sys-firmware/amd-microcode`) — `lib/kernel.sh` (symetrycznie do Intel)
 
 **Opt-in w checkliście** (`tui/extra_packages.sh`) — widoczne tylko gdy sprzęt wykryty:
-- Fingerprint → `sys-auth/fprintd` + `sys-auth/libfprint` (`install_fingerprint_tools()` w `lib/portage.sh`)
+- Fingerprint → `sys-auth/fprintd` + `sys-auth/libfprint` z `USE=pam` (`install_fingerprint_tools()` w `lib/portage.sh`). **PAM konfigurowany automatycznie, tylko na systemd** (`_configure_fprintd_pam()`): najpierw próba USE-flagi `sys-auth/pambase fprintd` jeśli drzewo ją ma, inaczej wstawienie `auth sufficient pam_fprintd.so` przed pierwszym `auth … pam_unix.so` w `/etc/pam.d/system-auth` (backup `.pre-fprintd`). Bez tego kroku czytnik działa TYLKO w `fprintd-verify` — nie w GDM/SDDM ani `sudo` (Fedora robi to `authselect`em, Gentoo nie ma odpowiednika). `sufficient` a nie `required` → nieudany odcisk zawsze spada na hasło, nie da się zablokować logowania. **Na OpenRC celowo pomijane**: pam_fprintd blokuje czekając na demona, a aktywacja D-Bus bywa tam zawodna. Uwaga: `system-auth` należy do `pambase` → po jego update konflikt w `etc-update`
 - Thunderbolt → `sys-apps/bolt` (`install_thunderbolt_tools()` w `lib/portage.sh`)
 - IIO sensors → `sys-apps/iio-sensor-proxy` (`install_sensor_tools()` w `lib/portage.sh`)
-- WWAN LTE → `net-misc/modemmanager` + `net-libs/libmbim` + `net-libs/libqmi` (`install_wwan_tools()` w `lib/portage.sh`) — warning: MM >= 1.26 dla XMM7360, FCC unlock
+- WWAN LTE → `net-misc/modemmanager` + `net-libs/libmbim` + `net-libs/libqmi` + `sys-apps/dmidecode` (`install_wwan_tools()` w `lib/portage.sh`). Trzy rzeczy, bez których modem nie ruszy mimo zainstalowanych pakietów:
+  1. **USE-flagi** — `package.use/wwan` (`net-misc/modemmanager mbim qmi`, `net-misc/networkmanager modemmanager`) pisany w `generate_make_conf()`, czyli **przed** emerge NetworkManagera (`install.sh` woła `install_network_manager` dużo wcześniej niż `install_extra_packages`). Emerge samych `libmbim`/`libqmi` NIE włącza wsparcia w MM. `install_wwan_tools()` ma safety net + rebuild NM `--changed-use`, gdy flaga jednak nie weszła
+  2. **FCC unlock** (`_enable_fcc_unlock()`) — od MM 1.18.4 demon nie odblokowuje radia sam; skrypty leżą martwe w `/usr/share/ModemManager/fcc-unlock.available.d/` (nazwane `vid:pid`) dopóki nie zostaną zsymlinkowane do `/etc/ModemManager/fcc-unlock.d/`. Symlinkujemy **wszystkie** — MM odpala tylko ten pasujący do znalezionego modemu, reszta jest bezczynna, a w chroocie nie ma pewnego `lspci`/`lsusb` do wycelowania. Dotyczy tak samo Fedory — to nie jest gentoowa specyfika
+  3. **Sterownik** — patrz sekcja kernela wyżej (`IOSM` dla PCIe). Fallback gdy `iosm` binduje, ale nie wystawia MBIM: out-of-tree `xmm7360-pci`
 - v4l-utils → `media-video/v4l-utils` (stały item, domyślnie off)
 
 **OpenRC warningi** (`tui/init_select.sh`): fprintd i bolt wymagają systemd — notice dialogs.

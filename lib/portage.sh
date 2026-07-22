@@ -40,6 +40,26 @@ x11-base/xorg-drivers -video_cards_radeon -video_cards_radeonsi -video_cards_ati
 XDEOF
     fi
 
+    # WWAN USE flags must land BEFORE NetworkManager is emerged (install.sh
+    # calls install_network_manager well ahead of install_extra_packages).
+    # NetworkManager built without USE=modemmanager cannot manage a mobile
+    # broadband connection at all — the modem shows up in `mmcli` but never in
+    # the desktop's network menu — and ModemManager without USE="mbim qmi"
+    # can't talk to the modem in the first place. Emerging net-libs/libmbim
+    # and net-libs/libqmi separately (as install_wwan_tools does) does NOT
+    # enable that support; the flags do.
+    if [[ "${ENABLE_WWAN:-no}" == "yes" ]]; then
+        mkdir -p "${MOUNTPOINT}/etc/portage/package.use"
+        cat > "${MOUNTPOINT}/etc/portage/package.use/wwan" << 'WWANEOF'
+# Mobile broadband (WWAN). mbim = the control protocol every modern
+# LTE/5G M.2 modem speaks (Intel XMM7360/7560, Fibocom, Quectel);
+# qmi = the Qualcomm-based ones. NetworkManager needs `modemmanager`
+# to expose the modem as a connection in the desktop UI.
+net-misc/modemmanager mbim qmi
+net-misc/networkmanager modemmanager
+WWANEOF
+    fi
+
     # Per-package MAKEOPTS limits for memory-hungry packages. Each C++ build job
     # for Qt6/KDE can use 1-2 GB RAM; with -j17 on a 16-thread CPU, parallel
     # builds of networkmanager-qt/libkscreen/plasma-workspace can hit OOM even
@@ -1108,11 +1128,96 @@ install_surface_tools() {
 install_fingerprint_tools() {
     [[ "${ENABLE_FINGERPRINT:-no}" != "yes" ]] && return 0
     einfo "Installing fingerprint reader support..."
+
+    # USE=pam builds pam_fprintd.so — without it fprintd is a CLI-only toy:
+    # fprintd-enroll/fprintd-verify work, but nothing can authenticate with it.
+    mkdir -p /etc/portage/package.use
+    grep -qxF "sys-auth/fprintd pam" /etc/portage/package.use/fprintd 2>/dev/null || \
+        echo "sys-auth/fprintd pam" >> /etc/portage/package.use/fprintd 2>/dev/null || true
+
     try "Installing fprintd" emerge --quiet sys-auth/fprintd sys-auth/libfprint
+
     if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
         einfo "fprintd will be auto-activated via D-Bus on systemd"
+        _configure_fprintd_pam
     else
         ewarn "fprintd has limited OpenRC support — D-Bus activation may not work"
+        ewarn "PAM is deliberately left untouched on OpenRC: pam_fprintd blocks"
+        ewarn "waiting for the daemon, so a login could hang if D-Bus activation"
+        ewarn "fails. Enroll with 'fprintd-enroll' and wire up PAM by hand if it works."
+    fi
+}
+
+# _configure_fprintd_pam — Wire pam_fprintd into the auth stack
+#
+# Installing fprintd is not enough: without a PAM entry the reader only works
+# for `fprintd-verify` on the command line, never for GDM/SDDM, `sudo` or
+# screen unlock. Fedora hides this behind `authselect enable-feature
+# with-fingerprint`; Gentoo has no equivalent, so it has to be done here.
+#
+# Two routes, preferred first:
+#   1. If sys-auth/pambase gained an fprintd USE flag, use it — pambase then
+#      generates system-auth with the entry and updates keep working.
+#   2. Otherwise edit /etc/pam.d/system-auth directly. That file is owned by
+#      pambase, so a future pambase update will show it as a CONFIG_PROTECT
+#      conflict in etc-update/dispatch-conf — the edit is not lost silently,
+#      but it must be re-applied by hand when merging.
+#
+# `sufficient` (not `required`) is deliberate: if the finger doesn't match, or
+# the reader/daemon is missing entirely, PAM falls through to the password
+# prompt. This edit cannot lock anyone out.
+_configure_fprintd_pam() {
+    local pam_file="/etc/pam.d/system-auth"
+
+    # Route 1: pambase USE flag, if this tree has one.
+    local pambase_dir="/var/db/repos/gentoo/sys-auth/pambase"
+    if [[ -d "${pambase_dir}" ]] && \
+       grep -qs 'fprintd' "${pambase_dir}"/*.ebuild; then
+        einfo "pambase supports USE=fprintd — enabling it (preferred over editing PAM)"
+        grep -qxF "sys-auth/pambase fprintd" /etc/portage/package.use/fprintd 2>/dev/null || \
+            echo "sys-auth/pambase fprintd" >> /etc/portage/package.use/fprintd
+        try "Rebuilding pambase with fprintd" \
+            emerge --quiet --changed-use --oneshot sys-auth/pambase
+        return 0
+    fi
+
+    # Route 2: edit system-auth. Bail out on anything unexpected rather than
+    # risk mangling the auth stack.
+    if ! compgen -G "/lib*/security/pam_fprintd.so" > /dev/null && \
+       ! compgen -G "/usr/lib*/security/pam_fprintd.so" > /dev/null; then
+        ewarn "pam_fprintd.so not found — fprintd built without USE=pam?"
+        ewarn "Skipping PAM configuration; fingerprint login will NOT work."
+        return 0
+    fi
+
+    if [[ ! -f "${pam_file}" ]]; then
+        ewarn "${pam_file} missing — skipping PAM configuration"
+        return 0
+    fi
+
+    if grep -q 'pam_fprintd.so' "${pam_file}" 2>/dev/null; then
+        einfo "pam_fprintd already configured in ${pam_file}"
+        return 0
+    fi
+
+    local anchor
+    anchor=$(grep -n '^auth.*pam_unix.so' "${pam_file}" 2>/dev/null | head -1 | cut -d: -f1) || true
+    if [[ -z "${anchor}" ]]; then
+        ewarn "No 'auth ... pam_unix.so' line in ${pam_file} — skipping PAM configuration"
+        ewarn "Add manually: auth sufficient pam_fprintd.so"
+        return 0
+    fi
+
+    cp -a "${pam_file}" "${pam_file}.pre-fprintd" 2>/dev/null || true
+    sed -i "${anchor}i auth\t\tsufficient\tpam_fprintd.so" "${pam_file}"
+
+    if grep -q 'pam_fprintd.so' "${pam_file}" 2>/dev/null; then
+        einfo "pam_fprintd added to ${pam_file} (backup: ${pam_file}.pre-fprintd)"
+        ewarn "This file belongs to sys-auth/pambase — after a pambase update,"
+        ewarn "re-apply the line via etc-update/dispatch-conf."
+        ewarn "Enroll a finger after first boot: 'fprintd-enroll' (as your user)"
+    else
+        ewarn "Failed to add pam_fprintd to ${pam_file} — configure it manually"
     fi
 }
 
@@ -1148,17 +1253,88 @@ install_sensor_tools() {
 install_wwan_tools() {
     [[ "${ENABLE_WWAN:-no}" != "yes" ]] && return 0
     einfo "Installing WWAN LTE modem support..."
+
+    # Safety net: generate_make_conf() normally wrote this before NetworkManager
+    # was built. Re-assert it here so a --resume that skipped the portage phase
+    # (or a hand-edited config) still gets working USE flags.
+    mkdir -p /etc/portage/package.use
+    if [[ ! -f /etc/portage/package.use/wwan ]]; then
+        cat > /etc/portage/package.use/wwan << 'WWANEOF'
+net-misc/modemmanager mbim qmi
+net-misc/networkmanager modemmanager
+WWANEOF
+    fi
+
     try "Installing ModemManager" emerge --quiet net-misc/modemmanager
     try "Installing libmbim" emerge --quiet net-libs/libmbim
     try "Installing libqmi" emerge --quiet net-libs/libqmi
+    # Lenovo's FCC unlock scripts read the unlock key out of SMBIOS.
+    try "Installing dmidecode" emerge --quiet sys-apps/dmidecode
+
+    # Rebuild NetworkManager if it was already built without USE=modemmanager
+    # (i.e. the package.use safety net above just created the file).
+    if [[ -d /var/db/pkg/net-misc ]] && \
+       compgen -G "/var/db/pkg/net-misc/networkmanager-*" > /dev/null; then
+        if ! grep -qw 'modemmanager' /var/db/pkg/net-misc/networkmanager-*/USE 2>/dev/null; then
+            ewarn "NetworkManager was built without USE=modemmanager — rebuilding"
+            try "Rebuilding NetworkManager with modemmanager" \
+                emerge --quiet --changed-use --oneshot net-misc/networkmanager
+        fi
+    fi
+
+    _enable_fcc_unlock
+
     if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
         try "Enabling ModemManager" systemctl enable ModemManager
     else
         try "Enabling ModemManager" rc-update add modemmanager default
     fi
-    ewarn "Note: Intel XMM7360 requires ModemManager >= 1.26 for full support."
-    ewarn "If the modem does not work, the FCC lock may need to be released"
-    ewarn "(some laptops require initial activation under Windows)."
+
+    ewarn "WWAN notes:"
+    ewarn "  - Intel XMM7360 (Fibocom L850-GL) needs kernel >= 5.18 for the"
+    ewarn "    in-tree 'iosm' driver. Some L850-GL firmware revisions bind iosm"
+    ewarn "    but expose no MBIM port; those need the out-of-tree xmm7360-pci"
+    ewarn "    driver instead. Check after boot: 'mmcli -L' should list a modem."
+    ewarn "  - Some laptops require a one-time modem activation under Windows."
+}
+
+# _enable_fcc_unlock — Activate ModemManager's FCC unlock scripts
+#
+# Since ModemManager 1.18.4 the daemon no longer runs the FCC unlock procedure
+# automatically. The vendor scripts ship in
+# /usr/share/ModemManager/fcc-unlock.available.d/ named by <vid:pid> (PCI or USB
+# IDs) and stay INERT until symlinked into /etc/ModemManager/fcc-unlock.d/.
+# Without this the radio never turns on: the modem enumerates, `mmcli -L` may
+# even list it, but it refuses to register on any network. Affects most Lenovo/
+# Dell/HP laptops with a factory WWAN card — including Fedora, which ships the
+# same MM defaults, so this is not a Gentoo-specific step.
+#
+# Every available script is symlinked rather than just the detected modem's ID:
+# ModemManager only ever runs the one whose filename matches the modem it found,
+# so the extra symlinks are inert. This also avoids having to re-detect the
+# modem's vid:pid inside the chroot, where lspci/lsusb may not be installed.
+_enable_fcc_unlock() {
+    local avail_dir="/usr/share/ModemManager/fcc-unlock.available.d"
+    local enabled_dir="/etc/ModemManager/fcc-unlock.d"
+
+    if [[ ! -d "${avail_dir}" ]]; then
+        ewarn "No FCC unlock scripts found (${avail_dir} missing)"
+        ewarn "If the modem never registers, see modemmanager.org/docs/modemmanager/fcc-unlock/"
+        return 0
+    fi
+
+    mkdir -p "${enabled_dir}"
+
+    local script name count=0
+    for script in "${avail_dir}"/*; do
+        [[ -f "${script}" ]] || continue
+        name=$(basename "${script}")
+        [[ -e "${enabled_dir}/${name}" ]] && continue
+        ln -sf "${script}" "${enabled_dir}/${name}" 2>/dev/null || continue
+        (( count++ )) || true
+    done
+
+    einfo "FCC unlock: enabled ${count} vendor script(s) in ${enabled_dir}"
 }
 
 # setup_rog_overlay — Enable the zGentoo overlay for ASUS ROG tools
