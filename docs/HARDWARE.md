@@ -41,7 +41,7 @@ Tylko dla genkernel/surface-genkernel/surface-kernel (dist-kernel = binarka, pom
    - ASUS ROG: `ASUS_WMI`, `ASUS_NB_WMI`
    - Surface: `SURFACE_AGGREGATOR*`, `SURFACE_HID`, `SURFACE_DTX`
    - IIO sensors (HID + I2C): `HID_SENSOR_HUB`, `HID_SENSOR_ACCEL_3D`, `HID_SENSOR_GYRO_3D`, `HID_SENSOR_ALS`, plus **I2C accelerometers** (`MXC4005`, `BMA180`, `KXCJK1013`) dla x86 tabletów (GPD Pocket 4, Surface Go 1)
-   - WWAN LTE/5G — **obie magistrale naraz**: PCIe `WWAN=y` + `IOSM=m` (Intel XMM7360 = Fibocom L850-GL, XMM7560 = L860-GL; in-tree od 5.18) oraz USB `USB_NET_QMI_WWAN`, `USB_NET_CDC_MBIM`, `USB_SERIAL_OPTION`. Sam zestaw USB to była realna luka — modem PCIe nie miał wtedy ŻADNEGO sterownika (złapane przy X1 Nano Gen 1, zob. [X1NANO.md](X1NANO.md))
+   - WWAN LTE/5G — **obie magistrale naraz**: PCIe `WWAN=m` + `IOSM=m` (Intel XMM7360 = Fibocom L850-GL, XMM7560 = L860-GL; in-tree od 5.18). `WWAN` celowo `=m`, nie `=y` — upstream ma `depends on GNSS || GNSS = n`, więc przy `GNSS=m` wariant `=y` jest niedozwolony i `make olddefconfig` skasowałby go razem z `IOSM` oraz USB `USB_NET_QMI_WWAN`, `USB_NET_CDC_MBIM`, `USB_SERIAL_OPTION`. Sam zestaw USB to była realna luka — modem PCIe nie miał wtedy ŻADNEGO sterownika (złapane przy X1 Nano Gen 1, zob. [X1NANO.md](X1NANO.md))
    - Fingerprint reader: `UHID` (potrzebny dla libfprint)
 4. `make olddefconfig` — domyka dependency tree
 5. Config zapisywany do `/tmp/genkernel-patched.config` — przeżyje `make mrproper` genkernela, używany przez `--kernel-config=`

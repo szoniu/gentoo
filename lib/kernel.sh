@@ -481,12 +481,18 @@ _patch_kernel_config() {
     # the USB drivers used to be added here, so genkernel builds shipped a
     # kernel that could never see an X1 Nano's modem.
     #
+    # CONFIG_WWAN is forced as =m, not =y, on purpose: upstream declares it
+    # `tristate` with `depends on GNSS || GNSS = n`, so on a config where
+    # localmodconfig kept GNSS=m, a =y would be an invalid combination and
+    # `make olddefconfig` would silently drop it — taking IOSM with it. As a
+    # module the wwan core just autoloads when iosm binds.
+    #
     # Caveat worth knowing: on some L850-GL firmware revisions iosm binds but
     # exposes no MBIM control channel, and the out-of-tree xmm7360-pci driver
     # is needed instead. install_wwan_tools() warns about this at install time.
     if [[ "${WWAN_DETECTED:-0}" == "1" ]]; then
         einfo "  WWAN modem detected — adding WWAN modules (PCIe iosm + USB)"
-        required_modules[CONFIG_WWAN]="y"
+        required_modules[CONFIG_WWAN]="m"
         required_modules[CONFIG_IOSM]="m"
         required_modules[CONFIG_USB_NET_QMI_WWAN]="m"
         required_modules[CONFIG_USB_NET_CDC_MBIM]="m"

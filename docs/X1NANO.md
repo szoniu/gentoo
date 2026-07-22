@@ -154,9 +154,12 @@ Zaimplementowane w lipcu 2026 właśnie pod tę maszynę:
 - **`lib/hardware.sh` `detect_wwan()`** — PCIe `8086:7360`/`8086:7560`, dowolny kontroler
   klasy „cellular", plus modemy USB po vendor ID (Quectel/Fibocom/Telit/Cinterion/Sierra/
   Huawei). Intelowe `8087` **celowo pominięte** — to też każdy Intel Bluetooth.
-- **`lib/kernel.sh` `_patch_kernel_config()`** — dla WWAN dorzuca `CONFIG_WWAN=y` +
+- **`lib/kernel.sh` `_patch_kernel_config()`** — dla WWAN dorzuca `CONFIG_WWAN=m` +
   `CONFIG_IOSM=m` (ścieżka PCIe) obok dotychczasowych USB (`qmi_wwan`, `cdc_mbim`,
   `option`). Dotyczy tylko genkernel/surface; dist-kernel ma to w binarce.
+  `WWAN` jako `=m`, nie `=y`: upstream deklaruje `depends on GNSS || GNSS = n`,
+  więc przy `GNSS=m` wariant `=y` jest niedozwolony i `make olddefconfig` skasowałby
+  go po cichu **razem z `IOSM`**. `IOSM` ma tylko `depends on PCI` + `select NET_DEVLINK`.
 - **`lib/portage.sh` `generate_make_conf()`** — pisze `package.use/wwan`
   (`modemmanager mbim qmi`, `networkmanager modemmanager`) **przed** emerge
   NetworkManagera, bo NM bez `USE=modemmanager` nie pokaże modemu w GUI.
