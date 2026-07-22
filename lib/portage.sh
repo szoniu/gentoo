@@ -1141,11 +1141,46 @@ install_fingerprint_tools() {
         einfo "fprintd will be auto-activated via D-Bus on systemd"
         _configure_fprintd_pam
     else
-        ewarn "fprintd has limited OpenRC support — D-Bus activation may not work"
-        ewarn "PAM is deliberately left untouched on OpenRC: pam_fprintd blocks"
-        ewarn "waiting for the daemon, so a login could hang if D-Bus activation"
-        ewarn "fails. Enroll with 'fprintd-enroll' and wire up PAM by hand if it works."
+        _install_fprintd_openrc_helper
     fi
+}
+
+# _install_fprintd_openrc_helper — Ship the post-boot PAM setup script (OpenRC)
+#
+# PAM cannot be configured for fprintd from here on OpenRC. fprintd is D-Bus
+# activated and there is no system bus inside the chroot, so "does activation
+# work on this machine?" is unanswerable at install time — and guessing wrong
+# is expensive: pam_fprintd BLOCKS waiting for the daemon, so a bad guess means
+# every login hangs until the module gives up.
+#
+# So instead of guessing, the decision is deferred to a script that runs on the
+# booted system, proves fprintd answers a real D-Bus call, and only then edits
+# the auth stack (with an explicit timeout). On systemd this whole dance is
+# unnecessary — activation there is reliable, so _configure_fprintd_pam() just
+# does it inline.
+_install_fprintd_openrc_helper() {
+    local src="${DATA_DIR:-/tmp/gentoo-installer/data}/fprintd-pam-setup.sh"
+    local dest="/usr/local/sbin/fprintd-pam-setup"
+
+    if [[ ! -f "${src}" ]]; then
+        ewarn "fprintd-pam-setup.sh not found at ${src} — skipping helper install"
+        ewarn "Configure PAM by hand: add 'auth sufficient pam_fprintd.so timeout=10'"
+        ewarn "before the first 'auth ... pam_unix.so' line in /etc/pam.d/system-auth"
+        return 0
+    fi
+
+    mkdir -p /usr/local/sbin
+    if install -m 0755 "${src}" "${dest}" 2>/dev/null; then
+        einfo "Installed ${dest}"
+    else
+        ewarn "Could not install ${dest} — configure PAM by hand after first boot"
+        return 0
+    fi
+
+    ewarn "OpenRC + fingerprint: PAM is NOT configured yet (by design)."
+    ewarn "After the first boot, run:  sudo fprintd-pam-setup"
+    ewarn "It verifies that fprintd actually answers on D-Bus and only then"
+    ewarn "touches /etc/pam.d/system-auth. Dry run: 'fprintd-pam-setup --check'."
 }
 
 # _configure_fprintd_pam — Wire pam_fprintd into the auth stack
@@ -1209,7 +1244,12 @@ _configure_fprintd_pam() {
     fi
 
     cp -a "${pam_file}" "${pam_file}.pre-fprintd" 2>/dev/null || true
-    sed -i "${anchor}i auth\t\tsufficient\tpam_fprintd.so" "${pam_file}"
+    # timeout=10 is the module's minimum (default 30s) and max-tries=2 trims one
+    # attempt off the default 3. pam_fprintd blocks while it waits for a finger,
+    # so these bound how long a login sits there before falling through to the
+    # password prompt — worth capping even on systemd, where activation is
+    # reliable but the daemon can still be slow to see the reader after resume.
+    sed -i "${anchor}i auth\t\tsufficient\tpam_fprintd.so timeout=10 max-tries=2" "${pam_file}"
 
     if grep -q 'pam_fprintd.so' "${pam_file}" 2>/dev/null; then
         einfo "pam_fprintd added to ${pam_file} (backup: ${pam_file}.pre-fprintd)"

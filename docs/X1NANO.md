@@ -41,12 +41,29 @@ USB-C→Ethernet. WWAN na Live ISO nie zadziała (FCC lock), więc nie licz na m
 
 | Zmienna | Wartość | Dlaczego |
 |---|---|---|
-| `INIT_SYSTEM` | `systemd` | fprintd stoi na aktywacji D-Bus; na OpenRC instalator celowo **nie** ruszy PAM |
-| `KERNEL_TYPE` | `dist-kernel` | binarka ma `IOSM`/`UHID` w configu — omija cały temat patchowania kernela |
+| `INIT_SYSTEM` | `systemd` | rekomendacja, nie wymóg — OpenRC też pójdzie, szczegóły niżej |
+| `KERNEL_TYPE` | `dist-kernel` | binarka *powinna* mieć `IOSM`/`UHID` — omija patchowanie kernela, ale zweryfikuj (checklista, krok 3) |
 | `DESKTOP_TYPE` | `gnome` lub `plasma` | GNOME ma gładsze fractional scaling na 2160×1350 |
 | `FILESYSTEM` | `btrfs` | snapshoty przed eksperymentami z modemem/kernelem |
 | `ENABLE_FINGERPRINT` | `yes` | pojawi się w checkliście tylko gdy wykryty |
 | `ENABLE_WWAN` | `yes` | j.w.; bezpiecznie zostawić `yes` nawet bez karty WWAN |
+
+### systemd czy OpenRC
+
+OpenRC **nie jest przeszkodą** dla tego sprzętu — WWAN działa tak samo (ModemManager to
+zwykły demon, FCC unlock robi sam MM, init nie ma tu nic do rzeczy), czas synchronizuje
+`chrony`, profile zasilania `power-profiles-daemon`. Różnice są trzy:
+
+| Obszar | OpenRC |
+|---|---|
+| Fingerprint | PAM konfigurowany **po pierwszym boocie**, ręcznie: `sudo fprintd-pam-setup` (instalator sam wgrywa ten skrypt) |
+| Thunderbolt | `boltctl` z CLI działa, ale auto-prompt „Authorize this device?" w GUI nie wyskoczy — `boltctl enroll <uuid>` ręcznie |
+| Desktop | Plasma + elogind = ubita ścieżka; **GNOME na OpenRC to wyraźnie większe ryzyko** |
+
+Rekomendacja `systemd` wynika z roli maszyny (ma być używalnym sprzętem do pracy, a
+fingerprint i WWAN to jej sens), nie z tego, że OpenRC „nie da rady". Pamiętaj też, że
+**zmiana inita po instalacji jest bolesna** — inny profil Portage i praktycznie przebudowa
+świata. To decyzja na start.
 
 ## Instalacja przez SSH
 
@@ -98,8 +115,22 @@ fprintd-verify
 sudo -k && sudo true
 ```
 > Ostatnia komenda ma poprosić o palec (fallback na hasło zawsze działa — wpis PAM jest
-> `sufficient`). Brak wpisu w `system-auth` = `_configure_fprintd_pam()` odpuściło; zajrzyj
-> do logu instalatora, backup leży w `/etc/pam.d/system-auth.pre-fprintd`.
+> `sufficient`, z `timeout=10 max-tries=2`). Brak wpisu w `system-auth` na systemd =
+> `_configure_fprintd_pam()` odpuściło; zajrzyj do logu instalatora, backup leży
+> w `/etc/pam.d/system-auth.pre-fprintd`.
+
+**Na OpenRC** wpisu PAM jeszcze nie ma — to zamierzone. Najpierw:
+
+```bash
+sudo fprintd-pam-setup --check
+```
+```bash
+sudo fprintd-pam-setup
+```
+> `--check` tylko diagnozuje (moduł PAM, D-Bus, realna odpowiedź fprintd na `GetDevices`),
+> bez dotykania `system-auth`. Dopiero drugie wywołanie wpisuje PAM — i tylko wtedy, gdy
+> wszystkie trzy testy przeszły. **Zanim się wylogujesz, przetestuj logowanie w drugiej
+> sesji SSH**, trzymając tę otwartą; powrót: `cp /etc/pam.d/system-auth.pre-fprintd /etc/pam.d/system-auth`.
 
 ### 3. WWAN — najbardziej ryzykowny punkt
 

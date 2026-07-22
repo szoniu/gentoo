@@ -47,7 +47,8 @@ lib/                    — Moduły biblioteczne (NIGDY nie uruchamiać bezpośr
 
 tui/                    — Ekrany TUI (każdy plik = jedna funkcja screen_*)
 data/                   — Statyczne bazy danych + bundled assets (cpu_march/gpu/mirrors DB,
-                          use_flags_desktop, dialogrc, gum.tar.gz, grub-theme/)
+                          use_flags_desktop, dialogrc, gum.tar.gz, grub-theme/,
+                          fprintd-pam-setup.sh — post-boot PAM helper dla OpenRC)
 presets/                — Przykładowe konfiguracje
 tests/                  — Testy + shellcheck.sh (standalone, bez root/hardware)
 hooks/                  — *.sh.example
