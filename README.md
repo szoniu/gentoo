@@ -2,7 +2,18 @@
 
 Interaktywny installer Gentoo Linux z interfejsem TUI (dialog). Przeprowadza za rękę przez cały proces instalacji — od partycjonowania dysku po działający desktop KDE Plasma / GNOME.
 
+> **Notatki per-urządzenie** (co działa, czego pilnować, co sprawdzić po pierwszym boocie):
+> [ThinkPad X1 Nano Gen 1](docs/X1NANO.md) · [GPD Pocket 4](docs/POCKET4.md) ·
+> [pełne wsparcie sprzętowe](docs/HARDWARE.md). **Jeśli instalujesz na którymś z tych urządzeń —
+> przeczytaj jego plik ZANIM zaczniesz**: jest tam rekomendowana konfiguracja i checklista
+> po instalacji, której ten README nie powtarza.
+
 ## Krok po kroku (od zera do działającego systemu)
+
+> **Instalujesz zdalnie, przez SSH z drugiego komputera?** Kroki 1–4 wykonujesz tak samo
+> (przy maszynie docelowej), ale **zanim przejdziesz do kroku 5**, skocz do
+> [Zdalna instalacja przez SSH](#zdalna-instalacja-przez-ssh) — trzeba tam uruchomić `sshd`
+> i odpalić installer w `tmux`, inaczej zerwane połączenie ubije instalację w połowie.
 
 ### 1. Przygotuj bootowalny pendrive
 
@@ -28,6 +39,11 @@ Na Windows użyj [Rufus](https://rufus.ie) lub [balenaEtcher](https://etcher.bal
 - Wybierz opcję **UEFI** (nie Legacy/CSM!)
 
 ### 3. Połącz się z internetem
+
+> **Nie licz na modem WWAN/LTE jako źródło sieci na Live ISO** — nawet gdy karta jest w laptopie,
+> radio jest zablokowane FCC lockiem, który zwalnia się dopiero na zainstalowanym systemie
+> (patrz `docs/HARDWARE.md`). Zostaje WiFi albo kabel — w ultrabookach bez RJ45 (np. X1 Nano)
+> oznacza to WiFi lub dongle USB-C→Ethernet.
 
 #### Kabel LAN (ethernet)
 
@@ -105,9 +121,21 @@ cd gentoo
 
 Installer poprowadzi Cię przez 18 ekranów konfiguracji, a potem zainstaluje wszystko automatycznie.
 
+> **Zdalnie?** Ta komenda musi lecieć wewnątrz `tmux` — patrz
+> [Zdalna instalacja przez SSH](#zdalna-instalacja-przez-ssh).
+
 ### 6. Po instalacji
 
 Po zakończeniu installer zapyta czy chcesz rebootować. Wyjmij pendrive i uruchom komputer — powinieneś zobaczyć GRUB, a potem ekran logowania SDDM (KDE Plasma) lub GDM (GNOME).
+
+> **Instalowałeś zdalnie?** Reboot ucina sesję SSH — po restarcie łączysz się już
+> z zainstalowanym systemem, jako **utworzony w wizardzie user** (nie root: `PermitRootLogin`
+> zostaje domyślne). `sshd` jest instalowany i włączany automatycznie (`ENABLE_SSH=yes`).
+>
+> **Masz czytnik linii papilarnych, modem WWAN albo urządzenie z `docs/`?**
+> Instalator kończy się PRZED weryfikacją tych rzeczy — przejdź checklistę post-deploy
+> z pliku swojego urządzenia (np. [docs/X1NANO.md](docs/X1NANO.md)). Na OpenRC dochodzi
+> jeszcze jednorazowe `sudo fprintd-pam-setup` dla odcisku palca.
 
 Po zalogowaniu — aktualizacja systemu i pakietów:
 
@@ -118,6 +146,104 @@ sudo emerge --depclean             # usunięcie nieużywanych zależności
 ```
 
 > **UWAGA**: Flagi muszą być wielkie: `-D` (deep), `-N` (newuse). Małe `-d` (debug) i `-n` (noreplace) robią coś zupełnie innego!
+
+## Zdalna instalacja przez SSH
+
+Możesz odpalić instalację zdalnie — uruchom SSH na Live ISO, połącz się z innego komputera i odpal installer przez SSH. To pozwala wygodnie monitorować instalację, kopiować/wklejać, a nawet odejść od maszyny docelowej.
+
+### Konfiguracja SSH na Live ISO
+
+Na maszynie docelowej (bootowanej z Live ISO), otwórz konsolę (TTY lub terminal) i:
+
+```bash
+# 1. Ustaw hasło root (Live ISO domyślnie nie ma hasła)
+passwd root
+
+# 2. Ustaw datę (Live ISO może mieć przestarzały zegar — SSL nie zadziała)
+date -s "2026-02-25 09:00:00"   # wstaw aktualną datę
+
+# 3. Uruchom sshd
+#    Gentoo LiveGUI (OpenRC):
+rc-service sshd start
+
+#    Jeśli live ISO ma systemd:
+systemctl start sshd
+
+# 4. Sprawdź IP
+ip -4 addr show | grep inet
+```
+
+### Zdalna instalacja z innego komputera
+
+```bash
+# Połącz się (wyłączamy klucze SSH, bo Live ISO ich nie ma — łączymy hasłem)
+ssh -o PubkeyAuthentication=no root@<IP-live-ISO>
+
+# Sklonuj repo i uruchom installer
+git clone https://github.com/szoniu/gentoo.git
+cd gentoo
+./install.sh
+```
+
+Installer działa normalnie przez SSH — dialog TUI renderuje się w terminalu SSH.
+
+> **"Connection refused"?** Sprawdź czy `sshd` działa na Live ISO: `rc-service sshd status`.
+>
+> **"Encrypted private OpenSSH key detected"?** Twój klient SSH próbuje użyć zaszyfrowanego klucza. Użyj flagi `-o PubkeyAuthentication=no` jak wyżej, żeby wymusić hasło.
+>
+> **Nie możesz się połączyć mimo poprawnego IP?** Upewnij się, że oba komputery są w **tej samej sieci**. Sieci gościnne (Guest WiFi) są zazwyczaj izolowane od firmowego LAN-u. Podłącz oba urządzenia do tej samej sieci.
+>
+> **"WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED"?** Po restarcie Live ISO klucze SSH hosta się zmieniają. Usuń stary klucz i połącz się ponownie:
+> ```bash
+> ssh-keygen -R <IP-live-ISO>
+> ssh -o PubkeyAuthentication=no root@<IP-live-ISO>
+> ```
+
+### Użyj tmux — ochrona przed zerwaniem sesji SSH
+
+**Ważne:** Instalacja Gentoo trwa długo (kompilacja kernela, KDE). Jeśli połączenie SSH się zerwie, instalacja w zwykłej sesji zostanie przerwana. **Zawsze uruchamiaj installer w tmux:**
+
+```bash
+# Na Live ISO (po połączeniu SSH):
+tmux new -s install
+
+# Sklonuj repo i uruchom installer wewnątrz tmux
+git clone https://github.com/szoniu/gentoo.git
+cd gentoo
+./install.sh
+```
+
+Jeśli połączenie SSH się zerwie:
+```bash
+# Połącz się ponownie i wróć do sesji
+ssh root@<IP-live-ISO>
+tmux attach -t install
+```
+
+Instalacja będzie nadal działać w tle — nic nie stracisz.
+
+> **tmux nie jest zainstalowany?** Na Gentoo Live ISO zazwyczaj jest. Jeśli nie: `emerge --quiet app-misc/tmux` lub użyj `screen` (`screen -S install`, powrót: `screen -r install`).
+
+### Monitorowanie z drugiego połączenia
+
+Otwórz drugie okno terminala i połącz się ponownie (lub użyj drugiego panelu tmux — `Ctrl+B` potem `"`):
+
+```bash
+ssh root@<IP-live-ISO>
+
+# Logi w czasie rzeczywistym
+tail -f /tmp/gentoo-installer.log                   # przed chroot
+tail -f /mnt/gentoo/tmp/gentoo-installer.log        # w chroot
+
+# Log genkernel (jeśli wybrałeś genkernel)
+tail -f /mnt/gentoo/var/log/genkernel.log
+
+# Co się kompiluje
+top
+
+# OOM killer
+dmesg | grep -i "oom\|killed"
+```
 
 ## Alternatywne sposoby uruchomienia
 
@@ -287,104 +413,6 @@ tail -f /mnt/gentoo/var/log/genkernel.log
 
 # Sprawdź czy coś nie zawiesiło się
 ps aux | grep -E "tee|emerge|make"
-```
-
-### Zdalna instalacja przez SSH
-
-Możesz odpalić instalację zdalnie — uruchom SSH na Live ISO, połącz się z innego komputera i odpal installer przez SSH. To pozwala wygodnie monitorować instalację, kopiować/wklejać, a nawet odejść od maszyny docelowej.
-
-#### Konfiguracja SSH na Live ISO
-
-Na maszynie docelowej (bootowanej z Live ISO), otwórz konsolę (TTY lub terminal) i:
-
-```bash
-# 1. Ustaw hasło root (Live ISO domyślnie nie ma hasła)
-passwd root
-
-# 2. Ustaw datę (Live ISO może mieć przestarzały zegar — SSL nie zadziała)
-date -s "2026-02-25 09:00:00"   # wstaw aktualną datę
-
-# 3. Uruchom sshd
-#    Gentoo LiveGUI (OpenRC):
-rc-service sshd start
-
-#    Jeśli live ISO ma systemd:
-systemctl start sshd
-
-# 4. Sprawdź IP
-ip -4 addr show | grep inet
-```
-
-#### Zdalna instalacja z innego komputera
-
-```bash
-# Połącz się (wyłączamy klucze SSH, bo Live ISO ich nie ma — łączymy hasłem)
-ssh -o PubkeyAuthentication=no root@<IP-live-ISO>
-
-# Sklonuj repo i uruchom installer
-git clone https://github.com/szoniu/gentoo.git
-cd gentoo
-./install.sh
-```
-
-Installer działa normalnie przez SSH — dialog TUI renderuje się w terminalu SSH.
-
-> **"Connection refused"?** Sprawdź czy `sshd` działa na Live ISO: `rc-service sshd status`.
->
-> **"Encrypted private OpenSSH key detected"?** Twój klient SSH próbuje użyć zaszyfrowanego klucza. Użyj flagi `-o PubkeyAuthentication=no` jak wyżej, żeby wymusić hasło.
->
-> **Nie możesz się połączyć mimo poprawnego IP?** Upewnij się, że oba komputery są w **tej samej sieci**. Sieci gościnne (Guest WiFi) są zazwyczaj izolowane od firmowego LAN-u. Podłącz oba urządzenia do tej samej sieci.
->
-> **"WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED"?** Po restarcie Live ISO klucze SSH hosta się zmieniają. Usuń stary klucz i połącz się ponownie:
-> ```bash
-> ssh-keygen -R <IP-live-ISO>
-> ssh -o PubkeyAuthentication=no root@<IP-live-ISO>
-> ```
-
-#### Użyj tmux — ochrona przed zerwaniem sesji SSH
-
-**Ważne:** Instalacja Gentoo trwa długo (kompilacja kernela, KDE). Jeśli połączenie SSH się zerwie, instalacja w zwykłej sesji zostanie przerwana. **Zawsze uruchamiaj installer w tmux:**
-
-```bash
-# Na Live ISO (po połączeniu SSH):
-tmux new -s install
-
-# Sklonuj repo i uruchom installer wewnątrz tmux
-git clone https://github.com/szoniu/gentoo.git
-cd gentoo
-./install.sh
-```
-
-Jeśli połączenie SSH się zerwie:
-```bash
-# Połącz się ponownie i wróć do sesji
-ssh root@<IP-live-ISO>
-tmux attach -t install
-```
-
-Instalacja będzie nadal działać w tle — nic nie stracisz.
-
-> **tmux nie jest zainstalowany?** Na Gentoo Live ISO zazwyczaj jest. Jeśli nie: `emerge --quiet app-misc/tmux` lub użyj `screen` (`screen -S install`, powrót: `screen -r install`).
-
-#### Monitorowanie z drugiego połączenia
-
-Otwórz drugie okno terminala i połącz się ponownie (lub użyj drugiego panelu tmux — `Ctrl+B` potem `"`):
-
-```bash
-ssh root@<IP-live-ISO>
-
-# Logi w czasie rzeczywistym
-tail -f /tmp/gentoo-installer.log                   # przed chroot
-tail -f /mnt/gentoo/tmp/gentoo-installer.log        # w chroot
-
-# Log genkernel (jeśli wybrałeś genkernel)
-tail -f /mnt/gentoo/var/log/genkernel.log
-
-# Co się kompiluje
-top
-
-# OOM killer
-dmesg | grep -i "oom\|killed"
 ```
 
 ### Typowe problemy
