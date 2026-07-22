@@ -499,12 +499,23 @@ _patch_kernel_config() {
         required_modules[CONFIG_USB_SERIAL_OPTION]="m"
     fi
 
-    local key val current changed=0
+    local key val changed=0
     for key in "${!required_modules[@]}"; do
         val="${required_modules[${key}]}"
         if grep -q "# ${key} is not set" "${kconfig}" 2>/dev/null; then
             sed -i "s/# ${key} is not set/${key}=${val}/" "${kconfig}"
             einfo "  Enabled ${key}=${val}"
+            (( changed++ )) || true
+        elif [[ "${val}" == "y" ]] && grep -q "^${key}=m\$" "${kconfig}" 2>/dev/null; then
+            # Promote m -> y. Without this branch the loop only handled two
+            # cases ("is not set" and "absent"), so an option that
+            # localmodconfig left as a MODULE stayed a module no matter what
+            # this function asked for — a silent no-op. Harmless for tristate
+            # conveniences, but the same table forces boot-critical options as
+            # =y precisely so they work before any initramfs module loads:
+            # BLK_DEV_NVME (root disk), FB_EFI/DRM (console), VFAT (ESP).
+            sed -i "s/^${key}=m\$/${key}=y/" "${kconfig}"
+            einfo "  Promoted ${key}=m -> ${key}=y"
             (( changed++ )) || true
         elif ! grep -q "^${key}=" "${kconfig}" 2>/dev/null; then
             echo "${key}=${val}" >> "${kconfig}"
@@ -512,11 +523,29 @@ _patch_kernel_config() {
             (( changed++ )) || true
         fi
     done
+    # Deliberately no y -> m branch: if the seed config built something in that
+    # this table only asks for as a module, leave it built in. Downgrading
+    # could break boot for a reason we don't know about.
 
     if [[ ${changed} -gt 0 ]]; then
         # Resolve dependencies after manual config changes
         make -C /usr/src/linux olddefconfig &>/dev/null || true
         einfo "Kernel config patched (${changed} options)"
+
+        # olddefconfig silently DROPS options whose dependencies aren't met —
+        # and the counter above already reported success, so the log would say
+        # "patched" for a config that lost the very driver we needed. Verify
+        # what actually survived. (Concrete case: CONFIG_IOSM lives inside
+        # `if WWAN` in drivers/net/wwan/Kconfig — get CONFIG_WWAN wrong and
+        # IOSM disappears with it, leaving a WWAN modem with no driver.)
+        local -a dropped=()
+        for key in "${!required_modules[@]}"; do
+            grep -q "^${key}=" "${kconfig}" 2>/dev/null || dropped+=("${key}")
+        done
+        if [[ ${#dropped[@]} -gt 0 ]]; then
+            ewarn "Dropped by olddefconfig (unmet dependencies): ${dropped[*]}"
+            ewarn "Hardware needing those options will NOT work in this kernel."
+        fi
     else
         einfo "Kernel config already has required options"
     fi
