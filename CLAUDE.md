@@ -180,7 +180,7 @@ Gdy `dialog` nie jest dostępny (np. wewnątrz chroota stage3), `try()` używa p
 
 ## Uruchamianie testów
 
-Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `DRY_RUN=1` i `NON_INTERACTIVE=1`. **Wymagają GNU coreutils + GNU sed** (środowisko docelowe = Gentoo Live ISO). Na macOS/BSD `test_resume.sh` (`stat -c` GNU-only) i `test_infer_config.sh` (`sed '...; T; q'` GNU-only `T`) zgłaszają fałszywe FAIL-e — weryfikację rób na Linuksie.
+Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `DRY_RUN=1` i `NON_INTERACTIVE=1`. **Wymagają GNU coreutils + GNU sed** (środowisko docelowe = Gentoo Live ISO). Na macOS/BSD `test_resume.sh` (`stat -c` GNU-only) i `test_infer_config.sh` (`sed '...; T; q'` GNU-only `T`) zgłaszają fałszywe FAIL-e — weryfikację rób na Linuksie. `test_kernel_config.sh` radzi sobie sam: wykrywa nie-GNU `sed` i podstawia `gsed` przez shim w `PATH` (bez `gsed` → czysty SKIP zamiast fałszywego FAIL-a) — wzorzec do skopiowania, gdy kolejny test uderzy w ten sam problem.
 
 ```bash
 bash tests/test_config.sh        # Config round-trip (13 assertions)
@@ -197,6 +197,7 @@ bash tests/test_shrink.sh        # Partition shrink planning and helpers (37 ass
 bash tests/test_surface.sh       # Surface detection, config vars, kernel types, inference (25 assertions)
 bash tests/test_peripherals.sh   # Peripheral detection, config vars, inference (30 assertions)
 bash tests/test_umpc.sh          # UMPC detection (GPD/Chuwi) + GRUB cmdline (36 assertions)
+bash tests/test_kernel_config.sh # _patch_kernel_config: promocja =m→=y, brak downgrade'u, WWAN/IOSM, idempotencja (23 assertions)
 
 bash tests/shellcheck.sh         # Lint wszystkich *.sh (severity=warning, excl. SC1091/2034/2154/1090/2155)
 ```

@@ -101,12 +101,21 @@ _apply_surface_config_fragment() {
 # Genkernel uses defconfig which may lack drivers for modern laptop hardware.
 # This patches .config BEFORE genkernel builds, so modules are included.
 _patch_kernel_config() {
-    local kconfig="/usr/src/linux/.config"
+    # Test hook (same pattern as _RESUME_TEST_DIR in lib/utils.sh): point the
+    # patcher at a scratch .config and skip every `make` invocation, so
+    # tests/test_kernel_config.sh can exercise the real apply logic without
+    # root, without a kernel tree, and without touching /usr/src/linux on a
+    # machine that has one.
+    local kconfig="${_KERNEL_CONFIG_TEST_FILE:-/usr/src/linux/.config}"
+    local test_mode=0
+    if [[ -n "${_KERNEL_CONFIG_TEST_FILE:-}" ]]; then
+        test_mode=1
+    fi
 
     # Generate config if not present. During first install, defconfig is fine
     # because there's no previous kernel. For updates, dotfiles wizard uses
     # the previous kernel's config from /etc/kernels/ instead.
-    if [[ ! -f "${kconfig}" ]]; then
+    if [[ ${test_mode} -eq 0 ]] && [[ ! -f "${kconfig}" ]]; then
         make -C /usr/src/linux defconfig &>/dev/null || true
     fi
 
@@ -129,7 +138,9 @@ _patch_kernel_config() {
     # rebuild post-install (which dotfiles wizard's _gentoo_update handles).
     local _mod_count
     _mod_count=$(lsmod 2>/dev/null | tail -n +2 | wc -l 2>/dev/null || echo 0)
-    if [[ "${_mod_count}" -ge 50 ]]; then
+    if [[ ${test_mode} -eq 1 ]]; then
+        einfo "Test mode — skipping localmodconfig (${kconfig})"
+    elif [[ "${_mod_count}" -ge 50 ]]; then
         local _before _after
         _before=$(grep -c '=m$' "${kconfig}" 2>/dev/null || echo 0)
         einfo "Optimizing config: localmodconfig (${_mod_count} modules currently loaded)..."
@@ -529,7 +540,9 @@ _patch_kernel_config() {
 
     if [[ ${changed} -gt 0 ]]; then
         # Resolve dependencies after manual config changes
-        make -C /usr/src/linux olddefconfig &>/dev/null || true
+        if [[ ${test_mode} -eq 0 ]]; then
+            make -C /usr/src/linux olddefconfig &>/dev/null || true
+        fi
         einfo "Kernel config patched (${changed} options)"
 
         # olddefconfig silently DROPS options whose dependencies aren't met —
