@@ -51,13 +51,36 @@ XDEOF
     if [[ "${ENABLE_WWAN:-no}" == "yes" ]]; then
         mkdir -p "${MOUNTPOINT}/etc/portage/package.use"
         cat > "${MOUNTPOINT}/etc/portage/package.use/wwan" << 'WWANEOF'
-# Mobile broadband (WWAN). mbim = the control protocol every modern
-# LTE/5G M.2 modem speaks (Intel XMM7360/7560, Fibocom, Quectel);
-# qmi = the Qualcomm-based ones. NetworkManager needs `modemmanager`
-# to expose the modem as a connection in the desktop UI.
+# Mobile broadband (WWAN). mbim = the control protocol every modern LTE/5G
+# M.2 modem speaks (Intel XMM7360/7560, Fibocom, Quectel); qmi = the
+# Qualcomm-based ones; NetworkManager needs `modemmanager` to expose the
+# modem as a connection at all.
+#
+# All three are USE-defaults in ::gentoo today (+mbim +qmi on modemmanager,
+# +modemmanager on networkmanager), so this file pins rather than fixes:
+# it keeps a profile switch or a global USE="-modemmanager" from silently
+# removing the modem from a machine that was installed for it. Note that
+# emerging net-libs/libmbim and net-libs/libqmi does NOT substitute for the
+# flags — the libraries are dependencies, the flags are what wires them in.
 net-misc/modemmanager mbim qmi
 net-misc/networkmanager modemmanager
 WWANEOF
+
+        # OpenRC needs one genuine adaptation: without a login manager neither
+        # daemon is told about suspend/resume. ModemManager keeps a stale modem
+        # state and NetworkManager never re-dials after the lid opens — the
+        # classic "WWAN worked until the first suspend" report. On systemd this
+        # comes from systemd-logind for free; on OpenRC it takes elogind.
+        # networkmanager's REQUIRED_USE is `?? ( elogind systemd )`, so the two
+        # can never be enabled together — safe to pin here on OpenRC only.
+        if [[ "${INIT_SYSTEM:-systemd}" == "openrc" ]]; then
+            cat >> "${MOUNTPOINT}/etc/portage/package.use/wwan" << 'WWANRCEOF'
+
+# OpenRC: suspend/resume awareness comes from elogind, not systemd-logind.
+net-misc/modemmanager elogind
+net-misc/networkmanager elogind
+WWANRCEOF
+        fi
     fi
 
     # Per-package MAKEOPTS limits for memory-hungry packages. Each C++ build job
@@ -1303,6 +1326,14 @@ install_wwan_tools() {
 net-misc/modemmanager mbim qmi
 net-misc/networkmanager modemmanager
 WWANEOF
+        if [[ "${INIT_SYSTEM:-systemd}" == "openrc" ]]; then
+            # See generate_make_conf(): elogind is what tells both daemons that
+            # the machine suspended, so the modem comes back after a lid close.
+            cat >> /etc/portage/package.use/wwan << 'WWANRCEOF'
+net-misc/modemmanager elogind
+net-misc/networkmanager elogind
+WWANRCEOF
+        fi
     fi
 
     try "Installing ModemManager" emerge --quiet net-misc/modemmanager
@@ -1327,7 +1358,15 @@ WWANEOF
     if [[ "${INIT_SYSTEM:-systemd}" == "systemd" ]]; then
         try "Enabling ModemManager" systemctl enable ModemManager
     else
+        # net-misc/modemmanager ships an OpenRC init script (newinitd
+        # modemmanager), so this is a plain service — no D-Bus-activation
+        # guesswork like fprintd needed.
         try "Enabling ModemManager" rc-update add modemmanager default
+        # dbus is enabled by install_network_manager(), but elogind is only
+        # enabled by the desktop installers — a headless OpenRC box with a
+        # modem would build against elogind and then never start it, losing
+        # exactly the suspend/resume handling the USE flag was for.
+        rc-update add elogind boot 2>/dev/null || true
     fi
 
     ewarn "WWAN notes:"

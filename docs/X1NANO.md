@@ -56,6 +56,7 @@ zwykły demon, FCC unlock robi sam MM, init nie ma tu nic do rzeczy), czas synch
 
 | Obszar | OpenRC |
 |---|---|
+| WWAN | działa — MM to na OpenRC zwykła usługa (`rc-update add modemmanager default`), FCC unlock robi sam MM. Jedyna różnica: `USE=elogind` na MM i NM (inaczej modem nie wraca po suspendzie) — instalator dopisuje to sam przy `INIT_SYSTEM=openrc` |
 | Fingerprint | PAM konfigurowany **po pierwszym boocie**, ręcznie: `sudo fprintd-pam-setup` (instalator sam wgrywa ten skrypt) |
 | Thunderbolt | `boltctl` z CLI działa, ale auto-prompt „Authorize this device?" w GUI nie wyskoczy — `boltctl enroll <uuid>` ręcznie |
 | Desktop | Plasma + elogind = ubita ścieżka; **GNOME na OpenRC to wyraźnie większe ryzyko** |
@@ -205,10 +206,14 @@ Zaimplementowane w lipcu 2026 właśnie pod tę maszynę:
   go po cichu **razem z `IOSM`**. `IOSM` ma tylko `depends on PCI` + `select NET_DEVLINK`.
 - **`lib/portage.sh` `generate_make_conf()`** — pisze `package.use/wwan`
   (`modemmanager mbim qmi`, `networkmanager modemmanager`) **przed** emerge
-  NetworkManagera, bo NM bez `USE=modemmanager` nie pokaże modemu w GUI.
+  NetworkManagera, bo NM bez `USE=modemmanager` nie pokaże modemu w GUI. Te trzy flagi
+  są w ::gentoo domyślnie włączone, więc plik *pinuje*, a nie *naprawia*. Przy
+  `INIT_SYSTEM=openrc` dochodzi `elogind` dla obu pakietów — i to jest różnica realna,
+  bez niej modem nie wraca po uśpieniu.
 - **`lib/portage.sh` `install_wwan_tools()`** — safety net na `package.use`, rebuild NM
   z `--changed-use` gdy zbudowany bez flagi, `dmidecode` (klucz FCC siedzi w SMBIOS),
-  `_enable_fcc_unlock()`.
+  `_enable_fcc_unlock()`, a na OpenRC dodatkowo `rc-update add elogind boot`
+  (usługę włączają inaczej tylko instalatory desktopów — headless by ją przegapił).
 - **`lib/portage.sh` `_enable_fcc_unlock()`** — symlinkuje **wszystkie** skrypty
   z `/usr/share/ModemManager/fcc-unlock.available.d/` do `/etc/ModemManager/fcc-unlock.d/`.
   Od MM 1.18.4 są domyślnie martwe; MM odpala tylko ten o nazwie zgodnej z `vid:pid`
