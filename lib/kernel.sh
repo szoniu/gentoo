@@ -97,6 +97,25 @@ _apply_surface_config_fragment() {
     fi
 }
 
+# _wifi_by_vendor_class — True when the machine has a PCI *network controller*
+# (class 0280 — the class Wi-Fi cards use; wired Ethernet is 0200) from the
+# given vendor id.
+#
+# Why this exists: every WiFi gate below used to match on the human-readable
+# lspci name ("Intel ... Wi-Fi") or on a hand-maintained list of device ids. A
+# live ISO with a stale pci.ids prints a brand-new card as a bare
+# "Device [8086:1234]", which matches neither — so genkernel built a kernel
+# with no WiFi driver at all, and the machine came up after reboot with no
+# network. That has now bitten this installer twice (MT7922, BE200). Vendor id
+# plus PCI class is stable data straight from config space: it needs no
+# database and it cannot go stale as new cards ship.
+#
+# `lspci -d vendor::class` needs a modern pciutils; if the syntax is rejected
+# the command fails and the caller falls through to the old name/id regex.
+_wifi_by_vendor_class() {
+    lspci -d "$1::0280" 2>/dev/null | grep -q .
+}
+
 # _patch_kernel_config — Enable essential modules that genkernel defconfig misses
 # Genkernel uses defconfig which may lack drivers for modern laptop hardware.
 # This patches .config BEFORE genkernel builds, so modules are included.
@@ -107,6 +126,13 @@ _patch_kernel_config() {
     # root, without a kernel tree, and without touching /usr/src/linux on a
     # machine that has one.
     local kconfig="${_KERNEL_CONFIG_TEST_FILE:-/usr/src/linux/.config}"
+    # Same idea for the two hardware oracles this function gates on. Every
+    # vendor block below reads /proc/cpuinfo or /sys/class/dmi/id, so without
+    # an override the test suite would assert different things depending on
+    # the laptop it happens to run on — and the Framework block could only
+    # ever be exercised on a Framework.
+    local cpuinfo="${_KERNEL_CPUINFO_FILE:-/proc/cpuinfo}"
+    local dmi="${_KERNEL_DMI_DIR:-/sys/class/dmi/id}"
     local test_mode=0
     if [[ -n "${_KERNEL_CONFIG_TEST_FILE:-}" ]]; then
         test_mode=1
@@ -206,7 +232,7 @@ _patch_kernel_config() {
     # Conditional: based on detected hardware from detect_all_hardware()
 
     # Intel CPU → Intel GPU, SOF audio, thermald support
-    if grep -qi 'GenuineIntel' /proc/cpuinfo 2>/dev/null; then
+    if grep -qi 'GenuineIntel' "${cpuinfo}" 2>/dev/null; then
         einfo "  Intel CPU detected — adding i915, SOF audio, pinctrl"
         required_modules[CONFIG_DRM_I915]="m"
         required_modules[CONFIG_SND_SOC_SOF_TOPLEVEL]="y"
@@ -218,11 +244,63 @@ _patch_kernel_config() {
         required_modules[CONFIG_PINCTRL_INTEL]="y"
         required_modules[CONFIG_PINCTRL_ALDERLAKE]="m"
         required_modules[CONFIG_PINCTRL_TIGERLAKE]="m"
-        # Meteor/Lunar Lake (Core Ultra — ROG Zephyrus G16 GU605 2024 etc.)
-        # have their own pinctrl; without it the I2C-HID touchpad/sensors
-        # GPIO never comes up on a genkernel build.
+        # Meteor Lake (Core Ultra 1xx — ROG Zephyrus G16 GU605 2024 etc.) has
+        # its own pinctrl; without it the I2C-HID touchpad/sensors GPIO never
+        # comes up on a genkernel build.
         required_modules[CONFIG_PINCTRL_METEORLAKE]="m"
-        required_modules[CONFIG_PINCTRL_LUNARLAKE]="m"
+        # Lunar Lake / Panther Lake / Wildcat Lake / Nova Lake do NOT have a
+        # per-platform pinctrl symbol — they are served by the generic
+        # ACPI-enumerated PINCTRL_INTEL_PLATFORM driver (its help text names
+        # exactly Lunar Lake, Nova Lake and Panther Lake). There is no
+        # CONFIG_PINCTRL_LUNARLAKE anywhere in drivers/pinctrl/intel/Kconfig;
+        # this table used to force that name, so the option was appended to
+        # .config and then silently discarded by `make olddefconfig` — the
+        # dropped-options assertion at the end of this function was the only
+        # thing reporting it, and Lunar Lake never actually had its pinctrl.
+        # Wildcat Lake (Framework Laptop 12, Core Series 3) is Panther Lake IP
+        # and lands on the same driver — without it the touchpad and the
+        # touchscreen have a driver but never receive an interrupt.
+        required_modules[CONFIG_PINCTRL_INTEL_PLATFORM]="m"
+
+        # Intel GPU: Xe2 and newer are NOT driven by i915. Upstream's split is
+        # i915 up to Meteor Lake / Alchemist, and the `xe` driver from Lunar
+        # Lake onwards — so a Lunar Lake, Panther Lake or Wildcat Lake laptop
+        # built with only DRM_I915 boots to efifb with no KMS, no backlight
+        # control and no hardware video acceleration. Both drivers are added
+        # unconditionally: their PCI id tables are disjoint, so on an older
+        # Intel iGPU `xe` simply never binds and costs a module nobody loads.
+        #
+        # DRM_XE MUST be =m, not =y. Upstream gates the display half on
+        # `depends on DRM_XE && DRM_XE=m` (drivers/gpu/drm/xe/Kconfig), so a
+        # built-in xe silently loses DRM_XE_DISPLAY and you get a GPU driver
+        # that drives no panel — the exact failure mode this table's =y
+        # promotion branch would otherwise cause.
+        required_modules[CONFIG_DRM_XE]="m"
+        required_modules[CONFIG_DRM_XE_DISPLAY]="y"
+        # xe also `depends on X86_PLATFORM_DEVICES || !(X86 && ACPI)`; on an
+        # x86 ACPI machine that is a hard dependency, and olddefconfig would
+        # drop DRM_XE without it.
+        required_modules[CONFIG_X86_PLATFORM_DEVICES]="y"
+    fi
+
+    # Framework Laptop (11/12/13/16, all generations) — the embedded controller
+    # speaks the ChromeOS EC protocol, so battery details, charge thresholds,
+    # fan/thermal readout and the ectool userspace all hang off cros_ec_lpc
+    # rather than a vendor WMI driver. Upstream's DMI table matches
+    # sys_vendor "Framework" with product_family "Laptop" as a catch-all for
+    # everything past the 13th-gen models, so the Laptop 12 is covered.
+    # Symmetric to the ThinkPad/HP/Dell/Lenovo/Acer blocks above.
+    if grep -qi 'Framework' "${dmi}/sys_vendor" 2>/dev/null; then
+        einfo "  Framework laptop detected — adding CROS_EC (embedded controller)"
+        required_modules[CONFIG_CROS_EC]="m"
+        required_modules[CONFIG_CROS_EC_LPC]="m"
+        # CROS_EC_PROTO is deliberately absent: it is a hidden symbol with no
+        # prompt, `select`ed by CROS_EC. Forcing it by hand would be discarded
+        # by olddefconfig and then show up in the dropped-options warning as a
+        # phantom failure. Same for MFD_CROS_EC_DEV, which defaults to CROS_EC.
+        required_modules[CONFIG_CROS_EC_CHARDEV]="m"
+        required_modules[CONFIG_CROS_EC_SYSFS]="m"
+        required_modules[CONFIG_CROS_EC_TYPEC]="m"
     fi
 
     # UMPC audio: Chuwi MiniBook X (and many low-cost Intel UMPCs/x86 tablets)
@@ -287,7 +365,7 @@ _patch_kernel_config() {
     # through the AMD Audio Co-Processor via SOF. Symmetric to the Intel SOF
     # block above — without these genkernel builds a kernel with no sound.
     # olddefconfig pulls the ACP machine deps. Harmless on AMD without ACP.
-    if grep -qi 'AuthenticAMD' /proc/cpuinfo 2>/dev/null; then
+    if grep -qi 'AuthenticAMD' "${cpuinfo}" 2>/dev/null; then
         einfo "  AMD CPU detected — adding PINCTRL_AMD, SOF/ACP audio"
         required_modules[CONFIG_PINCTRL_AMD]="m"
         required_modules[CONFIG_SND_SOC_SOF_AMD_TOPLEVEL]="y"
@@ -319,7 +397,7 @@ _patch_kernel_config() {
         required_modules[CONFIG_BT]="m"
         required_modules[CONFIG_BT_HCIBTUSB]="m"
         # MediaTek Bluetooth quirk (Framework AMD, many AMD laptops)
-        if grep -qi 'AuthenticAMD' /proc/cpuinfo 2>/dev/null; then
+        if grep -qi 'AuthenticAMD' "${cpuinfo}" 2>/dev/null; then
             required_modules[CONFIG_BT_HCIBTUSB_MTK]="y"
         fi
     fi
@@ -332,7 +410,7 @@ _patch_kernel_config() {
 
     # ThinkPad detected (via thinkpad_acpi or DMI)
     if [[ -d /sys/devices/platform/thinkpad_acpi ]] || \
-       grep -qi 'ThinkPad' /sys/class/dmi/id/product_family 2>/dev/null; then
+       grep -qi 'ThinkPad' "${dmi}/product_family" 2>/dev/null; then
         einfo "  ThinkPad detected — adding THINKPAD_ACPI"
         required_modules[CONFIG_THINKPAD_ACPI]="m"
     fi
@@ -341,7 +419,7 @@ _patch_kernel_config() {
     # and the thermal platform_profile (performance/quiet — important on HP
     # Omen gaming laptops). localmodconfig on a live ISO that never loaded
     # hp_wmi would otherwise prune it. Symmetric to ThinkPad/ASUS above.
-    if grep -qiE 'HP|Hewlett-Packard' /sys/class/dmi/id/sys_vendor 2>/dev/null; then
+    if grep -qiE 'HP|Hewlett-Packard' "${dmi}/sys_vendor" 2>/dev/null; then
         einfo "  HP detected — adding HP_WMI"
         required_modules[CONFIG_HP_WMI]="m"
     fi
@@ -351,7 +429,7 @@ _patch_kernel_config() {
     # Precision the hardware Privacy mic/camera mute LED + kill switch.
     # localmodconfig on a live ISO that never loaded them would prune them.
     # Symmetric to ThinkPad/HP/ASUS above.
-    if grep -qi 'Dell' /sys/class/dmi/id/sys_vendor 2>/dev/null; then
+    if grep -qi 'Dell' "${dmi}/sys_vendor" 2>/dev/null; then
         einfo "  Dell detected — adding DELL_LAPTOP/WMI/SMBIOS"
         required_modules[CONFIG_DELL_LAPTOP]="m"
         required_modules[CONFIG_DELL_WMI]="m"
@@ -367,7 +445,7 @@ _patch_kernel_config() {
     # toggle and FnLock. The ThinkPad block above is gated on "ThinkPad" in
     # product_family so it never fires here. Harmless on ThinkPad (won't
     # bind). Symmetric to HP/Dell/ASUS.
-    if grep -qi 'LENOVO' /sys/class/dmi/id/sys_vendor 2>/dev/null; then
+    if grep -qi 'LENOVO' "${dmi}/sys_vendor" 2>/dev/null; then
         einfo "  Lenovo detected — adding IDEAPAD_LAPTOP"
         required_modules[CONFIG_IDEAPAD_LAPTOP]="m"
     fi
@@ -377,7 +455,7 @@ _patch_kernel_config() {
     # Aspire) battery health/charge limit. localmodconfig on a live ISO
     # that never loaded acer_wmi would prune it. Symmetric to HP/Dell/
     # Lenovo/ASUS.
-    if grep -qi 'Acer' /sys/class/dmi/id/sys_vendor 2>/dev/null; then
+    if grep -qi 'Acer' "${dmi}/sys_vendor" 2>/dev/null; then
         einfo "  Acer detected — adding ACER_WMI"
         required_modules[CONFIG_ACER_WMI]="m"
         required_modules[CONFIG_ACER_WIRELESS]="m"
@@ -418,15 +496,19 @@ _patch_kernel_config() {
     # "...CNVi WiFi" — no separator) and the Intel CNVi/BE200/AX PCI ids
     # (8086:272b BE200, 7e40/7f70 MTL CNVi, 51f0/54f0 ADL/RPL) so a stale
     # pci.ids on the live ISO ("Device [8086:272b]") doesn't lose WiFi.
-    if lspci -nn 2>/dev/null | grep -qiE 'intel.*(wireless|wi-?fi)|\[8086:(272b|7e40|7f70|51f0|54f0|7af0|a0f0|43f0|2725)\]'; then
+    if _wifi_by_vendor_class 8086 || \
+       lspci -nn 2>/dev/null | grep -qiE 'intel.*(wireless|wi-?fi)|\[8086:(272b|7e40|7f70|51f0|54f0|7af0|a0f0|43f0|2725)\]'; then
         einfo "  Intel WiFi detected — adding iwlwifi"
         required_modules[CONFIG_IWLWIFI]="m"
         required_modules[CONFIG_IWLMVM]="m"
+        # iwlmld is the new driver half for Wi-Fi 7 (BE2xx) parts; on kernels
+        # that have it, iwlmvm alone leaves a BE201/BE211/BE213 unbound.
+        required_modules[CONFIG_IWLMLD]="m"
     fi
     # Match bare "mediatek" or the 14c3 PCI vendor id too — on a live ISO
     # without a fresh pci.ids, MT7922 shows as "MEDIATEK Corp. Device 0616"
     # (no Wireless/Wi-Fi/MT79 string) and the old regex missed it → no WiFi.
-    if lspci -nn 2>/dev/null | grep -qiE 'mediatek|\[14c3:'; then
+    if _wifi_by_vendor_class 14c3 || lspci -nn 2>/dev/null | grep -qiE 'mediatek|\[14c3:'; then
         einfo "  MediaTek WiFi detected — adding mt76 (MT7921E/MT7925E)"
         required_modules[CONFIG_MT7921E]="m"
         required_modules[CONFIG_MT7925E]="m"
@@ -582,7 +664,7 @@ kernel_install() {
     # Install Intel microcode for Intel CPUs (security + stability patches).
     # AMD microcode is bundled in sys-kernel/linux-firmware (no separate package
     # in Gentoo — different from Intel's licensing model).
-    if grep -qi 'GenuineIntel' /proc/cpuinfo 2>/dev/null; then
+    if grep -qi 'GenuineIntel' "${cpuinfo}" 2>/dev/null; then
         try "Installing Intel microcode" emerge --quiet sys-firmware/intel-microcode
     fi
 

@@ -87,9 +87,26 @@ if ! sed --version 2>/dev/null | grep -q GNU; then
     fi
 fi
 
+# Fake /proc/cpuinfo and /sys/class/dmi/id. Without these the vendor gates
+# would answer from whatever machine runs the suite: the Intel blocks would
+# silently not fire on the user's AMD desktop, and the Framework block could
+# never be tested at all.
+FAKE_CPUINFO="${TESTDIR}/cpuinfo"
+FAKE_DMI="${TESTDIR}/dmi"
+mkdir -p "${FAKE_DMI}"
+export _KERNEL_CPUINFO_FILE="${FAKE_CPUINFO}"
+export _KERNEL_DMI_DIR="${FAKE_DMI}"
+
+set_cpu_vendor() { printf 'vendor_id\t: %s\n' "$1" > "${FAKE_CPUINFO}"; }
+set_dmi() { printf '%s\n' "$2" > "${FAKE_DMI}/$1"; }
+
 # Hardware flags are read straight from the environment by the function, so a
 # fixed set here keeps the run deterministic regardless of the host it runs on.
 reset_hw_env() {
+    set_cpu_vendor "GenuineIntel"
+    rm -f "${FAKE_DMI}"/* 2>/dev/null || true
+    set_dmi sys_vendor "ACME Generic"
+    set_dmi product_family "Generic Laptop"
     export WWAN_DETECTED=0
     export FINGERPRINT_DETECTED=0
     export BLUETOOTH_DETECTED=0
@@ -208,6 +225,73 @@ assert_eq "real kernel config path untouched" "0" \
     "$([[ -e /usr/src/linux/.config.test-artifact ]] && echo 1 || echo 0)"
 assert_eq "scratch config is what was written" "1" \
     "$([[ -f "${KCONFIG}" ]] && echo 1 || echo 0)"
+
+echo ""
+echo "=== Test: Intel GPU — xe driver for Xe2/Xe3 alongside i915 ==="
+reset_hw_env
+seed_config "CONFIG_LOCALVERSION=\"\""
+_patch_kernel_config >/dev/null 2>&1
+assert_has_line "i915 still added (up to Meteor Lake)" "CONFIG_DRM_I915=m" "${KCONFIG}"
+assert_has_line "xe added (Lunar Lake and newer)" "CONFIG_DRM_XE=m" "${KCONFIG}"
+# Upstream gates the display half on `depends on DRM_XE=m`, so a built-in xe
+# drives no panel. Nothing may promote it to =y.
+assert_no_line "DRM_XE NOT built-in (would lose DRM_XE_DISPLAY)" "CONFIG_DRM_XE=y" "${KCONFIG}"
+assert_has_line "xe display enabled" "CONFIG_DRM_XE_DISPLAY=y" "${KCONFIG}"
+assert_has_line "xe hard dep X86_PLATFORM_DEVICES" "CONFIG_X86_PLATFORM_DEVICES=y" "${KCONFIG}"
+
+echo ""
+echo "=== Test: Intel pinctrl — generic platform driver, not a dead symbol ==="
+reset_hw_env
+seed_config "CONFIG_LOCALVERSION=\"\""
+_patch_kernel_config >/dev/null 2>&1
+assert_has_line "PINCTRL_INTEL_PLATFORM (Lunar/Panther/Wildcat/Nova Lake)" \
+    "CONFIG_PINCTRL_INTEL_PLATFORM=m" "${KCONFIG}"
+assert_has_line "Meteor Lake keeps its own pinctrl" "CONFIG_PINCTRL_METEORLAKE=m" "${KCONFIG}"
+# CONFIG_PINCTRL_LUNARLAKE does not exist in drivers/pinctrl/intel/Kconfig.
+# Forcing it only ever produced a phantom entry that olddefconfig discarded.
+assert_no_line "no dead CONFIG_PINCTRL_LUNARLAKE symbol" \
+    "CONFIG_PINCTRL_LUNARLAKE=m" "${KCONFIG}"
+
+echo ""
+echo "=== Test: DRM_XE never downgraded when seed config has it built in ==="
+reset_hw_env
+seed_config "CONFIG_DRM_XE=y"
+_patch_kernel_config >/dev/null 2>&1
+# The apply loop deliberately has no y -> m branch: if a seed config built
+# something in, we leave it. Asserted so a future "fix" doesn't add one.
+assert_has_line "y kept as y (no downgrade branch)" "CONFIG_DRM_XE=y" "${KCONFIG}"
+
+echo ""
+echo "=== Test: Framework laptop — ChromeOS EC platform block ==="
+reset_hw_env
+set_dmi sys_vendor "Framework"
+set_dmi product_family "Laptop"
+seed_config "CONFIG_LOCALVERSION=\"\""
+_patch_kernel_config >/dev/null 2>&1
+assert_has_line "CROS_EC added" "CONFIG_CROS_EC=m" "${KCONFIG}"
+assert_has_line "CROS_EC_LPC added (LPC transport)" "CONFIG_CROS_EC_LPC=m" "${KCONFIG}"
+assert_has_line "CROS_EC_SYSFS added" "CONFIG_CROS_EC_SYSFS=m" "${KCONFIG}"
+assert_has_line "CROS_EC_TYPEC added" "CONFIG_CROS_EC_TYPEC=m" "${KCONFIG}"
+# CROS_EC_PROTO has no prompt — it is `select`ed. Forcing it would surface as
+# a phantom entry in the dropped-options warning.
+assert_no_line "hidden CROS_EC_PROTO not forced" "CONFIG_CROS_EC_PROTO=y" "${KCONFIG}"
+
+echo ""
+echo "=== Test: non-Framework machine gets no ChromeOS EC ==="
+reset_hw_env
+seed_config "CONFIG_LOCALVERSION=\"\""
+_patch_kernel_config >/dev/null 2>&1
+assert_no_line "CROS_EC absent on other vendors" "CONFIG_CROS_EC=m" "${KCONFIG}"
+
+echo ""
+echo "=== Test: AMD machine gets no Intel GPU/pinctrl blocks ==="
+reset_hw_env
+set_cpu_vendor "AuthenticAMD"
+seed_config "CONFIG_LOCALVERSION=\"\""
+_patch_kernel_config >/dev/null 2>&1
+assert_no_line "no xe on AMD" "CONFIG_DRM_XE=m" "${KCONFIG}"
+assert_no_line "no i915 on AMD" "CONFIG_DRM_I915=m" "${KCONFIG}"
+assert_has_line "AMD pinctrl instead" "CONFIG_PINCTRL_AMD=m" "${KCONFIG}"
 
 echo ""
 echo "=== Results ==="
