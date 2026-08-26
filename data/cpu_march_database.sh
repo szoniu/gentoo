@@ -67,17 +67,43 @@ CPU_MARCH_MAP["GenuineIntel:6:183:183"]="raptorlake"
 CPU_MARCH_MAP["GenuineIntel:6:186:186"]="raptorlake"
 CPU_MARCH_MAP["GenuineIntel:6:191:191"]="raptorlake"
 CPU_MARCH_MAP["GenuineIntel:6:170:170"]="meteorlake"   # Meteor Lake (Core Ultra 1xxH, ROG Zephyrus G16 GU605 2024)
-CPU_MARCH_MAP["GenuineIntel:6:197:197"]="arrowlake"    # Arrow Lake-H/U
-CPU_MARCH_MAP["GenuineIntel:6:198:198"]="arrowlake"    # Arrow Lake-S
-CPU_MARCH_MAP["GenuineIntel:6:189:189"]="lunarlake"    # Lunar Lake (Core Ultra 2xxV)
+CPU_MARCH_MAP["GenuineIntel:6:197:197"]="arrowlake"    # Arrow Lake-H (0xC5)
+CPU_MARCH_MAP["GenuineIntel:6:198:198"]="arrowlake"    # Arrow Lake-S/HX (0xC6)
+CPU_MARCH_MAP["GenuineIntel:6:189:189"]="lunarlake"    # Lunar Lake (Core Ultra 2xxV, 0xBD)
+# Arrow Lake-U (0xB5) is NOT -march=arrowlake. It is a Meteor Lake refresh: the
+# same Redwood Cove compute tile, without the AVX-IFMA / AVX-VNNI-INT8 /
+# AVX-NE-CONVERT / CMPCCXADD that GCC's "arrowlake" implies. Naming it arrowlake
+# would let GCC emit instructions this CPU does not have (SIGILL at runtime, in
+# a random package, hours into an @world build). The model ladder below happens
+# to land it on meteorlake already; this entry makes that deliberate rather than
+# accidental, so nobody "fixes" it into arrowlake later.
+CPU_MARCH_MAP["GenuineIntel:6:181:181"]="meteorlake"   # Arrow Lake-U (0xB5)
+# Panther Lake / Wildcat Lake (Cougar Cove P + Darkmont LP-E, Intel 18A).
+# GCC maps -march=wildcatlake onto PROCESSOR_PANTHERLAKE with the identical
+# PTA_PANTHERLAKE feature mask, so pantherlake is the same code — and it is
+# accepted by GCC 14 as well, while "wildcatlake" needs GCC 16. Note
+# PTA_PANTHERLAKE = PTA_ARROWLAKE_S & ~(PTA_KL | PTA_WIDEKL): these parts
+# DROPPED Key Locker, which is why arrowlake is the wrong name for them.
+CPU_MARCH_MAP["GenuineIntel:6:204:204"]="pantherlake"  # Panther Lake-L (0xCC)
+CPU_MARCH_MAP["GenuineIntel:6:213:213"]="pantherlake"  # Wildcat Lake-L (0xD5, Core Series 3 — Framework 12)
+CPU_MARCH_MAP["GenuineIntel:6:229:229"]="pantherlake"  # Panther Lake-R (0xE5)
 
 # lookup_cpu_march — Find -march flag for current CPU
 # Returns march flag or "x86-64" as fallback
+#
+# Optional args (vendor family model) override /proc/cpuinfo. Only the tests
+# use them: the model-number ladder below is the part most likely to be wrong
+# for a CPU nobody owns yet, and there is no other way to exercise it without
+# the hardware in hand.
 lookup_cpu_march() {
     local vendor family model
-    vendor=$(grep -m1 'vendor_id' /proc/cpuinfo 2>/dev/null | awk '{print $NF}') || vendor="unknown"
-    family=$(grep -m1 'cpu family' /proc/cpuinfo 2>/dev/null | awk '{print $NF}') || family="0"
-    model=$(grep -m1 '^model[[:space:]]' /proc/cpuinfo 2>/dev/null | awk '{print $NF}') || model="0"
+    if [[ $# -eq 3 ]]; then
+        vendor="$1"; family="$2"; model="$3"
+    else
+        vendor=$(grep -m1 'vendor_id' /proc/cpuinfo 2>/dev/null | awk '{print $NF}') || vendor="unknown"
+        family=$(grep -m1 'cpu family' /proc/cpuinfo 2>/dev/null | awk '{print $NF}') || family="0"
+        model=$(grep -m1 '^model[[:space:]]' /proc/cpuinfo 2>/dev/null | awk '{print $NF}') || model="0"
+    fi
 
     local key="${vendor}:${family}:${model}:${model}"
 
@@ -92,10 +118,30 @@ lookup_cpu_march() {
             23) echo "znver1" ;;
             25) echo "znver3" ;;
             26) echo "znver5" ;;
-            *)  echo "x86-64" ;;
+            # Same reasoning as the Intel ladder below: a family newer than
+            # anything here is a CPU we cannot name, so let GCC read CPUID
+            # instead of guessing a znver level that may not fit.
+            *)  if (( family > 26 )); then echo "native"; else echo "x86-64"; fi ;;
         esac
     elif [[ "${vendor}" == "GenuineIntel" ]]; then
-        if (( model >= 192 )); then
+        # Intel model IDs are NOT monotonic across generations — Arrow Lake-U is
+        # 0xB5 (181), NUMERICALLY OLDER than Raptor Lake's 0xBA (186). So this
+        # ladder is a best-effort for gaps in the table above, never a rule.
+        #
+        # Above the newest model we know by name we stop guessing and hand the
+        # decision to GCC: -march=native resolves from CPUID feature bits on the
+        # machine we are actually compiling on, so it cannot invent instructions
+        # the CPU lacks. A guessed name can — "arrowlake" on a Panther/Wildcat
+        # Lake would enable Key Locker, which those parts removed.
+        # Trade-off: a -march=native system is tied to this CPU. Moving the disk
+        # to an older machine means rebuilding @world. That is the right price
+        # for not shipping a SIGILL, and it only ever applies to a CPU this
+        # database has never heard of.
+        if (( model > 229 )); then
+            echo "native"
+        elif (( model >= 204 )); then
+            echo "pantherlake"
+        elif (( model >= 197 )); then
             echo "arrowlake"
         elif (( model >= 189 )); then
             echo "lunarlake"

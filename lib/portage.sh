@@ -338,6 +338,81 @@ portage_select_profile() {
     fi
 }
 
+# portage_validate_march — Prove the toolchain accepts the -march we picked
+#
+# CPU_MARCH comes from a lookup table plus a model-number ladder, both of which
+# are guesses the moment Intel or AMD ship something the table has never seen.
+# A wrong guess here is not a small problem on a source distro: -march is in
+# COMMON_FLAGS, so every single package inherits it. If the stage3 GCC does not
+# know the name, `emerge @world` fails on the very first package with
+# "bad value for -march= switch" and the user is left staring at a compiler
+# error with no obvious link to hardware detection.
+#
+# This runs in the chroot, right after the tree is synced and before anything
+# is built, because that is the first moment a compiler exists to ask. The
+# fallback order is deliberate: -march=native first, since GCC resolves it from
+# CPUID on the machine we are compiling on and therefore cannot name a CPU
+# wrongly; then the generic x86-64 levels, which every amd64 GCC has known for
+# years.
+#
+# The test compiles and links a real (if trivial) program rather than only
+# preprocessing: -E would pass on a GCC that knows the name while binutils is
+# too old to assemble the instructions it implies.
+portage_validate_march() {
+    local mc="/etc/portage/make.conf"
+    [[ -f "${mc}" ]] || return 0
+
+    local march
+    march=$(sed -n 's/^COMMON_FLAGS=.*-march=\([^ "]*\).*/\1/p' "${mc}" | head -1) || march=""
+    if [[ -z "${march}" ]]; then
+        einfo "No -march in make.conf — nothing to validate"
+        return 0
+    fi
+
+    if ! command -v gcc &>/dev/null; then
+        ewarn "gcc not available yet — skipping -march validation"
+        return 0
+    fi
+
+    if _march_compiles "${march}"; then
+        einfo "Toolchain accepts -march=${march}"
+        return 0
+    fi
+
+    ewarn "This GCC does not accept -march=${march} (CPU newer than the toolchain?)"
+
+    local candidate
+    for candidate in native x86-64-v3 x86-64-v2 x86-64; do
+        if _march_compiles "${candidate}"; then
+            sed -i "s/-march=${march}/-march=${candidate}/g" "${mc}"
+            CPU_MARCH="${candidate}"
+            export CPU_MARCH
+            ewarn "make.conf rewritten: -march=${march} -> -march=${candidate}"
+            [[ "${candidate}" == "native" ]] && \
+                ewarn "  -march=native ties this build to THIS CPU — moving the disk to another machine means rebuilding @world"
+            return 0
+        fi
+    done
+
+    # Nothing worked, which means the toolchain is broken in a way this
+    # function cannot repair. Say so loudly instead of letting @world fail
+    # a few hundred packages later with an unrelated-looking error.
+    eerror "No usable -march found — even -march=x86-64 fails to compile"
+    eerror "Fix ${mc} by hand before continuing"
+    return 1
+}
+
+# _march_compiles — True when gcc can compile AND link with this -march
+_march_compiles() {
+    local out
+    out=$(mktemp 2>/dev/null) || return 1
+    local rc=0
+    echo 'int main(void){return 0;}' | \
+        gcc -march="$1" -x c - -o "${out}" &>/dev/null || rc=1
+    rm -f "${out}" 2>/dev/null || true
+    return "${rc}"
+}
+
 # portage_install_cpuflags — Install and run cpuid2cpuflags
 portage_install_cpuflags() {
     if [[ -n "${CPU_FLAGS:-}" ]]; then

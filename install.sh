@@ -334,6 +334,9 @@ _do_chroot_phases() {
         maybe_exec 'before_portage_sync'
         portage_sync
         portage_select_profile
+        # Before cpuflags, and before anything is compiled: a -march the
+        # stage3 toolchain does not know would fail every package in @world.
+        portage_validate_march
         portage_install_cpuflags
         maybe_exec 'after_portage_sync'
         checkpoint_set "portage_sync"
