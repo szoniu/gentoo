@@ -4,6 +4,7 @@ Interaktywny installer Gentoo Linux z interfejsem TUI (dialog). Przeprowadza za 
 
 > **Notatki per-urządzenie** (co działa, czego pilnować, co sprawdzić po pierwszym boocie):
 > [ThinkPad X1 Nano Gen 1](docs/X1NANO.md) · [GPD Pocket 4](docs/POCKET4.md) ·
+> [Framework Laptop 12 / Core Series 3](docs/FRAMEWORK12.md) ·
 > [pełne wsparcie sprzętowe](docs/HARDWARE.md). **Jeśli instalujesz na którymś z tych urządzeń —
 > przeczytaj jego plik ZANIM zaczniesz**: jest tam rekomendowana konfiguracja i checklista
 > po instalacji, której ten README nie powtarza.
@@ -30,6 +31,13 @@ sync
 ```
 
 Na Windows użyj [Rufus](https://rufus.ie) lub [balenaEtcher](https://etcher.balena.io).
+
+> **Masz sprzęt z premiery z ostatnich kilkunastu miesięcy?** Sprawdź, ile lat ma kernel
+> na ISO — po zabootowaniu `uname -r`. Live ISO starsze niż sam sprzęt potrafi wstać bez
+> obrazu poza efifb, bez WiFi i bez touchpada, a wygląda to na awarię instalatora. Wtedy
+> pobierz najnowsze ISO albo instaluj przez SSH z ISO innej dystrybucji — installer nie
+> wymaga, żeby live ISO było gentoowskie. Konkretny próg dla Framework 12 (Core Series 3):
+> kernel **≥ 6.17**, producent podaje 7.1 — patrz [docs/FRAMEWORK12.md](docs/FRAMEWORK12.md).
 
 ### 2. Bootuj z pendrive
 
@@ -306,7 +314,9 @@ dmesg | grep -i "oom\|killed"
 - **Hybrid GPU (NVIDIA Optimus / PRIME)** — auto-detekcja laptopów z dwoma GPU (iGPU + dGPU). Konfiguracja PRIME render offload, `prime-run`, runtime power management.
 - **ASUS ROG / TUF** — auto-detekcja płyt ASUS ROG/TUF. Opcjonalna instalacja `asusctl` + `supergfxctl` z overlay zGentoo.
 - **Secure Boot (MOK signing)** — generowanie kluczy MOK, podpisywanie kerneli przez `sbsign`, instalacja shim, automatyczny enrollment. Działa z GRUB i dual-boot.
-- **WiFi by vendor** — Intel (AX2xx, AC9xxx), MediaTek (MT7921E/7925E), Realtek (RTL8852/8821/8822) force-enabled w kernel config żeby localmodconfig nie wyciął sterownika.
+- **Intel Core Ultra / Core Series 3 (Meteor / Lunar / Arrow / Panther / Wildcat Lake)** — `-march` z jawnej tablicy (Wildcat Lake = `pantherlake`), sterownik **`xe` obok `i915`** (Xe2/Xe3 nie są obsługiwane przez i915), `PINCTRL_INTEL_PLATFORM` dla GPIO. Przed `@world` installer weryfikuje w chroocie, że toolchain naprawdę zna wybrane `-march` — nowy CPU + starszy GCC to inaczej błąd kompilacji przy pierwszym pakiecie.
+- **Framework Laptop (11/12/13/16)** — auto-detekcja po DMI, moduły `cros_ec` (kontroler EC: bateria, USB-PD, odczyty termiczne). Szczegóły dla modelu 12 z Core Series 3 → [docs/FRAMEWORK12.md](docs/FRAMEWORK12.md).
+- **WiFi by vendor** — Intel (BE2xx/AX2xx/AC9xxx, w tym `iwlmld` dla Wi-Fi 7), MediaTek (MT7921E/7925E), Realtek (RTL8852/8821/8822) force-enabled w kernel config żeby localmodconfig nie wyciął sterownika. Wykrywanie idzie **po klasie PCI**, nie po nazwie z `pci.ids` — live ISO ze starą bazą pokazuje nową kartę jako gołe `Device [8086:xxxx]` i po nazwie by jej nie złapało.
 - **BitLocker detection** — auto-wykrywa BitLocker-encrypted partycje (Windows 11 24H2 fabrycznie włącza BL na consumer devices), pokazuje warning w hardware detect z instrukcją Windows-side fix.
 - **Auto-detekcja peryferiów** — installer wykrywa i oferuje sterowniki/daemony dla: czytnik linii papilarnych (`fprintd`), Thunderbolt (`bolt`), sensory IIO (akcelerometr, żyroskop, ALS), kamera (`v4l-utils`), modem WWAN/LTE (`ModemManager`).
 - **Time sync na OpenRC** — `chrony` auto-instalacja i `rc-update add chronyd default` w finalize (bez tego pierwszy `emerge --sync` po reboocie umie pasc na SSL przy zegarze dryfującym).
@@ -501,20 +511,23 @@ Zmienne środowiskowe:
 ## Uruchamianie testów
 
 ```bash
-bash tests/test_config.sh       # Config round-trip
-bash tests/test_hardware.sh     # CPU march + GPU database
-bash tests/test_disk.sh         # Disk planning dry-run
-bash tests/test_makeconf.sh     # make.conf generation
-bash tests/test_checkpoint.sh   # Checkpoint validate + migrate
-bash tests/test_resume.sh       # Resume from disk scanning + recovery
-bash tests/test_multiboot.sh    # Multi-boot OS detection + serialization
-bash tests/test_infer_config.sh # Config inference from installed system
-bash tests/test_hybrid_gpu.sh   # Hybrid GPU + ASUS ROG detection
-bash tests/test_validate.sh     # Config validation before install
-bash tests/test_surface.sh      # Surface detection, kernel types, inference
-bash tests/test_peripherals.sh  # Peripheral detection + inference
-bash tests/test_shrink.sh       # Shrink wizard partition resizing
-bash tests/test_umpc.sh         # UMPC detection (GPD/Chuwi) + GRUB cmdline
+bash tests/test_config.sh        # Config round-trip
+bash tests/test_hardware.sh      # CPU march (w tym Panther/Wildcat Lake) + GPU database
+bash tests/test_disk.sh          # Disk planning dry-run
+bash tests/test_makeconf.sh      # make.conf generation
+bash tests/test_checkpoint.sh    # Checkpoint validate + migrate
+bash tests/test_resume.sh        # Resume from disk scanning + recovery
+bash tests/test_multiboot.sh     # Multi-boot OS detection + serialization
+bash tests/test_infer_config.sh  # Config inference from installed system
+bash tests/test_hybrid_gpu.sh    # Hybrid GPU + ASUS ROG detection
+bash tests/test_validate.sh      # Config validation before install
+bash tests/test_surface.sh       # Surface detection, kernel types, inference
+bash tests/test_peripherals.sh   # Peripheral detection + inference
+bash tests/test_shrink.sh        # Shrink wizard partition resizing
+bash tests/test_umpc.sh          # UMPC detection (GPD/Chuwi) + GRUB cmdline
+bash tests/test_kernel_config.sh # _patch_kernel_config: xe/i915, pinctrl, Framework EC, promocja =m->=y
+
+bash tests/shellcheck.sh         # Lint wszystkich *.sh
 ```
 
 > Testy zakładają środowisko GNU/Linux (GNU coreutils + GNU sed) — tak jak
@@ -537,9 +550,12 @@ tui/                    — Ekrany TUI (każdy = funkcja, return 0/1/2)
 data/                   — Bazy danych, motyw TUI, bundled gum binary
 presets/                — Gotowe presety
 hooks/                  — Hooki (*.sh.example)
-tests/                  — Testy
-TODO.md                 — Planowane ulepszenia
+tests/                  — Testy + shellcheck.sh
+docs/                   — HARDWARE.md + notatki per-urządzenie (POCKET4, X1NANO, FRAMEWORK12)
 ```
+
+> Backlog projektu żyje jako **Issues w Forgejo**
+> (`https://git.szoniu.pl/szoniu/gentoo/issues`), nie jako `TODO.md` w repo.
 
 ## FAQ
 

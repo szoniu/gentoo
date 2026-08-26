@@ -3,6 +3,7 @@
 > Szczegóły wsparcia sprzętowego (Surface, ASUS ROG/hybrid GPU, UMPC/GPD/Chuwi, Secure Boot, peripherals, kernel hardware patches, AMD GPU+xorg, BitLocker) są w **[docs/HARDWARE.md](docs/HARDWARE.md)**. Ten plik trzyma architekturę, polityki budowania i pułapki.
 > Notatki per-urządzenie z realnych instalacji na **GPD Pocket 4** (rola/kierunek OS, twarde fakty sprzętowe, pułapki resume, historia bugfixów, otwarte TODO) → **[docs/POCKET4.md](docs/POCKET4.md)**.
 > **ThinkPad X1 Nano Gen 1** (fingerprint + WWAN, instalacja **przez SSH**) → **[docs/X1NANO.md](docs/X1NANO.md)**. Gdy user pisze „instalujemy na x1 nano" — przeczytaj ten plik i przeprowadź go przez **checklistę post-deploy** po pierwszym boocie (instalator kończy się przed nią).
+> **Framework Laptop 12 (Core Series 3 / Wildcat Lake, 2026)** → **[docs/FRAMEWORK12.md](docs/FRAMEWORK12.md)**. Nowa platforma Intela: iGPU Xe3 wymaga sterownika `xe`, NIE `i915`, a producent podaje kernel ≥ 7.1 jako próg. Gdy user pisze „instalujemy na framework 12" — przeczytaj ten plik **przed** wypaleniem pendrive'a (kluczowa decyzja to wersja kernela na live ISO).
 
 ## Co to jest
 
@@ -82,6 +83,35 @@ Zmienne specyficzne sprzętowo (GPU/Surface/ROG/UMPC/peripherals/Secure Boot) �
 ### Polityka `~amd64` (testing keywords)
 
 NIGDY nie ustawiać `ACCEPT_KEYWORDS="~amd64"` globalnie — destabilizuje cały system. Zamiast tego per-pakiet w `/etc/portage/package.accept_keywords/`, dodawane w odpowiednim module `lib/` (nie w make.conf). Przykłady: `sys-kernel/gentoo-kernel-bin ~amd64` (kernel.sh), `gui-apps/noctalia-shell ~amd64` (portage.sh), `sys-kernel/surface-sources ~amd64` (kernel.sh). Nowe pakiety wymagające `~amd64` dodawać tym samym wzorcem.
+
+### Polityka `-march` (data/cpu_march_database.sh + `portage_validate_march`)
+
+`-march` trafia do `COMMON_FLAGS`, więc dziedziczy je **każdy** pakiet. Zła wartość to nie
+sub-optymalny kod, tylko albo błąd kompilacji przy pierwszym pakiecie `@world`, albo SIGILL
+w losowym miejscu godziny później. Trzy reguły:
+
+1. **Model ID Intela NIE rośnie z generacją.** Arrow Lake-U to `0xB5` (181) — *numerycznie
+   starsze* niż Raptor Lake `0xBA` (186). Drabinka `model >= N` w `lookup_cpu_march` jest
+   awaryjnym przybliżeniem dla dziur w tablicy, nie regułą.
+2. **Arrow Lake-U ≠ `arrowlake`.** To odświeżony Meteor Lake (ten sam compute tile), bez
+   AVX-IFMA / AVX-VNNI-INT8 / AVX-NE-CONVERT / CMPCCXADD, które nazwa `arrowlake` implikuje
+   w GCC. Wpis `181 → meteorlake` jest w tablicy jawnie, żeby nikt go „nie poprawił".
+   Symetrycznie Panther/Wildcat Lake to `pantherlake`, nie `arrowlake`:
+   `PTA_PANTHERLAKE = PTA_ARROWLAKE_S & ~(PTA_KL | PTA_WIDEKL)` — te układy **usunęły**
+   Key Locker. GCC mapuje `wildcatlake` na `PROCESSOR_PANTHERLAKE` z tą samą maską, ale sama
+   nazwa `wildcatlake` wymaga GCC 16, a `pantherlake` działa już od GCC 14 — dlatego w tablicy
+   jest `pantherlake`.
+3. **Powyżej najnowszego znanego modelu przestajemy zgadywać** — `lookup_cpu_march` zwraca
+   `native`. GCC rozwiązuje je z bitów CPUID na maszynie, na której realnie kompilujemy, więc
+   nie wymyśli instrukcji, których procesor nie ma. Cena: taki system jest przywiązany do tego
+   CPU (przełożenie dysku do starszej maszyny = rebuild `@world`) — akceptowalna, bo dotyczy
+   wyłącznie procesora, którego tablica nie zna.
+
+`portage_validate_march()` (lib/portage.sh) domyka to w chroocie, zaraz po `portage_sync`
+a **przed** czymkolwiek zbudowanym: kompiluje i linkuje trywialny program z wybranym `-march`
+(samo `-E` przepuściłoby GCC, które zna nazwę, przy binutils zbyt starym, by złożyć te
+instrukcje). Gdy nie przechodzi — przepisuje `make.conf` na `native` → `x86-64-v3` →
+`x86-64-v2` → `x86-64`, głośno logując zamianę.
 
 ### Konfiguracja kernela (per Gentoo Handbook)
 
@@ -185,20 +215,20 @@ Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `D
 
 ```bash
 bash tests/test_config.sh        # Config round-trip (13 assertions)
-bash tests/test_hardware.sh      # CPU march + GPU database (16 assertions)
+bash tests/test_hardware.sh      # CPU march + GPU database (32 assertions)
 bash tests/test_disk.sh          # Disk planning dry-run with sfdisk (21 assertions)
-bash tests/test_makeconf.sh      # make.conf generation (18 assertions)
+bash tests/test_makeconf.sh      # make.conf generation (29 assertions)
 bash tests/test_checkpoint.sh    # Checkpoint validate + migrate (16 assertions)
-bash tests/test_resume.sh        # Resume from disk scanning + recovery (30 assertions)
+bash tests/test_resume.sh        # Resume from disk scanning + recovery (26 assertions)
 bash tests/test_multiboot.sh     # Multi-boot OS detection + serialization (26 assertions)
-bash tests/test_infer_config.sh  # Config inference from installed system (53 assertions)
+bash tests/test_infer_config.sh  # Config inference from installed system (59 assertions)
 bash tests/test_hybrid_gpu.sh    # Hybrid GPU + ASUS ROG + recommendation (27 assertions)
-bash tests/test_validate.sh      # Config validation before install (31 assertions)
+bash tests/test_validate.sh      # Config validation before install (35 assertions)
 bash tests/test_shrink.sh        # Partition shrink planning and helpers (37 assertions)
 bash tests/test_surface.sh       # Surface detection, config vars, kernel types, inference (25 assertions)
-bash tests/test_peripherals.sh   # Peripheral detection, config vars, inference (30 assertions)
+bash tests/test_peripherals.sh   # Peripheral detection, config vars, inference (38 assertions)
 bash tests/test_umpc.sh          # UMPC detection (GPD/Chuwi) + GRUB cmdline (36 assertions)
-bash tests/test_kernel_config.sh # _patch_kernel_config: promocja =m→=y, brak downgrade'u, WWAN/IOSM, idempotencja (23 assertions)
+bash tests/test_kernel_config.sh # _patch_kernel_config: promocja =m→=y, brak downgrade'u, WWAN/IOSM, xe/i915, pinctrl, Framework EC, idempotencja (41 assertions)
 
 bash tests/shellcheck.sh         # Lint wszystkich *.sh (severity=warning, excl. SC1091/2034/2154/1090/2155)
 ```

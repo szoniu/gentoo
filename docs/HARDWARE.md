@@ -27,13 +27,17 @@ Tylko dla genkernel/surface-genkernel/surface-kernel (dist-kernel = binarka, pom
 2. **`make localmodconfig`** (jeśli `lsmod` pokazuje ≥50 modułów) — redukcja ~3000 → ~200-400 modułów. Czas build 30-60 min → 5-10 min
 3. **Force-add hardware modules** — niezależnie od lsmod, żeby krytyczne sterowniki nie zostały wycięte:
    - Always-on: `BLK_DEV_NVME=y` (built-in!), I2C HID, RMI, USB-C, ACPI backlight, UVC webcam, HID_MULTITOUCH
-   - Intel CPU: i915, SOF audio (top+pci+intel)
+   - Intel CPU: **`DRM_I915=m` ORAZ `DRM_XE=m`**, SOF audio (top+pci+intel), pinctrl
+     - Podział upstreamu: `i915` obsługuje sprzęt **do Meteor Lake / Alchemist**, `xe` przejmuje **od Lunar Lake wzwyż** (Xe2, Xe3). Kernel zbudowany z samym `i915` zostawia Lunar / Panther / Wildcat Lake na efifb — bez KMS, bez sterowania jasnością, bez akceleracji wideo. Oba są dodawane bezwarunkowo: ich tablice PCI są rozłączne, więc na starszym iGPU `xe` po prostu się nie zwiąże
+     - **`DRM_XE` MUSI być `=m`, nigdy `=y`** — upstream bramkuje połowę display na `depends on DRM_XE && DRM_XE=m`, więc wkompilowany `xe` cicho traci `DRM_XE_DISPLAY` i wychodzi sterownik GPU, który nie obsługuje żadnego panelu. Dochodzi twarda zależność `X86_PLATFORM_DEVICES=y`
+     - pinctrl: `PINCTRL_INTEL=y` + `PINCTRL_ALDERLAKE` + `PINCTRL_TIGERLAKE` + `PINCTRL_METEORLAKE`, a dla Lunar / Panther / Wildcat / Nova Lake **`PINCTRL_INTEL_PLATFORM`** (generyczny, enumerowany po ACPI). **`CONFIG_PINCTRL_LUNARLAKE` nie istnieje** w `drivers/pinctrl/intel/Kconfig` — tablica forsowała tę nazwę, więc wpis lądował w `.config` i był po cichu wyrzucany przez `olddefconfig`; Lunar Lake nigdy realnie nie dostał swojego pinctrl. Bez tego I2C-HID touchpad/touchscreen ma sterownik, ale nie dostaje przerwań
+   - **Framework Laptop (11/12/13/16)**: `CROS_EC`, `CROS_EC_LPC`, `CROS_EC_CHARDEV`, `CROS_EC_SYSFS`, `CROS_EC_TYPEC` — EC w tych laptopach mówi protokołem ChromeOS EC, więc bateria, progi ładowania i odczyty termiczne wiszą na `cros_ec_lpc`, a nie na vendorowym WMI. Upstreamowa reguła DMI dopasowuje `sys_vendor=Framework` + `product_family=Laptop` jako catch-all. `CROS_EC_PROTO` celowo **nie** jest forsowany — to symbol ukryty (`select`owany przez `CROS_EC`), więc ręczne wymuszenie pojawiłoby się jako fantom w ostrzeżeniu o dropniętych opcjach
    - AMD CPU: `PINCTRL_AMD`
    - **AMD GPU** (single lub hybrid iGPU/dGPU): `DRM_AMDGPU=m`, `DRM_RADEON=m`, `FB_EFI=y` (symetria z NVIDIA)
    - NVIDIA GPU: `DRM=y`, `DRM_FBDEV_EMULATION=y`, `FB_EFI=y`
    - Bluetooth wykryty: `BT`, `BT_HCIBTUSB`, dla AMD+BT też `BT_HCIBTUSB_MTK=y` (Framework AMD quirk)
-   - **WiFi by vendor (przez `lspci -nn`)**:
-     - Intel: `IWLWIFI`, `IWLMVM`
+   - **WiFi by vendor — najpierw po KLASIE PCI, dopiero potem po nazwie**: `_wifi_by_vendor_class <vid>` sprawdza `lspci -d <vid>::0280` (klasa 0280 = network controller, czyli karty Wi-Fi; Ethernet to 0200). Poprzednio bramka szła wyłącznie po czytelnej nazwie z `lspci` albo po ręcznie utrzymywanej liście device ID — a live ISO z przestarzałym `pci.ids` pokazuje nową kartę jako gołe `Device [8086:1234]`, co nie pasuje do żadnego z nich. Efekt: genkernel budował kernel bez sterownika Wi-Fi i maszyna wstawała po reboocie bez sieci. Trafiło już dwa razy (MT7922, BE200). Vendor ID + klasa PCI to dane z config space — nie da się ich „zdezaktualizować"
+     - Intel: `IWLWIFI`, `IWLMVM`, **`IWLMLD`** (Wi-Fi 7 / BE2xx — na kernelach, które go mają, sam `iwlmvm` zostawia BE201/BE211/BE213 niezwiązane)
      - MediaTek (MT7921E Framework AMD, MT7925E nowsze): oba drivery
      - Realtek (RTL8852/8821/8822): `RTW89`, `RTW89_8852CE`
    - Thunderbolt wykryty: `THUNDERBOLT`
