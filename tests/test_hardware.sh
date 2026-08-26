@@ -38,12 +38,41 @@ assert_eq "AMD Zen 4 Genoa" "znver4" "${CPU_MARCH_MAP["AuthenticAMD:25:97:97"]:-
 assert_eq "Intel Alder Lake" "alderlake" "${CPU_MARCH_MAP["GenuineIntel:6:151:151"]:-unknown}"
 assert_eq "Intel Skylake" "skylake" "${CPU_MARCH_MAP["GenuineIntel:6:78:78"]:-unknown}"
 
+# Intel Core Ultra / Core Series 3 era. These four are the ones a wrong guess
+# actually hurts, because their model numbers are not ordered by generation.
+assert_eq "Intel Arrow Lake-H (0xC5)" "arrowlake" "${CPU_MARCH_MAP["GenuineIntel:6:197:197"]:-unknown}"
+assert_eq "Intel Panther Lake-L (0xCC)" "pantherlake" "${CPU_MARCH_MAP["GenuineIntel:6:204:204"]:-unknown}"
+assert_eq "Intel Panther Lake-R (0xE5)" "pantherlake" "${CPU_MARCH_MAP["GenuineIntel:6:229:229"]:-unknown}"
+assert_eq "Intel Wildcat Lake-L (0xD5, Framework 12)" "pantherlake" "${CPU_MARCH_MAP["GenuineIntel:6:213:213"]:-unknown}"
+# Arrow Lake-U is Meteor Lake silicon. Naming it arrowlake would let GCC emit
+# AVX-IFMA / AVX-VNNI-INT8 / CMPCCXADD that this CPU does not implement.
+assert_eq "Intel Arrow Lake-U (0xB5) is NOT arrowlake" "meteorlake" "${CPU_MARCH_MAP["GenuineIntel:6:181:181"]:-unknown}"
+
+echo ""
+echo "=== Test: CPU March Fallback Ladder (unknown models) ==="
+
+assert_eq "Wildcat Lake resolves via table" "pantherlake" "$(lookup_cpu_march GenuineIntel 6 213)"
+# 0xB5=181 sits BELOW Raptor Lake's 0xBA=186 — proof the ladder is not a
+# simple "bigger model = newer CPU" rule.
+assert_eq "Ladder: model 182 -> meteorlake" "meteorlake" "$(lookup_cpu_march GenuineIntel 6 182)"
+assert_eq "Ladder: model 187 -> raptorlake" "raptorlake" "$(lookup_cpu_march GenuineIntel 6 187)"
+assert_eq "Ladder: model 200 -> arrowlake" "arrowlake" "$(lookup_cpu_march GenuineIntel 6 200)"
+assert_eq "Ladder: model 210 -> pantherlake" "pantherlake" "$(lookup_cpu_march GenuineIntel 6 210)"
+# Beyond everything we can name, stop guessing and let GCC read CPUID.
+assert_eq "Ladder: unknown future Intel -> native" "native" "$(lookup_cpu_march GenuineIntel 6 250)"
+assert_eq "Ladder: unknown future AMD -> native" "native" "$(lookup_cpu_march AuthenticAMD 27 1)"
+assert_eq "Ladder: known AMD family 25 -> znver3" "znver3" "$(lookup_cpu_march AuthenticAMD 25 200)"
+assert_eq "Unknown vendor -> x86-64" "x86-64" "$(lookup_cpu_march SomethingElse 6 1)"
+
 echo ""
 echo "=== Test: NVIDIA GPU Generation Detection ==="
 
 assert_eq "Turing device" "turing" "$(nvidia_generation "1e82")"
 assert_eq "Ampere device" "ampere" "$(nvidia_generation "2204")"
 assert_eq "Ada device" "ada" "$(nvidia_generation "2704")"
+# AD102 = RTX 4090. The old 0x2700 threshold called it Ampere (Forgejo #3).
+assert_eq "Ada AD102 / RTX 4090 (2684)" "ada" "$(nvidia_generation "2684")"
+assert_eq "Ampere GA107 (25a0) still ampere" "ampere" "$(nvidia_generation "25a0")"
 assert_eq "Blackwell device" "blackwell" "$(nvidia_generation "2904")"
 assert_eq "Pre-Turing device" "pre-turing" "$(nvidia_generation "1b80")"
 
