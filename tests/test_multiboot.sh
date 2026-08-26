@@ -172,14 +172,22 @@ FILESYSTEM="ext4"
 ESP_PARTITION="/dev/sda1"
 unset ROOT_PARTITION
 
-# We can't actually run sfdisk --dump in test, but we test the prefix logic
-part_prefix="/dev/sda"
-[[ "/dev/sda" =~ [0-9]$ ]] && part_prefix="/dev/sdap"
-assert_eq "sda prefix (no trailing digit)" "/dev/sda" "${part_prefix}"
+# We can't actually run sfdisk --dump in test, but we test the prefix logic.
+# The disk name goes through a variable rather than a literal on both sides of
+# the match: with a literal, shellcheck flags the test as a constant expression
+# (SC2050) — correctly, since a literal can never vary the way the real input
+# does.
+_prefix_for() {
+    local disk="$1"
+    if [[ "${disk}" =~ [0-9]$ ]]; then
+        echo "${disk}p"
+    else
+        echo "${disk}"
+    fi
+}
 
-part_prefix="/dev/nvme0n1"
-[[ "/dev/nvme0n1" =~ [0-9]$ ]] && part_prefix="/dev/nvme0n1p"
-assert_eq "nvme prefix (trailing digit)" "/dev/nvme0n1p" "${part_prefix}"
+assert_eq "sda prefix (no trailing digit)" "/dev/sda" "$(_prefix_for /dev/sda)"
+assert_eq "nvme prefix (trailing digit)" "/dev/nvme0n1p" "$(_prefix_for /dev/nvme0n1)"
 
 # =============================================================================
 echo ""

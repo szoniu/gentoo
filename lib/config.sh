@@ -108,7 +108,9 @@ config_set() {
     fi
 
     printf -v "${var}" '%s' "${value}"
-    export "${var}"
+    # ${var?} is shellcheck's quiet form for an indirect export (SC2163);
+    # printf -v above guarantees the variable exists, so it never fires.
+    export "${var?}"
 }
 
 # config_dump — Print current configuration to stdout

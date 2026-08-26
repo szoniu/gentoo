@@ -95,7 +95,7 @@ preset_import() {
     for hw_var in "${PRESET_HW_VARS[@]}"; do
         if [[ -n "${saved_hw[${hw_var}]+x}" ]]; then
             printf -v "${hw_var}" '%s' "${saved_hw[${hw_var}]}"
-            export "${hw_var}"
+            export "${hw_var?}"
         fi
     done
 
