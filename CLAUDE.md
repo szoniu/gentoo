@@ -180,6 +180,10 @@ Trzeci backend TUI obok `dialog` i `whiptail`. Statyczny binary zaszyty w repo j
 
 **Numer partycji w dual-boot NIE jest wyliczany arytmetycznie.** W GPT numer = indeks wpisu w tablicy, a skasowanie partycji zostawia DZIURĘ (Windows Disk Management, gparted i fdisk nie renumerują reszty). `sfdisk --append` wypełnia PIERWSZY WOLNY slot, nie „najwyższy + 1". Zweryfikowane na obrazie GPT z partycjami 1,2,4: stare `liczba+1` dawało 4 (partycja ISTNIEJĄCA), a `--append` utworzył numer 3 — czyli `mkfs` leciał na cudze dane, a realna partycja Gentoo zostawała niesformatowana. Dlatego `disk_plan_dualboot` robi snapshot listy partycji (`_DUALBOOT_PARTS_BEFORE`), **odracza `mkfs`**, a `_disk_resolve_appended_root` po `partprobe` bierze RÓŻNICĘ i wymaga dokładnie jednego nowego urządzenia (inaczej `die`), sprawdzając dodatkowo brak sygnatury FS (`blkid`) i rozmiar ≥ `GENTOO_MIN_SIZE_MIB`.
 
+**`validate_config` NIE jest siecią bezpieczeństwa dla ścieżki CLI** — jedynym jej wywołującym jest `tui/summary.sh`, więc `./install.sh --install --config plik` dochodzi do partycjonowania bez walidacji. Wszystko, co musi być pewne (obsługiwany `FILESYSTEM`, przynależność partycji do `TARGET_DISK`, nośnik live), sprawdzaj w `lib/disk.sh`, nie tylko w walidatorze.
+
+**Resolver nowej partycji patrzy WYŁĄCZNIE na `TYPE=part`.** `lsblk -l` spłaszcza całe poddrzewo, więc holdery LVM/crypt/mdraid nad partycjami też się w nim znajdą — a `disk_execute_plan` woła `partprobe` tuż przed resolverem, czyli dokładnie to, co skłania udev do automatycznej aktywacji grupy woluminów nieaktywnej w chwili snapshotu. Taki węzeł dm jako „jedyne nowe urządzenie" skierowałby `mkfs` na żywy system plików.
+
 **Akcje krytyczne (`DISK_CRITICAL[]`).** Akcję, po której następuje krok destrukcyjny, dodaje się przez `disk_plan_add_critical` / `disk_plan_add_stdin_critical`. `disk_execute_plan` uruchamia ją z `TRY_NO_CONTINUE=1`, więc `try()` NIE oferuje „continue" — pominięcie nieudanego shrinku systemu plików, po którym i tak obcinany jest wpis w tablicy partycji, to prosta droga do utraty danych. Każdy shrink kończy się read-backiem rozmiaru (narzędzie potrafi zwrócić 0, zrobiwszy mniej, niż proszono), a `e2fsck` traktuje kody 1/2 jako sukces (naprawił błędy / zalecany reboot).
 
 Partycjonowanie używa `sfdisk` (util-linux) — atomowy skrypt stdin zamiast sekwencyjnych wywołań. Jedna komenda `sfdisk` tworzy GPT label + wszystkie partycje naraz. `disk_plan_add_stdin()` przechowuje dane stdin w `DISK_STDIN[]` (tablica równoległa do `DISK_ACTIONS[]`).
@@ -228,7 +232,7 @@ bash tests/test_multiboot.sh     # Multi-boot OS detection + serialization (26 a
 bash tests/test_infer_config.sh  # Config inference from installed system (59 assertions)
 bash tests/test_hybrid_gpu.sh    # Hybrid GPU + ASUS ROG + recommendation (27 assertions)
 bash tests/test_validate.sh      # Config validation before install (35 assertions)
-bash tests/test_shrink.sh        # Shrink + dual-boot: akcje krytyczne, read-back, resolver nowej partycji, konsumpcja TRY_NO_CONTINUE na pty, realny parser sfdisk (71 assertions)
+bash tests/test_shrink.sh        # Shrink + dual-boot: akcje krytyczne, read-back, resolver nowej partycji, konsumpcja TRY_NO_CONTINUE na pty, realny parser sfdisk (78 assertions)
 bash tests/test_surface.sh       # Surface detection, config vars, kernel types, inference (25 assertions)
 bash tests/test_peripherals.sh   # Peripheral detection, config vars, inference (38 assertions)
 bash tests/test_umpc.sh          # UMPC detection (GPD/Chuwi) + GRUB cmdline (36 assertions)

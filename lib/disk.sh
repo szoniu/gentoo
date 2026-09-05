@@ -116,20 +116,7 @@ disk_plan_auto() {
     fi
 
     ROOT_PARTITION="${part_prefix}${part_num}"
-    case "${fs}" in
-        ext4)
-            disk_plan_add "Format root as ext4" \
-                mkfs.ext4 -L gentoo "${ROOT_PARTITION}"
-            ;;
-        btrfs)
-            disk_plan_add "Format root as btrfs" \
-                mkfs.btrfs -f -L gentoo "${ROOT_PARTITION}"
-            ;;
-        xfs)
-            disk_plan_add "Format root as XFS" \
-                mkfs.xfs -f -L gentoo "${ROOT_PARTITION}"
-            ;;
-    esac
+    _disk_plan_format_root "${ROOT_PARTITION}" "${fs}"
 
     export ESP_PARTITION ROOT_PARTITION SWAP_PARTITION
 
@@ -205,6 +192,15 @@ _disk_plan_format_root() {
         ext4)  disk_plan_add "Format root as ext4"  mkfs.ext4 -L gentoo "${part}" ;;
         btrfs) disk_plan_add "Format root as btrfs" mkfs.btrfs -f -L gentoo "${part}" ;;
         xfs)   disk_plan_add "Format root as XFS"   mkfs.xfs -f -L gentoo "${part}" ;;
+        *)
+            # Silently queueing nothing is the dangerous outcome: on dual-boot
+            # with an EXISTING root partition the plan would then contain no
+            # mkfs at all, and stage3 would be unpacked on top of the OS the
+            # operator asked to erase. validate_config does not save us —
+            # tui/summary.sh is its only caller, so `--install --config file`
+            # reaches here unvalidated.
+            die "Unsupported FILESYSTEM '"'"'${fs}'"'"' — cannot format ${part}"
+            ;;
     esac
 }
 
@@ -215,7 +211,14 @@ _disk_list_partitions() {
         printf '%s\n' ${_DRY_RUN_PARTITIONS}
         return 0
     fi
-    lsblk -lno PATH "${disk}" 2>/dev/null | grep -v "^${disk}$" | sort || true
+    # TYPE=part only. `lsblk -l` flattens the WHOLE subtree, so LVM/crypt/mdraid
+    # holders stacked on the partitions show up too — and disk_execute_plan runs
+    # partprobe right before the resolver, which is exactly what makes udev
+    # auto-activate a volume group that was inactive when the snapshot was taken.
+    # Such a holder appearing as "the one new device" would send mkfs at a live
+    # filesystem. Only a real partition of this disk can be the one we created.
+    lsblk -lno PATH,TYPE "${disk}" 2>/dev/null \
+        | awk '$2 == "part" { print $1 }' | sort || true
 }
 
 # _disk_resolve_appended_root — Identify the partition sfdisk --append created
@@ -423,9 +426,12 @@ disk_can_shrink_fstype() {
 # disk_plan_shrink — Add shrink actions to DISK_ACTIONS[]
 # Requires: SHRINK_PARTITION, SHRINK_PARTITION_FSTYPE, SHRINK_NEW_SIZE_MIB
 disk_plan_shrink() {
-    local part="${SHRINK_PARTITION}"
-    local fstype="${SHRINK_PARTITION_FSTYPE}"
-    local new_size="${SHRINK_NEW_SIZE_MIB}"
+    # ${VAR:-} throughout: screen_disk_select now UNSETS these on entry, so a
+    # bare expansion dies with "unbound variable" under set -u before the checks
+    # below can report anything useful.
+    local part="${SHRINK_PARTITION:-}"
+    local fstype="${SHRINK_PARTITION_FSTYPE:-}"
+    local new_size="${SHRINK_NEW_SIZE_MIB:-}"
     local disk="${TARGET_DISK}"
 
     # The partition number is fed to `sfdisk -N <num> <disk>`, so a partition
@@ -646,7 +652,9 @@ disk_execute_plan() {
             fmt_desc="${fmt_entry%%|||*}"
             fmt_cmd="${fmt_entry#*|||}"
             einfo "${fmt_desc}"
-            try "${fmt_desc}" bash -c "${fmt_cmd}"
+            # Critical like every other destructive action: a skipped mkfs would
+            # let the run continue to mount_filesystems on an unformatted device.
+            TRY_NO_CONTINUE=1 try "${fmt_desc}" bash -c "${fmt_cmd}"
         fi
     fi
 

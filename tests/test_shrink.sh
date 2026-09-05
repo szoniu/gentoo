@@ -425,8 +425,14 @@ PROBE_EOF
     assert_contains "without the flag a skip returns success" "OPEN_RC=0" "${_try_out}"
     assert_contains "with the flag the menu warns skipping is unsafe" "NOT safe here" "${_try_out}"
     assert_contains "with the flag a skip is refused" "Skipping is not allowed" "${_try_out}"
-    assert_eq "with the flag continue is absent from the menu" "0" \
-        "$(printf '%s' "${_try_out}" | grep -c 'a)bort   — skipping this step is NOT safe here.*(c)ontinue' || true)"
+    assert_eq "with the flag continue is absent from the locked menu" "0" \
+        "$(printf '%s' "${_try_out}" | grep 'NOT safe here' | grep -c '(c)ontinue' || true)"
+    # Control for the assertion above: (c)ontinue appears exactly once in the
+    # whole session — in the UNLOCKED menu. No anchor: script(1) leaves CR at
+    # end of line. Without this control, "absent from the locked menu" would
+    # also pass if the menu never rendered at all.
+    assert_eq "without the flag continue IS offered" "1" \
+        "$(printf '%s' "${_try_out}" | grep -c '(c)ontinue' || true)"
     assert_contains "with the flag the run ends in abort" "Aborted by user after failure: probe-locked" "${_try_out}"
     assert_eq "with the flag try() never returns success" "0" \
         "$(printf '%s' "${_try_out}" | grep -c 'LOCKED_REACHED_SUCCESS_PATH' || true)"
@@ -485,6 +491,74 @@ IMG_EOF
 else
     echo "  SKIP: sfdisk unavailable"
 fi
+
+echo ""
+echo "=== Test: the resolver ignores dm/LVM holders ==="
+
+# partprobe (run right before the resolver) makes udev auto-activate a volume
+# group that was inactive at snapshot time. Its dm node must never be mistaken
+# for the partition sfdisk just created — wiping it would destroy a live
+# filesystem. _disk_list_partitions therefore keeps TYPE=part only.
+_holder_stub=$(mktemp -d)
+cat > "${_holder_stub}/lsblk" <<'STUB_EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+    case "${a}" in
+        PATH,TYPE)
+            echo "/dev/sda disk"
+            echo "/dev/sda1 part"
+            echo "/dev/sda2 part"
+            echo "/dev/mapper/vg0-root lvm"
+            echo "/dev/mapper/luks-1234 crypt"
+            exit 0 ;;
+    esac
+done
+exit 0
+STUB_EOF
+chmod +x "${_holder_stub}/lsblk"
+
+result=$( export PATH="${_holder_stub}:${PATH}"; DRY_RUN=0 _disk_list_partitions "/dev/sda" | tr '\n' ',' )
+rm -rf "${_holder_stub}"
+assert_eq "only real partitions are listed" "/dev/sda1,/dev/sda2," "${result}"
+
+echo ""
+echo "=== Test: an unsupported FILESYSTEM never yields a plan without mkfs ==="
+
+# Reached by ./install.sh --install --config file: validate_config is called ONLY
+# from tui/summary.sh, so the CLI path never rejects a bogus FILESYSTEM. Without
+# a default branch the dual-boot plan for an EXISTING root partition would carry
+# no mkfs at all, and stage3 would land on top of the OS being replaced.
+out=$( ( TARGET_DISK="/dev/sda"; FILESYSTEM="reiserfs"; SHRINK_PARTITION=""
+         ROOT_PARTITION="/dev/sda5"; disk_plan_reset; disk_plan_dualboot ) 2>&1 ) && out="${out} NO_ABORT"
+assert_contains "dual-boot refuses an unsupported filesystem" "Unsupported FILESYSTEM" "${out}"
+
+out=$( ( TARGET_DISK="/dev/sda"; FILESYSTEM="reiserfs"; SWAP_TYPE="none"
+         disk_plan_reset; disk_plan_auto ) 2>&1 ) && out="${out} NO_ABORT"
+assert_contains "auto refuses an unsupported filesystem" "Unsupported FILESYSTEM" "${out}"
+
+echo ""
+echo "=== Test: disk_plan_shrink survives unset SHRINK_* ==="
+
+# screen_disk_select UNSETS these now, so a bare expansion would die with
+# "unbound variable" instead of the intended, explanatory refusal.
+out=$( ( TARGET_DISK="/dev/sda"; unset SHRINK_PARTITION SHRINK_PARTITION_FSTYPE SHRINK_NEW_SIZE_MIB
+         disk_plan_reset; disk_plan_shrink ) 2>&1 ) && out="${out} NO_ABORT"
+assert_eq "no unbound-variable crash" "0" \
+    "$(printf '%s' "${out}" | grep -c 'unbound variable' || true)"
+
+out=$( ( TARGET_DISK="/dev/sda"; SHRINK_PARTITION="/dev/sda2"
+         unset SHRINK_PARTITION_FSTYPE SHRINK_NEW_SIZE_MIB
+         disk_plan_reset; disk_plan_shrink ) 2>&1 ) && out="${out} NO_ABORT"
+assert_contains "unset fstype gives the explanatory refusal" "unsupported or empty filesystem type" "${out}"
+
+echo ""
+echo "=== Test: the deferred mkfs is non-skippable ==="
+
+# It is the only destructive command in disk_execute_plan outside the action
+# loop, so it needs the same protection the loop applies.
+_exec_src=$(sed -n '/^disk_execute_plan()/,/^}/p' "${SCRIPT_DIR}/lib/disk.sh")
+assert_eq "deferred mkfs runs with TRY_NO_CONTINUE" "1" \
+    "$(printf '%s' "${_exec_src}" | grep -c 'TRY_NO_CONTINUE=1 try "${fmt_desc}"' || true)"
 
 echo ""
 echo "=== Results ==="
