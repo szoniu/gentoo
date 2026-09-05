@@ -143,10 +143,20 @@ SHRINK_NEW_SIZE_MIB=60000
 disk_plan_shrink
 
 plan_text=$(_get_plan_text)
-assert_contains "ext4 plan has e2fsck" "Check ext4" "${plan_text}"
-assert_contains "ext4 plan has resize2fs" "Shrink ext4" "${plan_text}"
+# e2fsck, resize2fs and the read-back check are ONE critical action now: the
+# partition table entry must never be truncated after a half-done shrink.
+assert_contains "ext4 plan has shrink step" "Shrink ext4" "${plan_text}"
+assert_contains "ext4 shrink does e2fsck" "e2fsck" "${DISK_ACTIONS[0]}"
+assert_contains "ext4 shrink does resize2fs" "resize2fs" "${DISK_ACTIONS[0]}"
+assert_contains "ext4 shrink reads size back" "read-back" "${DISK_ACTIONS[0]}"
+assert_contains "ext4 shrink tolerates e2fsck rc<=2" "le 2" "${DISK_ACTIONS[0]}"
 assert_contains "ext4 plan has partition table resize" "partition table" "${plan_text}"
-assert_eq "ext4 plan action count" "4" "${#DISK_ACTIONS[@]}"
+assert_eq "ext4 plan action count" "3" "${#DISK_ACTIONS[@]}"
+
+# Both the shrink and the table truncation are non-skippable
+assert_eq "ext4 shrink is critical" "1" "${DISK_CRITICAL[0]}"
+assert_eq "ext4 table resize is critical" "1" "${DISK_CRITICAL[1]}"
+assert_eq "partprobe is not critical" "0" "${DISK_CRITICAL[2]}"
 
 echo ""
 echo "=== Test: disk_plan_shrink (btrfs) ==="
@@ -180,8 +190,11 @@ disk_plan_dualboot
 
 plan_text=$(_get_plan_text)
 assert_contains "Dualboot+shrink has NTFS shrink" "Shrink NTFS" "${plan_text}"
-assert_contains "Dualboot+shrink has root format" "ext4" "${plan_text}"
 assert_contains "Dualboot+shrink has sfdisk append" "free space" "${plan_text}"
+# mkfs is NOT planned here: the partition number sfdisk --append will pick is
+# unknowable at plan time (GPT holes), so formatting waits for the resolver.
+assert_not_contains "Dualboot+shrink defers root format" "Format root" "${plan_text}"
+assert_eq "Dualboot+shrink flags root resolution" "1" "${_DUALBOOT_RESOLVE_ROOT}"
 
 echo ""
 echo "=== Test: disk_plan_dualboot without shrink ==="
@@ -194,7 +207,8 @@ disk_plan_dualboot
 
 plan_text=$(_get_plan_text)
 assert_not_contains "No-shrink dualboot has no NTFS shrink" "Shrink NTFS" "${plan_text}"
-assert_contains "No-shrink dualboot has root format" "ext4" "${plan_text}"
+assert_not_contains "No-shrink dualboot defers root format" "Format root" "${plan_text}"
+assert_eq "No-shrink dualboot flags root resolution" "1" "${_DUALBOOT_RESOLVE_ROOT}"
 
 echo ""
 echo "=== Test: CONFIG_VARS includes shrink variables ==="
@@ -273,6 +287,278 @@ assert_eq "Missing shrink size fails" "1" "${rc}"
 
 # Cleanup
 rm -f "${LOG_FILE}"
+
+echo ""
+echo "=== Test: root partition on the target disk is formatted directly ==="
+
+disk_plan_reset
+TARGET_DISK="/dev/sda"
+FILESYSTEM="ext4"
+SHRINK_PARTITION=""
+ROOT_PARTITION="/dev/sda5"
+
+disk_plan_dualboot
+
+plan_text=$(_get_plan_text)
+assert_contains "Existing root partition is formatted" "Format root as ext4" "${plan_text}"
+assert_eq "No resolution needed for existing partition" "0" "${_DUALBOOT_RESOLVE_ROOT}"
+
+echo ""
+echo "=== Test: cross-disk values are refused ==="
+
+# A wizard re-entry can leave SHRINK_PARTITION/ROOT_PARTITION pointing at the
+# PREVIOUS disk. The partition NUMBER is then fed to sfdisk -N on the new disk,
+# so this must abort rather than truncate a stranger's partition.
+# Assert on the die MESSAGE, not merely on a non-zero exit: a typo in the
+# function name would also exit non-zero and leave the test falsely green.
+out=$( (
+    TARGET_DISK="/dev/sdb"
+    SHRINK_PARTITION="/dev/sda2"
+    SHRINK_PARTITION_FSTYPE="ntfs"
+    SHRINK_NEW_SIZE_MIB=50000
+    disk_plan_reset
+    disk_plan_shrink
+) 2>&1 ) && out="${out} NO_ABORT"
+assert_contains "shrink on a foreign disk aborts with a reason" "Refusing to shrink /dev/sda2" "${out}"
+
+out=$( (
+    TARGET_DISK="/dev/sdb"
+    SHRINK_PARTITION=""
+    ROOT_PARTITION="/dev/sda5"
+    disk_plan_reset
+    disk_plan_dualboot
+) 2>&1 ) && out="${out} NO_ABORT"
+assert_contains "root partition on a foreign disk aborts with a reason" "Refusing to format /dev/sda5" "${out}"
+
+echo ""
+echo "=== Test: disk_get_largest_free_mib (DRY_RUN) ==="
+
+# The decision "does Gentoo fit" must use the biggest single gap, never the sum
+_DRY_RUN_LARGEST_FREE_MIB=15000
+_DRY_RUN_FREE_SPACE_MIB=25000
+result=$(disk_get_largest_free_mib "/dev/sda")
+assert_eq "Largest gap is reported, not the total" "15000" "${result}"
+result=$(disk_get_free_space_mib "/dev/sda")
+assert_eq "Total free space still available separately" "25000" "${result}"
+
+unset _DRY_RUN_LARGEST_FREE_MIB
+result=$(disk_get_largest_free_mib "/dev/sda")
+assert_eq "Falls back to the total when unset" "25000" "${result}"
+
+echo ""
+echo "=== Test: _disk_list_partitions ==="
+
+_DRY_RUN_PARTITIONS="/dev/sda1 /dev/sda2 /dev/sda4"
+result=$(_disk_list_partitions "/dev/sda" | tr '\n' ',')
+assert_eq "Partition list is enumerated" "/dev/sda1,/dev/sda2,/dev/sda4," "${result}"
+unset _DRY_RUN_PARTITIONS
+
+echo ""
+echo "=== Test: _disk_resolve_appended_root ==="
+
+# The bug this replaces: "number of partitions + 1" on a GPT with a hole
+# (1,2,4) computed 4 — an EXISTING partition — while sfdisk --append actually
+# created number 3. Verified on a real GPT image. So identification is by
+# DIFFERENCE against a snapshot, and anything ambiguous must abort.
+TARGET_DISK="/dev/sda"
+_DRY_RUN_PART_SIZE_MIB=51200
+
+_DUALBOOT_PARTS_BEFORE=$'/dev/sda1\n/dev/sda2\n/dev/sda4'
+_DRY_RUN_PARTITIONS="/dev/sda1 /dev/sda2 /dev/sda3 /dev/sda4"
+ROOT_PARTITION=""
+_disk_resolve_appended_root >/dev/null 2>&1
+assert_eq "New partition identified by difference, not arithmetic" "/dev/sda3" "${ROOT_PARTITION}"
+
+# Nothing new — sfdisk did not create anything
+out=$( ( _DUALBOOT_PARTS_BEFORE=$'/dev/sda1\n/dev/sda2'
+  _DRY_RUN_PARTITIONS="/dev/sda1 /dev/sda2"
+  _disk_resolve_appended_root ) 2>&1 ) && out="${out} NO_ABORT"
+assert_contains "No new partition aborts with a reason" "Expected exactly one new partition" "${out}"
+
+# Two new devices — ambiguous, must not guess
+out=$( ( _DUALBOOT_PARTS_BEFORE=$'/dev/sda1'
+  _DRY_RUN_PARTITIONS="/dev/sda1 /dev/sda2 /dev/sda3"
+  _disk_resolve_appended_root ) 2>&1 ) && out="${out} NO_ABORT"
+assert_contains "Ambiguous result aborts with a reason" "Expected exactly one new partition" "${out}"
+
+# Created, but the gap was too small for Gentoo — say so before the build
+out=$( ( _DUALBOOT_PARTS_BEFORE=$'/dev/sda1\n/dev/sda2'
+  _DRY_RUN_PARTITIONS="/dev/sda1 /dev/sda2 /dev/sda3"
+  _DRY_RUN_PART_SIZE_MIB=10240
+  _disk_resolve_appended_root ) 2>&1 ) && out="${out} NO_ABORT"
+assert_contains "Undersized partition aborts with a reason" "below the" "${out}"
+
+unset _DRY_RUN_PARTITIONS
+
+echo ""
+echo "=== Test: TRY_NO_CONTINUE is actually CONSUMED by try() ==="
+
+# Asserting that the flag is SET on the plan proves nothing about try() honouring
+# it. Drive the real recovery menu: it needs a terminal, so borrow one from
+# script(1) (util-linux, same package as sfdisk).
+if command -v script &>/dev/null; then
+    _try_probe="$(mktemp -d)/probe.sh"
+    cat > "${_try_probe}" <<PROBE_EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export _GENTOO_INSTALLER=1
+export LIB_DIR="${SCRIPT_DIR}/lib"
+export DATA_DIR="${SCRIPT_DIR}/data"
+export LOG_FILE=/tmp/gentoo-test-try-probe.log
+export SKIPPED_LOG=/tmp/gentoo-test-try-probe-skipped.log
+: > "\${LOG_FILE}"; : > "\${SKIPPED_LOG}"
+source "\${LIB_DIR}/constants.sh"
+source "\${LIB_DIR}/logging.sh"
+source "\${LIB_DIR}/dialog.sh"
+source "\${LIB_DIR}/utils.sh"
+DIALOG_CMD=__no_such_dialog__       # force the text fallback
+DRY_RUN=0 NON_INTERACTIVE=0 TRY_NO_CONTINUE=0 try "probe-open" false && echo "OPEN_RC=0"
+# No "|| echo" here: abort goes through die(), which exits the process rather
+# than returning — the assertion below looks for that exit instead.
+DRY_RUN=0 NON_INTERACTIVE=0 TRY_NO_CONTINUE=1 try "probe-locked" false
+echo "LOCKED_REACHED_SUCCESS_PATH"
+PROBE_EOF
+    _try_out=$(printf 'c\nc\na\n' | timeout 60 script -qec "bash ${_try_probe}" /dev/null 2>&1 || true)
+    rm -rf "$(dirname "${_try_probe}")"
+
+    assert_contains "without the flag the menu offers continue" "(c)ontinue" "${_try_out}"
+    assert_contains "without the flag a skip returns success" "OPEN_RC=0" "${_try_out}"
+    assert_contains "with the flag the menu warns skipping is unsafe" "NOT safe here" "${_try_out}"
+    assert_contains "with the flag a skip is refused" "Skipping is not allowed" "${_try_out}"
+    assert_eq "with the flag continue is absent from the locked menu" "0" \
+        "$(printf '%s' "${_try_out}" | grep 'NOT safe here' | grep -c '(c)ontinue' || true)"
+    # Control for the assertion above: (c)ontinue appears exactly once in the
+    # whole session — in the UNLOCKED menu. No anchor: script(1) leaves CR at
+    # end of line. Without this control, "absent from the locked menu" would
+    # also pass if the menu never rendered at all.
+    assert_eq "without the flag continue IS offered" "1" \
+        "$(printf '%s' "${_try_out}" | grep -c '(c)ontinue' || true)"
+    assert_contains "with the flag the run ends in abort" "Aborted by user after failure: probe-locked" "${_try_out}"
+    assert_eq "with the flag try() never returns success" "0" \
+        "$(printf '%s' "${_try_out}" | grep -c 'LOCKED_REACHED_SUCCESS_PATH' || true)"
+else
+    echo "  SKIP: script(1) unavailable — cannot drive the recovery menu"
+fi
+
+# The probe above drives the TEXT fallback (dialog is deliberately unavailable in
+# tests). The dialog branch builds its menu from _try_opts, so guard it
+# structurally: this fails if anyone hardcodes "continue" back into that call.
+_try_src=$(sed -n '/^try()/,/^}/p' "${SCRIPT_DIR}/lib/utils.sh")
+assert_eq "dialog menu is built from the guarded _try_opts array" "1" \
+    "$(printf '%s' "${_try_src}" | grep -c 'dialog_menu "Command Failed: ${desc}" "${_try_opts\[@\]}"' || true)"
+assert_eq "continue is added to _try_opts only when allowed" "1" \
+    "$(printf '%s' "${_try_src}" | grep -A1 'TRY_NO_CONTINUE:-0}" != "1"' | grep -c '_try_opts+=("continue"' || true)"
+
+echo ""
+echo "=== Test: disk_get_partition_used_mib signals failure ==="
+
+# The contract this PR introduces: unknown must be a non-zero exit, never "0 MiB".
+# Both probes below stay away from real block devices.
+rc=0
+DRY_RUN=0 disk_get_partition_used_mib "/dev/null" "vfat" >/dev/null 2>&1 || rc=$?
+assert_eq "unsupported fstype reports unknown" "1" "$([[ ${rc} -ne 0 ]] && echo 1 || echo 0)"
+
+rc=0
+DRY_RUN=0 disk_get_partition_used_mib "/dev/null" "ext4" >/dev/null 2>&1 || rc=$?
+assert_eq "unreadable ext4 reports unknown" "1" "$([[ ${rc} -ne 0 ]] && echo 1 || echo 0)"
+
+rc=0
+DRY_RUN=0 disk_get_partition_used_mib "/dev/null" "ntfs" >/dev/null 2>&1 || rc=$?
+assert_eq "unreadable ntfs reports unknown" "1" "$([[ ${rc} -ne 0 ]] && echo 1 || echo 0)"
+
+echo ""
+echo "=== Test: disk_get_largest_free_mib against a real GPT image ==="
+
+# sfdisk operates on plain files, so the actual parser can be exercised without
+# root or hardware — the DRY_RUN assertions above only cover the stub.
+if command -v sfdisk &>/dev/null; then
+    _img=$(mktemp -d)/gpt.img
+    truncate -s 400M "${_img}"
+    sfdisk "${_img}" >/dev/null 2>&1 <<'IMG_EOF'
+label: gpt
+start=2048, size=20MiB, type=linux, name=a
+start=104448, size=20MiB, type=linux, name=b
+IMG_EOF
+    # Gaps: ~30 MiB between a and b, ~329 MiB after b.
+    result=$(DRY_RUN=0 disk_get_largest_free_mib "${_img}")
+    total=$(DRY_RUN=0 disk_get_free_space_mib "${_img}")
+    rm -rf "$(dirname "${_img}")"
+
+    assert_eq "largest gap is the trailing one, not the sum" "1" \
+        "$([[ ${result} -ge 320 && ${result} -le 340 ]] && echo 1 || echo 0)"
+    assert_eq "the sum is larger than the largest gap" "1" \
+        "$([[ ${total} -gt ${result} ]] && echo 1 || echo 0)"
+else
+    echo "  SKIP: sfdisk unavailable"
+fi
+
+echo ""
+echo "=== Test: the resolver ignores dm/LVM holders ==="
+
+# partprobe (run right before the resolver) makes udev auto-activate a volume
+# group that was inactive at snapshot time. Its dm node must never be mistaken
+# for the partition sfdisk just created — wiping it would destroy a live
+# filesystem. _disk_list_partitions therefore keeps TYPE=part only.
+_holder_stub=$(mktemp -d)
+cat > "${_holder_stub}/lsblk" <<'STUB_EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+    case "${a}" in
+        PATH,TYPE)
+            echo "/dev/sda disk"
+            echo "/dev/sda1 part"
+            echo "/dev/sda2 part"
+            echo "/dev/mapper/vg0-root lvm"
+            echo "/dev/mapper/luks-1234 crypt"
+            exit 0 ;;
+    esac
+done
+exit 0
+STUB_EOF
+chmod +x "${_holder_stub}/lsblk"
+
+result=$( export PATH="${_holder_stub}:${PATH}"; DRY_RUN=0 _disk_list_partitions "/dev/sda" | tr '\n' ',' )
+rm -rf "${_holder_stub}"
+assert_eq "only real partitions are listed" "/dev/sda1,/dev/sda2," "${result}"
+
+echo ""
+echo "=== Test: an unsupported FILESYSTEM never yields a plan without mkfs ==="
+
+# Reached by ./install.sh --install --config file: validate_config is called ONLY
+# from tui/summary.sh, so the CLI path never rejects a bogus FILESYSTEM. Without
+# a default branch the dual-boot plan for an EXISTING root partition would carry
+# no mkfs at all, and stage3 would land on top of the OS being replaced.
+out=$( ( TARGET_DISK="/dev/sda"; FILESYSTEM="reiserfs"; SHRINK_PARTITION=""
+         ROOT_PARTITION="/dev/sda5"; disk_plan_reset; disk_plan_dualboot ) 2>&1 ) && out="${out} NO_ABORT"
+assert_contains "dual-boot refuses an unsupported filesystem" "Unsupported FILESYSTEM" "${out}"
+
+out=$( ( TARGET_DISK="/dev/sda"; FILESYSTEM="reiserfs"; SWAP_TYPE="none"
+         disk_plan_reset; disk_plan_auto ) 2>&1 ) && out="${out} NO_ABORT"
+assert_contains "auto refuses an unsupported filesystem" "Unsupported FILESYSTEM" "${out}"
+
+echo ""
+echo "=== Test: disk_plan_shrink survives unset SHRINK_* ==="
+
+# screen_disk_select UNSETS these now, so a bare expansion would die with
+# "unbound variable" instead of the intended, explanatory refusal.
+out=$( ( TARGET_DISK="/dev/sda"; unset SHRINK_PARTITION SHRINK_PARTITION_FSTYPE SHRINK_NEW_SIZE_MIB
+         disk_plan_reset; disk_plan_shrink ) 2>&1 ) && out="${out} NO_ABORT"
+assert_eq "no unbound-variable crash" "0" \
+    "$(printf '%s' "${out}" | grep -c 'unbound variable' || true)"
+
+out=$( ( TARGET_DISK="/dev/sda"; SHRINK_PARTITION="/dev/sda2"
+         unset SHRINK_PARTITION_FSTYPE SHRINK_NEW_SIZE_MIB
+         disk_plan_reset; disk_plan_shrink ) 2>&1 ) && out="${out} NO_ABORT"
+assert_contains "unset fstype gives the explanatory refusal" "unsupported or empty filesystem type" "${out}"
+
+echo ""
+echo "=== Test: the deferred mkfs is non-skippable ==="
+
+# It is the only destructive command in disk_execute_plan outside the action
+# loop, so it needs the same protection the loop applies.
+_exec_src=$(sed -n '/^disk_execute_plan()/,/^}/p' "${SCRIPT_DIR}/lib/disk.sh")
+assert_eq "deferred mkfs runs with TRY_NO_CONTINUE" "1" \
+    "$(printf '%s' "${_exec_src}" | grep -c 'TRY_NO_CONTINUE=1 try "${fmt_desc}"' || true)"
 
 echo ""
 echo "=== Results ==="

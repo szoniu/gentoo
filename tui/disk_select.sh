@@ -138,7 +138,22 @@ Failure to do so may cause data loss." || true
     # Step 5: Get sizes
     local total_mib used_mib available_mib
     total_mib=$(disk_get_partition_size_mib "${selected_part}")
-    used_mib=$(disk_get_partition_used_mib "${selected_part}" "${selected_fstype}")
+
+    # An unreadable filesystem must NOT be treated as "0 MiB used": the floor
+    # below is computed as used + 1 GiB, so a failed probe used to silently
+    # authorise shrinking a full partition down to 1 GiB.
+    if ! used_mib=$(disk_get_partition_used_mib "${selected_part}" "${selected_fstype}"); then
+        dialog_msgbox "Cannot Read Filesystem" \
+            "Could not determine how much of ${selected_part} (${selected_fstype}) is in use.\n\n\
+Shrinking without that number is not safe, so this partition cannot be\n\
+resized here.\n\n\
+For NTFS this usually means the filesystem was not cleanly unmounted:\n\
+  1. Disable Windows Fast Startup\n\
+  2. Disable hibernation (powercfg /h off)\n\
+  3. Perform a full shutdown, then retry\n\n\
+Alternatively, shrink the partition from within the other OS first."
+        return "${TUI_BACK}"
+    fi
 
     # Safety margin: 1 GiB above used
     local safety_margin=1024
@@ -223,6 +238,30 @@ Proceed with shrink?" \
 }
 
 screen_disk_select() {
+    # Clear any selection left by a previous pass through this screen.
+    #
+    # run_wizard lets the operator go BACK and re-enter with a different disk or
+    # a different scheme, and nothing here used to reset the previous answers.
+    # Two ways that ends badly:
+    #   - a stale ROOT_PARTITION makes disk_plan_dualboot skip creating the new
+    #     partition and mkfs the OLD value instead, bypassing the ERASE prompt
+    #     (that prompt only exists on the "use existing partition" path);
+    #   - stale SHRINK_* shrinks a partition on the disk the operator just
+    #     navigated away from.
+    # lib/disk.sh now also refuses cross-disk values, but the state must not
+    # survive this screen in the first place.
+    # unset, NOT ="" — the difference is load-bearing. config_save writes every
+    # variable that is SET, empty ones included (lib/config.sh: [[ -n "${!var+x}" ]]),
+    # and the chroot process re-loads that file (install.sh: config_load) on top of
+    # the environment it inherited. An empty ROOT_PARTITION in the config would
+    # therefore overwrite the real device that disk_execute_plan had resolved and
+    # exported — dracut would get no root=, and generate_fstab would call
+    # get_uuid "" and die mid-file. For auto/dual-boot these names are assigned
+    # only during disk_execute_plan, i.e. long AFTER the wizard writes the config,
+    # so leaving them unset is exactly what the previous behaviour relied on.
+    unset ROOT_PARTITION SWAP_PARTITION ESP_PARTITION
+    unset SHRINK_PARTITION SHRINK_PARTITION_FSTYPE SHRINK_NEW_SIZE_MIB
+
     # Build disk list for dialog
     local -a disk_items=()
     local entry
@@ -336,8 +375,12 @@ Type ERASE in the next dialog to confirm."
                     export ROOT_PARTITION
                 else
                     # "Create new" — check free space, launch shrink wizard if needed
+                    # The new partition lands in ONE gap and stretches to the
+                    # next used partition, so what matters is the largest gap —
+                    # not the sum, which happily reported "25 GiB free" for a
+                    # 15 GiB and a 10 GiB hole and then produced a 15 GiB root.
                     local free_mib
-                    free_mib=$(disk_get_free_space_mib "${TARGET_DISK}")
+                    free_mib=$(disk_get_largest_free_mib "${TARGET_DISK}")
                     if [[ ${free_mib} -lt ${GENTOO_MIN_SIZE_MIB} ]]; then
                         _shrink_wizard "${TARGET_DISK}" "${ESP_PARTITION}" \
                             || return "${TUI_BACK}"

@@ -54,6 +54,22 @@ _scope_violations() {
             }
         }
 
+        # --- embedded scripts: bash -c '"'"'...'"'"' spanning several lines
+        # Their body is a separate program with its own scope, and it sits at
+        # column 0, so without this it looked like top-level code referencing
+        # undeclared names. Recognised narrowly (a bash -c line with an odd
+        # number of quotes) so that an apostrophe in a comment cannot open a
+        # region by accident.
+        sq != 0 {
+            n = gsub(/'"'"'/, "&")
+            if (n % 2 == 1) sq = 0
+            next
+        }
+        /bash -c '"'"'/ {
+            n = gsub(/'"'"'/, "&")
+            if (n % 2 == 1) { sq = 1; next }
+        }
+
         # --- heredocs
         # A quoted delimiter (<<'"'"'EOF'"'"') means the body is inert text — skip it whole.
         # An UNQUOTED delimiter (<<EOF) is expanded by bash at runtime, so an
@@ -74,6 +90,12 @@ _scope_violations() {
         }
 
         # --- function boundaries: "name() {" at column 0, closed by "}" at column 0
+        # Known limitation: a one-line definition (name() { ...; }) has its body
+        # skipped with the header. The only ones in the tree are the four log
+        # wrappers in data/fprintd-pam-setup.sh, which use $* — processing the
+        # rest of the line would instead leave `cur` open past the closing brace
+        # and risk attributing top-level code to that function, so the trade is
+        # deliberate: no false positives beats covering four trivial one-liners.
         /^[a-zA-Z_][a-zA-Z0-9_]*\(\)[[:space:]]*\{/ {
             fname = $0; sub(/\(\).*/, "", fname)
             cur = fname; next
