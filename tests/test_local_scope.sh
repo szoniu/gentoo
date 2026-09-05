@@ -74,6 +74,12 @@ _scope_violations() {
         }
 
         # --- function boundaries: "name() {" at column 0, closed by "}" at column 0
+        # Known limitation: a one-line definition (name() { ...; }) has its body
+        # skipped with the header. The only ones in the tree are the four log
+        # wrappers in data/fprintd-pam-setup.sh, which use $* — processing the
+        # rest of the line would instead leave `cur` open past the closing brace
+        # and risk attributing top-level code to that function, so the trade is
+        # deliberate: no false positives beats covering four trivial one-liners.
         /^[a-zA-Z_][a-zA-Z0-9_]*\(\)[[:space:]]*\{/ {
             fname = $0; sub(/\(\).*/, "", fname)
             cur = fname; next
@@ -114,10 +120,15 @@ _scope_violations() {
                 v = line; sub(/^[[:space:]]*for[[:space:]]+/, "", v); sub(/[[:space:]]+in.*$/, "", v)
                 if (v ~ /^[a-zA-Z_][a-zA-Z0-9_]*$/) { islocal[v] = 1; lo[v] = lo[v] " " cur }
             }
-            # anything that makes the name global: top-level assign, : "${V:=}", export, declare -g
-            if (cur == "" && match(line, /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*=/)) {
+            # A plain assignment binds the name from that point on: globally at
+            # top level, and within the enclosing function otherwise (bash makes
+            # it a global, but crediting only that scope keeps the check strict).
+            # Without this, an embedded `bash -c` script whose body sits at
+            # column 0 looked like a reference to an undeclared name.
+            if (match(line, /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*=/)) {
                 v = line; sub(/=.*$/, "", v); gsub(/[[:space:]]/, "", v)
-                isglobal[v] = 1
+                if (cur == "") isglobal[v] = 1
+                else lo[v] = lo[v] " " cur
             }
             if (cur == "" && match(line, /\$\{[a-zA-Z_][a-zA-Z0-9_]*:?=/)) {
                 v = substr(line, RSTART + 2, RLENGTH - 2); sub(/:?=$/, "", v)

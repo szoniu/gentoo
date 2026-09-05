@@ -6,6 +6,9 @@ source "${LIB_DIR}/protection.sh"
 # Action queue for two-phase disk operations
 declare -ga DISK_ACTIONS=()
 declare -ga DISK_STDIN=()
+# Parallel array: "1" marks an action whose failure must NOT be skippable.
+# Anything whose SUCCESSOR is destructive belongs here — see disk_plan_shrink.
+declare -ga DISK_CRITICAL=()
 
 # --- Phase 1: Planning ---
 
@@ -13,6 +16,7 @@ declare -ga DISK_STDIN=()
 disk_plan_reset() {
     DISK_ACTIONS=()
     DISK_STDIN=()
+    DISK_CRITICAL=()
 }
 
 # disk_plan_add — Add an action to the queue (no stdin)
@@ -24,6 +28,7 @@ disk_plan_add() {
     cmd=$(printf '%q ' "$@")
     DISK_ACTIONS+=("${desc}|||${cmd}")
     DISK_STDIN+=("")
+    DISK_CRITICAL+=("0")
 }
 
 # disk_plan_add_stdin — Add an action with stdin data
@@ -35,6 +40,19 @@ disk_plan_add_stdin() {
     cmd=$(printf '%q ' "$@")
     DISK_ACTIONS+=("${desc}|||${cmd}")
     DISK_STDIN+=("${stdin}")
+    DISK_CRITICAL+=("0")
+}
+
+# disk_plan_add_critical — Like disk_plan_add, but failure cannot be skipped
+disk_plan_add_critical() {
+    disk_plan_add "$@"
+    DISK_CRITICAL[$(( ${#DISK_ACTIONS[@]} - 1 ))]="1"
+}
+
+# disk_plan_add_stdin_critical — Like disk_plan_add_stdin, but not skippable
+disk_plan_add_stdin_critical() {
+    disk_plan_add_stdin "$@"
+    DISK_CRITICAL[$(( ${#DISK_ACTIONS[@]} - 1 ))]="1"
 }
 
 # disk_plan_show — Display planned actions
@@ -130,39 +148,117 @@ disk_plan_dualboot() {
     # ESP is reused, never formatted
     einfo "Reusing existing ESP: ${ESP_PARTITION}"
 
+    _DUALBOOT_RESOLVE_ROOT=0
+
     if [[ -z "${ROOT_PARTITION:-}" ]]; then
-        # Need to create root partition in free space using sfdisk --append
+        # Create the root partition in free space. Its NUMBER cannot be known
+        # here, and must not be guessed:
+        #
+        #   In GPT the partition number is the index of the entry in the table.
+        #   Deleting a partition leaves a HOLE (Windows Disk Management, gparted
+        #   and fdisk all leave the rest renumbered), and `sfdisk --append`
+        #   (libfdisk) fills the FIRST FREE SLOT — not the highest number + 1.
+        #
+        # Verified on a GPT image with partitions 1,2,4: the old
+        # "count + 1" arithmetic produced 4, i.e. the EXISTING partition, while
+        # --append actually created the new one as number 3. That formats
+        # someone else's data AND leaves the real Gentoo partition untouched.
+        #
+        # So: snapshot the partition list now, and resolve the new device after
+        # the kernel has re-read the table (_disk_resolve_appended_root).
+        _DUALBOOT_PARTS_BEFORE="$(_disk_list_partitions "${disk}")"
+        _DUALBOOT_RESOLVE_ROOT=1
+        export _DUALBOOT_PARTS_BEFORE
+
         disk_plan_add_stdin "Create root partition in free space" \
             "type=${GPT_TYPE_LINUX}, name=linux"$'\n' \
             sfdisk --append --force --no-reread "${disk}"
 
-        # Determine partition name: count existing partitions via sfdisk
-        local existing_count
-        existing_count=$(sfdisk --dump "${disk}" 2>/dev/null | grep -c "^${disk}") || existing_count=0
-        local next_part_num=$(( existing_count + 1 ))
-        local part_prefix="${disk}"
-        [[ "${disk}" =~ [0-9]$ ]] && part_prefix="${disk}p"
-        ROOT_PARTITION="${part_prefix}${next_part_num}"
+        # mkfs is deferred to disk_execute_plan — see above.
+        einfo "Root partition will be created in free space (device resolved after partprobe)"
+    else
+        # An existing partition was picked in the wizard. It must live on the
+        # target disk: TUI_BACK can re-enter the screen with a different disk
+        # while ROOT_PARTITION keeps its previous value.
+        local root_disk
+        root_disk=$(_partition_to_disk "${ROOT_PARTITION}")
+        if [[ "${root_disk}" != "${disk}" ]]; then
+            die "Refusing to format ${ROOT_PARTITION} (on ${root_disk}) while the target disk is ${disk}"
+        fi
+        _disk_plan_format_root "${ROOT_PARTITION}" "${fs}"
     fi
 
-    # Format root
-    case "${fs}" in
-        ext4)
-            disk_plan_add "Format root as ext4" \
-                mkfs.ext4 -L gentoo "${ROOT_PARTITION}"
-            ;;
-        btrfs)
-            disk_plan_add "Format root as btrfs" \
-                mkfs.btrfs -f -L gentoo "${ROOT_PARTITION}"
-            ;;
-        xfs)
-            disk_plan_add "Format root as XFS" \
-                mkfs.xfs -f -L gentoo "${ROOT_PARTITION}"
-            ;;
-    esac
-
-    export ROOT_PARTITION
+    export ROOT_PARTITION _DUALBOOT_RESOLVE_ROOT
     einfo "Dual-boot plan generated"
+}
+
+# _disk_plan_format_root — Queue the mkfs action for the root filesystem
+_disk_plan_format_root() {
+    local part="$1" fs="$2"
+    case "${fs}" in
+        ext4)  disk_plan_add "Format root as ext4"  mkfs.ext4 -L gentoo "${part}" ;;
+        btrfs) disk_plan_add "Format root as btrfs" mkfs.btrfs -f -L gentoo "${part}" ;;
+        xfs)   disk_plan_add "Format root as XFS"   mkfs.xfs -f -L gentoo "${part}" ;;
+    esac
+}
+
+# _disk_list_partitions — Partition devices of a disk, one per line, sorted
+_disk_list_partitions() {
+    local disk="$1"
+    if [[ -n "${_DRY_RUN_PARTITIONS:-}" ]]; then
+        printf '%s\n' ${_DRY_RUN_PARTITIONS}
+        return 0
+    fi
+    lsblk -lno PATH "${disk}" 2>/dev/null | grep -v "^${disk}$" | sort || true
+}
+
+# _disk_resolve_appended_root — Identify the partition sfdisk --append created
+#
+# Compares the partition list against the snapshot taken at plan time and
+# demands EXACTLY ONE new device. Everything here is a refusal to guess: a
+# wrong answer means mkfs on a stranger's partition.
+_disk_resolve_appended_root() {
+    local disk="${TARGET_DISK}"
+    local after new_parts count
+    after="$(_disk_list_partitions "${disk}")"
+
+    new_parts=$(comm -13 <(printf '%s\n' "${_DUALBOOT_PARTS_BEFORE}") <(printf '%s\n' "${after}")) || true
+    new_parts=$(printf '%s\n' "${new_parts}" | sed '/^$/d')
+    count=$(printf '%s\n' "${new_parts}" | sed '/^$/d' | wc -l)
+
+    if [[ "${count}" -ne 1 ]]; then
+        eerror "Expected exactly one new partition on ${disk}, found ${count}:"
+        eerror "  before: $(printf '%s' "${_DUALBOOT_PARTS_BEFORE}" | tr '\n' ' ')"
+        eerror "  after:  $(printf '%s' "${after}" | tr '\n' ' ')"
+        die "Cannot identify the newly created root partition — refusing to format anything"
+    fi
+
+    ROOT_PARTITION="${new_parts}"
+    export ROOT_PARTITION
+
+    # Device-level checks need real devices (skipped under DRY_RUN, which never
+    # touches hardware — the identification logic above is what tests exercise).
+    if [[ "${DRY_RUN:-0}" != "1" ]]; then
+        [[ -b "${ROOT_PARTITION}" ]] || die "Resolved root partition ${ROOT_PARTITION} is not a block device"
+
+        # It must be empty. If udev handed us a device that already carries a
+        # filesystem, the snapshot logic is wrong and mkfs would destroy data.
+        local sig
+        sig=$(blkid -o value -s TYPE "${ROOT_PARTITION}" 2>/dev/null) || sig=""
+        if [[ -n "${sig}" ]]; then
+            die "Newly created ${ROOT_PARTITION} already carries a ${sig} filesystem — refusing to format"
+        fi
+    fi
+
+    # A partition smaller than the minimum means --append landed in a gap too
+    # small for Gentoo; better to say so now than after hours of compiling.
+    local size_mib
+    size_mib=$(disk_get_partition_size_mib "${ROOT_PARTITION}")
+    if [[ "${size_mib}" -lt "${GENTOO_MIN_SIZE_MIB}" ]]; then
+        die "Created root partition ${ROOT_PARTITION} is ${size_mib} MiB, below the ${GENTOO_MIN_SIZE_MIB} MiB minimum"
+    fi
+
+    einfo "Root partition created: ${ROOT_PARTITION} (${size_mib} MiB)"
 }
 
 # --- Shrink helpers ---
@@ -193,6 +289,31 @@ disk_get_free_space_mib() {
     echo $(( total_free_sectors * sector_size / 1024 / 1024 ))
 }
 
+# disk_get_largest_free_mib — Size of the LARGEST contiguous free area, in MiB
+#
+# This is what decides whether a new root partition fits, not the total:
+# `sfdisk --append` places the partition in one gap and stretches it to the
+# next used partition, so its size comes from that single gap. Summing a
+# 15 GiB and a 10 GiB hole into "25 GiB free" passed the 20 GiB check and then
+# produced a 15 GiB root.
+disk_get_largest_free_mib() {
+    local disk="$1"
+
+    if [[ "${DRY_RUN:-0}" == "1" ]]; then
+        echo "${_DRY_RUN_LARGEST_FREE_MIB:-${_DRY_RUN_FREE_SPACE_MIB:-0}}"
+        return 0
+    fi
+
+    local sector_size max_sectors
+    sector_size=$(blockdev --getss "${disk}" 2>/dev/null) || sector_size=512
+
+    max_sectors=$(sfdisk --list-free "${disk}" 2>/dev/null \
+        | awk 'NF>=3 && $3 ~ /^[0-9]+$/ { if ($3 > max) max = $3 } END { print max + 0 }') || max_sectors=0
+    [[ -n "${max_sectors}" ]] || max_sectors=0
+
+    echo $(( max_sectors * sector_size / 1024 / 1024 ))
+}
+
 # disk_get_partition_size_mib — Get partition size in MiB
 disk_get_partition_size_mib() {
     local part="$1"
@@ -208,7 +329,12 @@ disk_get_partition_size_mib() {
 }
 
 # disk_get_partition_used_mib — Get used space on partition in MiB
-# Supports ntfs, ext4, btrfs. Returns 0 on error or unsupported.
+# Supports ntfs, ext4, btrfs.
+#
+# Returns non-zero when the value could NOT be determined. Echoing 0 in that
+# case was actively dangerous: the shrink wizard computes its floor as
+# "used + 1 GiB", so an unreadable filesystem silently became "you may shrink
+# down to 1 GiB". Callers must treat a non-zero exit as "unknown", not "empty".
 disk_get_partition_used_mib() {
     local part="$1" fstype="$2"
 
@@ -221,19 +347,19 @@ disk_get_partition_used_mib() {
         ntfs)
             # ntfsresize --info --force --no-action outputs "You might resize at X bytes"
             local info
-            info=$(ntfsresize --info --force --no-action "${part}" 2>/dev/null) || { echo 0; return 0; }
+            info=$(ntfsresize --info --force --no-action "${part}" 2>/dev/null) || return 1
             local bytes
             bytes=$(echo "${info}" | sed -n 's/.*resize at \([0-9]*\) bytes.*/\1/p' | head -1) || true
             if [[ -n "${bytes}" ]]; then
                 echo $(( bytes / 1024 / 1024 ))
             else
-                echo 0
+                return 1
             fi
             ;;
         ext4)
             # dumpe2fs -h: Block count, Free blocks, Block size
             local dump
-            dump=$(dumpe2fs -h "${part}" 2>/dev/null) || { echo 0; return 0; }
+            dump=$(dumpe2fs -h "${part}" 2>/dev/null) || return 1
             local block_count free_blocks block_size
             block_count=$(echo "${dump}" | sed -n 's/^Block count:[[:space:]]*//p' | head -1) || true
             free_blocks=$(echo "${dump}" | sed -n 's/^Free blocks:[[:space:]]*//p' | head -1) || true
@@ -241,13 +367,13 @@ disk_get_partition_used_mib() {
             if [[ -n "${block_count}" && -n "${free_blocks}" && -n "${block_size}" ]]; then
                 echo $(( (block_count - free_blocks) * block_size / 1024 / 1024 ))
             else
-                echo 0
+                return 1
             fi
             ;;
         btrfs)
             # Mount read-only, query usage, unmount
             local tmpdir
-            tmpdir=$(mktemp -d) || { echo 0; return 0; }
+            tmpdir=$(mktemp -d) || return 1
             if mount -o ro "${part}" "${tmpdir}" 2>/dev/null; then
                 local used_bytes
                 used_bytes=$(btrfs filesystem usage -b "${tmpdir}" 2>/dev/null \
@@ -257,11 +383,11 @@ disk_get_partition_used_mib() {
                 if [[ -n "${used_bytes}" ]]; then
                     echo $(( used_bytes / 1024 / 1024 ))
                 else
-                    echo 0
+                    return 1
                 fi
             else
                 rmdir "${tmpdir}" 2>/dev/null || true
-                echo 0
+                return 1
             fi
             ;;
         *)
@@ -288,6 +414,17 @@ disk_plan_shrink() {
     local new_size="${SHRINK_NEW_SIZE_MIB}"
     local disk="${TARGET_DISK}"
 
+    # The partition number is fed to `sfdisk -N <num> <disk>`, so a partition
+    # from ANOTHER disk would truncate the entry with that number on the target
+    # disk. Nothing upstream guarantees the two match: the wizard can be
+    # re-entered with a different disk (TUI_BACK) while SHRINK_* keeps its old
+    # value. Refuse instead of trusting the caller.
+    local part_disk
+    part_disk=$(_partition_to_disk "${part}")
+    if [[ "${part_disk}" != "${disk}" ]]; then
+        die "Refusing to shrink ${part} (on ${part_disk}) while the target disk is ${disk}"
+    fi
+
     # Determine partition number from device path
     local part_num
     part_num=$(echo "${part}" | sed 's/.*[^0-9]\([0-9]*\)$/\1/') || true
@@ -299,25 +436,74 @@ disk_plan_shrink() {
 
     einfo "Planning shrink: ${part} (${fstype}) → ${new_size} MiB"
 
+    # Each filesystem shrink is ONE critical action that ends with a read-back
+    # check. Two reasons for the read-back:
+    #   - the next planned action truncates the partition table entry, so a
+    #     filesystem that is still too big means guaranteed data loss;
+    #   - a resize tool can exit 0 having done less than asked.
+    # Critical => try() offers no "continue", so a failure aborts instead of
+    # falling through to the destructive step.
     case "${fstype}" in
         ntfs)
-            disk_plan_add "Shrink NTFS filesystem on ${part}" \
-                ntfsresize --force --size "${new_size}M" "${part}"
+            disk_plan_add_critical "Shrink NTFS filesystem on ${part} (with read-back check)" \
+                bash -c '
+set -eu
+part="$1"; new="$2"
+ntfsresize --force --size "${new}M" "${part}"
+cur=$(ntfsresize --info --force --no-action "${part}" 2>/dev/null \
+      | sed -n "s/.*urrent volume size: *\([0-9]*\) bytes.*/\1/p" | head -1)
+[ -n "${cur}" ] || { echo "read-back: cannot determine NTFS size of ${part}" >&2; exit 1; }
+size=$(( cur / 1048576 ))
+[ "${size}" -le "${new}" ] || {
+    echo "read-back: NTFS on ${part} is still ${size} MiB, asked for ${new} MiB" >&2; exit 1; }
+' -- "${part}" "${new_size}"
             ;;
         ext4)
-            disk_plan_add "Check ext4 filesystem on ${part}" \
-                e2fsck -f -y "${part}"
-            disk_plan_add "Shrink ext4 filesystem on ${part}" \
-                resize2fs "${part}" "${new_size}M"
+            disk_plan_add_critical "Shrink ext4 filesystem on ${part} (with read-back check)" \
+                bash -c '
+set -eu
+part="$1"; new="$2"
+# e2fsck exits 1 when it FIXED errors and 2 when a reboot is advised. Both mean
+# the filesystem is now clean — only >= 4 is a real failure. Treating 1 as an
+# error dropped the operator into the recovery menu at the worst moment.
+e2fsck -f -y "${part}" || [ $? -le 2 ]
+resize2fs "${part}" "${new}M"
+bc=$(dumpe2fs -h "${part}" 2>/dev/null | sed -n "s/^Block count: *\([0-9]*\).*/\1/p" | head -1)
+bs=$(dumpe2fs -h "${part}" 2>/dev/null | sed -n "s/^Block size: *\([0-9]*\).*/\1/p" | head -1)
+[ -n "${bc}" ] && [ -n "${bs}" ] || {
+    echo "read-back: cannot determine ext4 geometry of ${part}" >&2; exit 1; }
+size=$(( bc * bs / 1048576 ))
+[ "${size}" -le "${new}" ] || {
+    echo "read-back: ext4 on ${part} is still ${size} MiB, asked for ${new} MiB" >&2; exit 1; }
+' -- "${part}" "${new_size}"
             ;;
         btrfs)
-            disk_plan_add "Shrink btrfs filesystem on ${part}" \
-                bash -c "tmp=\$(mktemp -d /tmp/gentoo-shrink-XXXXXX) && mount ${part} \${tmp} && { btrfs filesystem resize ${new_size}M \${tmp}; rc=\$?; umount \${tmp}; rmdir \${tmp}; exit \${rc}; }"
+            disk_plan_add_critical "Shrink btrfs filesystem on ${part} (with read-back check)" \
+                bash -c '
+set -eu
+part="$1"; new="$2"
+tmp=$(mktemp -d /tmp/gentoo-shrink-XXXXXX)
+mount "${part}" "${tmp}"
+rc=0
+btrfs filesystem resize "${new}M" "${tmp}" || rc=$?
+size=0
+if [ "${rc}" -eq 0 ]; then
+    bytes=$(btrfs filesystem show --raw "${tmp}" 2>/dev/null \
+            | sed -n "s/.*size *\([0-9]*\) .*/\1/p" | head -1)
+    [ -n "${bytes}" ] && size=$(( bytes / 1048576 ))
+fi
+umount "${tmp}"; rmdir "${tmp}"
+[ "${rc}" -eq 0 ] || exit "${rc}"
+[ "${size}" -gt 0 ] || { echo "read-back: cannot determine btrfs size of ${part}" >&2; exit 1; }
+[ "${size}" -le "${new}" ] || {
+    echo "read-back: btrfs on ${part} is still ${size} MiB, asked for ${new} MiB" >&2; exit 1; }
+' -- "${part}" "${new_size}"
             ;;
     esac
 
-    # Resize partition table entry
-    disk_plan_add_stdin "Resize partition table entry ${part_num} on ${disk}" \
+    # Resize partition table entry — destructive, and only correct because the
+    # shrink above verified the filesystem actually fits.
+    disk_plan_add_stdin_critical "Resize partition table entry ${part_num} on ${disk}" \
         ",${new_size}MiB"$'\n' \
         sfdisk --force --no-reread -N "${part_num}" "${disk}"
 
@@ -388,10 +574,16 @@ disk_execute_plan() {
 
         einfo "[$((i + 1))/${#DISK_ACTIONS[@]}] ${desc}"
 
+        # A critical action is one whose successor is destructive: letting the
+        # operator "skip" a failed filesystem shrink and then truncating the
+        # partition table entry is a direct path to data loss.
+        local _crit="${DISK_CRITICAL[$i]:-0}"
+
         if [[ -n "${stdin_data}" ]]; then
-            try "${desc}" bash -c "printf '%s' $(printf '%q' "${stdin_data}") | ${cmd}"
+            TRY_NO_CONTINUE="${_crit}" \
+                try "${desc}" bash -c "printf '%s' $(printf '%q' "${stdin_data}") | ${cmd}"
         else
-            try "${desc}" bash -c "${cmd}"
+            TRY_NO_CONTINUE="${_crit}" try "${desc}" bash -c "${cmd}"
         fi
     done
 
@@ -400,21 +592,24 @@ disk_execute_plan() {
         partprobe "${TARGET_DISK}" 2>/dev/null || true
         sleep 2
 
-        # Verify ROOT_PARTITION exists for dual-boot (sfdisk --append may assign different number)
-        if [[ "${PARTITION_SCHEME:-}" == "dual-boot" && -n "${ROOT_PARTITION:-}" ]]; then
-            if [[ ! -b "${ROOT_PARTITION}" ]]; then
-                ewarn "Expected partition ${ROOT_PARTITION} not found, rescanning..."
-                local actual_last
-                actual_last=$(sfdisk --dump "${TARGET_DISK}" 2>/dev/null \
-                    | grep "^${TARGET_DISK}" | tail -1 | awk '{print $1}') || true
-                if [[ -n "${actual_last}" && -b "${actual_last}" ]]; then
-                    ewarn "Using detected partition: ${actual_last} (instead of ${ROOT_PARTITION})"
-                    ROOT_PARTITION="${actual_last}"
-                    export ROOT_PARTITION
-                else
-                    ewarn "Could not detect root partition — manual verification may be needed"
-                fi
-            fi
+        # Dual-boot with a partition created in free space: the device is only
+        # knowable now, so resolve it and format it here.
+        #
+        # The previous safety net only fired when ${ROOT_PARTITION} did not
+        # exist, and then picked `sfdisk --dump | tail -1`. Both halves were
+        # wrong: a guessed number that lands on somebody else's partition IS a
+        # block device (so the net never fired), and the dump is ordered by
+        # partition NUMBER, so tail -1 is the highest-numbered entry, not the
+        # newly created one.
+        if [[ "${_DUALBOOT_RESOLVE_ROOT:-0}" == "1" ]]; then
+            _disk_resolve_appended_root
+            _disk_plan_format_root "${ROOT_PARTITION}" "${FILESYSTEM:-ext4}"
+            local fmt_entry fmt_desc fmt_cmd
+            fmt_entry="${DISK_ACTIONS[-1]}"
+            fmt_desc="${fmt_entry%%|||*}"
+            fmt_cmd="${fmt_entry#*|||}"
+            einfo "${fmt_desc}"
+            try "${fmt_desc}" bash -c "${fmt_cmd}"
         fi
     fi
 

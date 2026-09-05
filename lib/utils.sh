@@ -45,14 +45,27 @@ try() {
 
         local choice
 
+        # TRY_NO_CONTINUE=1 — the caller declares that skipping this step is
+        # never safe, so "continue" is not offered at all. Used for disk actions
+        # whose SUCCESSOR is destructive: skipping a failed filesystem shrink
+        # and then truncating the partition table entry destroys the data the
+        # shrink was supposed to make room for. The menu must not present that
+        # as a neutral "skip this step".
+        local -a _try_opts=(
+            "retry"    "Retry the command"
+            "shell"    "Drop to a shell (type 'exit' to return)"
+        )
+        if [[ "${TRY_NO_CONTINUE:-0}" != "1" ]]; then
+            _try_opts+=("continue" "Skip this step and continue")
+        fi
+        _try_opts+=(
+            "log"      "View last 50 lines of log"
+            "abort"    "Abort installation"
+        )
+
         if command -v "${DIALOG_CMD:-dialog}" &>/dev/null; then
             # Full dialog UI available
-            choice=$(dialog_menu "Command Failed: ${desc}" \
-                "retry"    "Retry the command" \
-                "shell"    "Drop to a shell (type 'exit' to return)" \
-                "continue" "Skip this step and continue" \
-                "log"      "View last 50 lines of log" \
-                "abort"    "Abort installation") || choice="abort"
+            choice=$(dialog_menu "Command Failed: ${desc}" "${_try_opts[@]}") || choice="abort"
         else
             # No dialog (e.g. inside chroot) — simple text menu.
             #
@@ -67,11 +80,16 @@ try() {
             # interruptible, fixable from another console) instead.
             echo "" >&2
             echo "=== FAILED: ${desc} ===" >&2
-            echo "  (r)etry  | (s)hell  | (c)ontinue  | (a)bort" >&2
+            local _prompt="[r/s/c/a]" _menu="  (r)etry  | (s)hell  | (c)ontinue  | (a)bort"
+            if [[ "${TRY_NO_CONTINUE:-0}" == "1" ]]; then
+                _prompt="[r/s/a]"
+                _menu="  (r)etry  | (s)hell  | (a)bort   — skipping this step is NOT safe here"
+            fi
+            echo "${_menu}" >&2
             local _reply="" _got=0
-            if [[ -e /dev/tty ]] && read -r -p "Choice [r/s/c/a]: " _reply < /dev/tty 2>/dev/null; then
+            if [[ -e /dev/tty ]] && read -r -p "Choice ${_prompt}: " _reply < /dev/tty 2>/dev/null; then
                 _got=1
-            elif [[ -t 0 ]] && read -r -p "Choice [r/s/c/a]: " _reply; then
+            elif [[ -t 0 ]] && read -r -p "Choice ${_prompt}: " _reply; then
                 _got=1
             fi
             if [[ ${_got} -eq 0 ]]; then
@@ -83,7 +101,12 @@ try() {
                 case "${_reply}" in
                     r*) choice="retry" ;;
                     s*) choice="shell" ;;
-                    c*) choice="continue" ;;
+                    c*) if [[ "${TRY_NO_CONTINUE:-0}" == "1" ]]; then
+                            ewarn "Skipping is not allowed for this step — retrying"
+                            choice="retry"
+                        else
+                            choice="continue"
+                        fi ;;
                     a*) choice="abort" ;;
                     *)  choice="retry" ;;
                 esac
@@ -105,6 +128,11 @@ try() {
                 continue
                 ;;
             continue)
+                if [[ "${TRY_NO_CONTINUE:-0}" == "1" ]]; then
+                    ewarn "Skipping is not allowed for this step — retrying"
+                    [[ ${_stderr_redirected} -eq 1 ]] && exec 2>>"${LOG_FILE}"
+                    continue
+                fi
                 ewarn "Skipping: ${desc} (user chose to continue)"
                 # Durable record (option B): a "continue" swallows the failure
                 # and the phase may still set its checkpoint, so without this an

@@ -143,10 +143,20 @@ SHRINK_NEW_SIZE_MIB=60000
 disk_plan_shrink
 
 plan_text=$(_get_plan_text)
-assert_contains "ext4 plan has e2fsck" "Check ext4" "${plan_text}"
-assert_contains "ext4 plan has resize2fs" "Shrink ext4" "${plan_text}"
+# e2fsck, resize2fs and the read-back check are ONE critical action now: the
+# partition table entry must never be truncated after a half-done shrink.
+assert_contains "ext4 plan has shrink step" "Shrink ext4" "${plan_text}"
+assert_contains "ext4 shrink does e2fsck" "e2fsck" "${DISK_ACTIONS[0]}"
+assert_contains "ext4 shrink does resize2fs" "resize2fs" "${DISK_ACTIONS[0]}"
+assert_contains "ext4 shrink reads size back" "read-back" "${DISK_ACTIONS[0]}"
+assert_contains "ext4 shrink tolerates e2fsck rc<=2" "le 2" "${DISK_ACTIONS[0]}"
 assert_contains "ext4 plan has partition table resize" "partition table" "${plan_text}"
-assert_eq "ext4 plan action count" "4" "${#DISK_ACTIONS[@]}"
+assert_eq "ext4 plan action count" "3" "${#DISK_ACTIONS[@]}"
+
+# Both the shrink and the table truncation are non-skippable
+assert_eq "ext4 shrink is critical" "1" "${DISK_CRITICAL[0]}"
+assert_eq "ext4 table resize is critical" "1" "${DISK_CRITICAL[1]}"
+assert_eq "partprobe is not critical" "0" "${DISK_CRITICAL[2]}"
 
 echo ""
 echo "=== Test: disk_plan_shrink (btrfs) ==="
@@ -180,8 +190,11 @@ disk_plan_dualboot
 
 plan_text=$(_get_plan_text)
 assert_contains "Dualboot+shrink has NTFS shrink" "Shrink NTFS" "${plan_text}"
-assert_contains "Dualboot+shrink has root format" "ext4" "${plan_text}"
 assert_contains "Dualboot+shrink has sfdisk append" "free space" "${plan_text}"
+# mkfs is NOT planned here: the partition number sfdisk --append will pick is
+# unknowable at plan time (GPT holes), so formatting waits for the resolver.
+assert_not_contains "Dualboot+shrink defers root format" "Format root" "${plan_text}"
+assert_eq "Dualboot+shrink flags root resolution" "1" "${_DUALBOOT_RESOLVE_ROOT}"
 
 echo ""
 echo "=== Test: disk_plan_dualboot without shrink ==="
@@ -194,7 +207,8 @@ disk_plan_dualboot
 
 plan_text=$(_get_plan_text)
 assert_not_contains "No-shrink dualboot has no NTFS shrink" "Shrink NTFS" "${plan_text}"
-assert_contains "No-shrink dualboot has root format" "ext4" "${plan_text}"
+assert_not_contains "No-shrink dualboot defers root format" "Format root" "${plan_text}"
+assert_eq "No-shrink dualboot flags root resolution" "1" "${_DUALBOOT_RESOLVE_ROOT}"
 
 echo ""
 echo "=== Test: CONFIG_VARS includes shrink variables ==="
@@ -273,6 +287,111 @@ assert_eq "Missing shrink size fails" "1" "${rc}"
 
 # Cleanup
 rm -f "${LOG_FILE}"
+
+echo ""
+echo "=== Test: root partition on the target disk is formatted directly ==="
+
+disk_plan_reset
+TARGET_DISK="/dev/sda"
+FILESYSTEM="ext4"
+SHRINK_PARTITION=""
+ROOT_PARTITION="/dev/sda5"
+
+disk_plan_dualboot
+
+plan_text=$(_get_plan_text)
+assert_contains "Existing root partition is formatted" "Format root as ext4" "${plan_text}"
+assert_eq "No resolution needed for existing partition" "0" "${_DUALBOOT_RESOLVE_ROOT}"
+
+echo ""
+echo "=== Test: cross-disk values are refused ==="
+
+# A wizard re-entry can leave SHRINK_PARTITION/ROOT_PARTITION pointing at the
+# PREVIOUS disk. The partition NUMBER is then fed to sfdisk -N on the new disk,
+# so this must abort rather than truncate a stranger's partition.
+rc=0
+(
+    TARGET_DISK="/dev/sdb"
+    SHRINK_PARTITION="/dev/sda2"
+    SHRINK_PARTITION_FSTYPE="ntfs"
+    SHRINK_NEW_SIZE_MIB=50000
+    disk_plan_reset
+    disk_plan_shrink
+) >/dev/null 2>&1 || rc=$?
+assert_eq "shrink on a foreign disk aborts" "1" "$([[ ${rc} -ne 0 ]] && echo 1 || echo 0)"
+
+rc=0
+(
+    TARGET_DISK="/dev/sdb"
+    SHRINK_PARTITION=""
+    ROOT_PARTITION="/dev/sda5"
+    disk_plan_reset
+    disk_plan_dualboot
+) >/dev/null 2>&1 || rc=$?
+assert_eq "root partition on a foreign disk aborts" "1" "$([[ ${rc} -ne 0 ]] && echo 1 || echo 0)"
+
+echo ""
+echo "=== Test: disk_get_largest_free_mib (DRY_RUN) ==="
+
+# The decision "does Gentoo fit" must use the biggest single gap, never the sum
+_DRY_RUN_LARGEST_FREE_MIB=15000
+_DRY_RUN_FREE_SPACE_MIB=25000
+result=$(disk_get_largest_free_mib "/dev/sda")
+assert_eq "Largest gap is reported, not the total" "15000" "${result}"
+result=$(disk_get_free_space_mib "/dev/sda")
+assert_eq "Total free space still available separately" "25000" "${result}"
+
+unset _DRY_RUN_LARGEST_FREE_MIB
+result=$(disk_get_largest_free_mib "/dev/sda")
+assert_eq "Falls back to the total when unset" "25000" "${result}"
+
+echo ""
+echo "=== Test: _disk_list_partitions ==="
+
+_DRY_RUN_PARTITIONS="/dev/sda1 /dev/sda2 /dev/sda4"
+result=$(_disk_list_partitions "/dev/sda" | tr '\n' ',')
+assert_eq "Partition list is enumerated" "/dev/sda1,/dev/sda2,/dev/sda4," "${result}"
+unset _DRY_RUN_PARTITIONS
+
+echo ""
+echo "=== Test: _disk_resolve_appended_root ==="
+
+# The bug this replaces: "number of partitions + 1" on a GPT with a hole
+# (1,2,4) computed 4 — an EXISTING partition — while sfdisk --append actually
+# created number 3. Verified on a real GPT image. So identification is by
+# DIFFERENCE against a snapshot, and anything ambiguous must abort.
+TARGET_DISK="/dev/sda"
+_DRY_RUN_PART_SIZE_MIB=51200
+
+_DUALBOOT_PARTS_BEFORE=$'/dev/sda1\n/dev/sda2\n/dev/sda4'
+_DRY_RUN_PARTITIONS="/dev/sda1 /dev/sda2 /dev/sda3 /dev/sda4"
+ROOT_PARTITION=""
+_disk_resolve_appended_root >/dev/null 2>&1
+assert_eq "New partition identified by difference, not arithmetic" "/dev/sda3" "${ROOT_PARTITION}"
+
+# Nothing new — sfdisk did not create anything
+rc=0
+( _DUALBOOT_PARTS_BEFORE=$'/dev/sda1\n/dev/sda2'
+  _DRY_RUN_PARTITIONS="/dev/sda1 /dev/sda2"
+  _disk_resolve_appended_root ) >/dev/null 2>&1 || rc=$?
+assert_eq "No new partition aborts" "1" "$([[ ${rc} -ne 0 ]] && echo 1 || echo 0)"
+
+# Two new devices — ambiguous, must not guess
+rc=0
+( _DUALBOOT_PARTS_BEFORE=$'/dev/sda1'
+  _DRY_RUN_PARTITIONS="/dev/sda1 /dev/sda2 /dev/sda3"
+  _disk_resolve_appended_root ) >/dev/null 2>&1 || rc=$?
+assert_eq "Ambiguous result aborts" "1" "$([[ ${rc} -ne 0 ]] && echo 1 || echo 0)"
+
+# Created, but the gap was too small for Gentoo — say so before the build
+rc=0
+( _DUALBOOT_PARTS_BEFORE=$'/dev/sda1\n/dev/sda2'
+  _DRY_RUN_PARTITIONS="/dev/sda1 /dev/sda2 /dev/sda3"
+  _DRY_RUN_PART_SIZE_MIB=10240
+  _disk_resolve_appended_root ) >/dev/null 2>&1 || rc=$?
+assert_eq "Undersized partition aborts" "1" "$([[ ${rc} -ne 0 ]] && echo 1 || echo 0)"
+
+unset _DRY_RUN_PARTITIONS
 
 echo ""
 echo "=== Results ==="
