@@ -649,6 +649,10 @@ _patch_kernel_config() {
 # kernel_install — Install kernel based on KERNEL_TYPE
 kernel_install() {
     local kernel_type="${KERNEL_TYPE:-dist-kernel}"
+    # Own copy — `cpuinfo` in _patch_kernel_config is `local` to that function
+    # and is NOT visible here (kernel_install calls it, not the other way round).
+    # Referencing it without declaring killed the whole phase under `set -u`.
+    local cpuinfo="${_KERNEL_CPUINFO_FILE:-/proc/cpuinfo}"
 
     einfo "Installing kernel (${kernel_type})..."
 
