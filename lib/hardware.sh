@@ -553,16 +553,59 @@ detect_wwan() {
 
 # detect_disks — List available block devices
 # Populates AVAILABLE_DISKS array: "device|size|model|transport"
+# _detect_live_medium — Disk the running installer booted from
+#
+# Nothing downstream used to know this, so the USB stick carrying the live ISO
+# sat in the target list like any other disk. Picking it is not merely a mistake
+# to undo: cleanup_target_disk lazily unmounts everything on the chosen disk —
+# the live medium included — and sfdisk then writes a fresh GPT over the running
+# installer's own source. The squashfs vanishes mid-install and there is nothing
+# left to --resume from.
+_detect_live_medium() {
+    LIVE_MEDIUM_DISK=""
+
+    local mp src pk
+    # Mount points used by the common live images, plus / as a last resort.
+    for mp in /run/initramfs/live /run/archiso/bootmnt /run/live/medium /mnt/cdrom /lib/live/mount/medium /; do
+        [[ -d "${mp}" ]] || continue
+        src=$(findmnt -n -o SOURCE --target "${mp}" 2>/dev/null | head -1) || src=""
+        [[ -n "${src}" && "${src}" == /dev/* ]] || continue
+
+        # Walk up to the whole disk: /dev/sda1 -> sda, /dev/sda -> sda
+        pk=$(lsblk -no PKNAME "${src}" 2>/dev/null | head -1) || pk=""
+        if [[ -z "${pk}" ]]; then
+            pk=$(lsblk -dno NAME "${src}" 2>/dev/null | head -1) || pk=""
+        fi
+        if [[ -n "${pk}" ]]; then
+            LIVE_MEDIUM_DISK="/dev/${pk}"
+            einfo "Installer booted from ${LIVE_MEDIUM_DISK} (mounted at ${mp})"
+            break
+        fi
+    done
+
+    export LIVE_MEDIUM_DISK
+}
+
 detect_disks() {
     declare -ga AVAILABLE_DISKS=()
 
+    _detect_live_medium
+
     while IFS= read -r line; do
         [[ -z "${line}" ]] && continue
-        local name size model tran
-        read -r name size model tran <<< "${line}"
+        # MODEL is read LAST because it is the only field that contains spaces
+        # ("Samsung SSD 980 PRO"). With MODEL in the middle, the transport ended
+        # up glued onto the model — and transport is exactly what tells a USB
+        # stick apart from an internal disk.
+        local name size tran model
+        read -r name size tran model <<< "${line}"
         AVAILABLE_DISKS+=("${name}|${size}|${model:-unknown}|${tran:-unknown}")
-        einfo "Disk: /dev/${name} — ${size} — ${model:-unknown} (${tran:-unknown})"
-    done < <(lsblk -dno NAME,SIZE,MODEL,TRAN 2>/dev/null | grep -v '^loop\|^sr\|^rom\|^ram\|^zram')
+        if [[ -n "${LIVE_MEDIUM_DISK:-}" && "/dev/${name}" == "${LIVE_MEDIUM_DISK}" ]]; then
+            ewarn "Disk: /dev/${name} — ${size} — ${model:-unknown} (${tran:-unknown}) [INSTALL MEDIUM]"
+        else
+            einfo "Disk: /dev/${name} — ${size} — ${model:-unknown} (${tran:-unknown})"
+        fi
+    done < <(lsblk -dno NAME,SIZE,TRAN,MODEL 2>/dev/null | grep -v '^loop\|^sr\|^rom\|^ram\|^zram')
 
     export AVAILABLE_DISKS
 
@@ -590,6 +633,7 @@ detect_esp() {
     declare -ga ESP_PARTITIONS=()
     WINDOWS_DETECTED=0
     WINDOWS_ESP=""
+    LINUX_EFI_LOADERS=""
 
     # Use lsblk to find EFI System Partitions by GPT type GUID
     # This is more reliable than blkid -o export which may omit PART_ENTRY_TYPE
@@ -609,13 +653,30 @@ detect_esp() {
                     WINDOWS_ESP="${part}"
                     einfo "Windows Boot Manager found on ${part}"
                 fi
+
+                # Windows has this fallback (the directory above), Linux had none:
+                # a distro whose root we cannot read — LUKS, LVM, or simply a
+                # filesystem this kernel does not have — was completely invisible.
+                # Every distro drops a directory here, so treat anything that is
+                # not ours, Microsoft's or the removable-media path as a Linux.
+                local d name
+                for d in "${tmp_mount}"/EFI/*/; do
+                    [[ -d "${d}" ]] || continue
+                    name=$(basename "${d}")
+                    case "${name,,}" in
+                        boot|microsoft|gentoo) continue ;;
+                    esac
+                    LINUX_EFI_LOADERS+="${LINUX_EFI_LOADERS:+ }${name}"
+                    einfo "Found EFI bootloader directory: ${name} (on ${part})"
+                done
+
                 umount "${tmp_mount}" 2>/dev/null
             fi
             rmdir "${tmp_mount}" 2>/dev/null || true
         fi
     done < <(lsblk -lno PATH,PARTTYPE 2>/dev/null)
 
-    export ESP_PARTITIONS WINDOWS_DETECTED WINDOWS_ESP
+    export ESP_PARTITIONS WINDOWS_DETECTED WINDOWS_ESP LINUX_EFI_LOADERS
 }
 
 # --- Installed OS Detection ---
@@ -672,8 +733,32 @@ detect_installed_oses() {
         fi
 
         case "${fstype}" in
-            ext4|xfs)
+            ext2|ext3|ext4|xfs|f2fs)
                 _detect_linux_on_partition "${part}" "${fstype}" ""
+                ;;
+            crypto_LUKS)
+                # A LUKS container cannot be probed without the passphrase, and we
+                # are NOT going to ask for one. Its mere existence is enough: it
+                # makes the dual-boot option appear and arms the ERASE gate, which
+                # is the whole point. Fedora and Ubuntu install this way by default.
+                DETECTED_OSES["${part}"]="Encrypted volume (LUKS) — contents unknown"
+                LINUX_DETECTED=1
+                einfo "Found encrypted volume: ${part} (LUKS)"
+                ;;
+            LVM2_member)
+                # Same reasoning: the PV holds logical volumes we are not going to
+                # activate. Name the volume group when LVM tooling is present.
+                local vg=""
+                if command -v pvs &>/dev/null; then
+                    vg=$(pvs --noheadings -o vg_name "${part}" 2>/dev/null | tr -d '[:space:]') || vg=""
+                fi
+                if [[ -n "${vg}" ]]; then
+                    DETECTED_OSES["${part}"]="LVM physical volume (volume group: ${vg})"
+                else
+                    DETECTED_OSES["${part}"]="LVM physical volume — contents unknown"
+                fi
+                LINUX_DETECTED=1
+                einfo "Found LVM physical volume: ${part}${vg:+ (VG ${vg})}"
                 ;;
             btrfs)
                 _detect_linux_on_partition "${part}" "${fstype}" ""
@@ -687,6 +772,14 @@ detect_installed_oses() {
                 ;;
         esac
     done < <(lsblk -lno PATH,FSTYPE 2>/dev/null | awk '$2 != "" {print}')
+
+    # detect_esp runs BEFORE this function and this function resets
+    # LINUX_DETECTED, so fold its result back in here. A bootloader directory on
+    # the ESP is sometimes the only trace of a Linux whose root we cannot read
+    # (LUKS on LVM, a filesystem this kernel lacks, a detached /boot).
+    if [[ -n "${LINUX_EFI_LOADERS:-}" ]]; then
+        LINUX_DETECTED=1
+    fi
 
     export LINUX_DETECTED DETECTED_OSES
 

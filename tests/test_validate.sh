@@ -279,6 +279,22 @@ assert_eq "DRY_RUN=1 skips block device check" "0" "${rc}"
 rm -f "${LOG_FILE}"
 
 echo ""
+echo "=== Test: the install medium is rejected as a target ==="
+
+clear_config
+set_valid_config
+LIVE_MEDIUM_DISK="/dev/sda"
+errors_out=$(validate_config 2>&1) && errors_out="${errors_out} NO_ERROR"
+assert_contains "install medium rejected" "medium the installer booted from" "${errors_out}"
+
+clear_config
+set_valid_config
+LIVE_MEDIUM_DISK="/dev/sdb"
+if validate_config >/dev/null 2>&1; then rc=0; else rc=1; fi
+assert_eq "a different disk is still accepted" "0" "${rc}"
+LIVE_MEDIUM_DISK=""
+
+echo ""
 echo "=== Results ==="
 echo "Passed: ${PASS}"
 echo "Failed: ${FAIL}"

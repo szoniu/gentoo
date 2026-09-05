@@ -561,6 +561,14 @@ cleanup_target_disk() {
         return 0
     fi
 
+    # Last line of defence: this function lazily unmounts EVERYTHING on the disk,
+    # which for the live medium means pulling the installer's own filesystem out
+    # from under it moments before sfdisk overwrites the partition table. The
+    # wizard already refuses this, but a preset or --config reaches here directly.
+    if [[ -n "${LIVE_MEDIUM_DISK:-}" && "${disk}" == "${LIVE_MEDIUM_DISK}" ]]; then
+        die "Refusing to wipe ${disk}: this is the medium the installer booted from"
+    fi
+
     einfo "Cleaning up ${disk} (unmounting partitions, deactivating swap)..."
 
     # Deactivate any swap partitions on this disk

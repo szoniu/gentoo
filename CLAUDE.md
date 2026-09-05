@@ -228,10 +228,10 @@ bash tests/test_disk.sh          # Disk planning dry-run with sfdisk (21 asserti
 bash tests/test_makeconf.sh      # make.conf generation (29 assertions)
 bash tests/test_checkpoint.sh    # Checkpoint validate + migrate (16 assertions)
 bash tests/test_resume.sh        # Resume from disk scanning + recovery (26 assertions)
-bash tests/test_multiboot.sh     # Multi-boot OS detection + serialization (26 assertions)
+bash tests/test_multiboot.sh     # Multi-boot: detekcja OS-ów, LUKS/LVM, fallback EFI, nośnik live (34 assertions)
 bash tests/test_infer_config.sh  # Config inference from installed system (59 assertions)
 bash tests/test_hybrid_gpu.sh    # Hybrid GPU + ASUS ROG + recommendation (27 assertions)
-bash tests/test_validate.sh      # Config validation before install (35 assertions)
+bash tests/test_validate.sh      # Config validation before install, w tym odrzucenie nośnika live (37 assertions)
 bash tests/test_shrink.sh        # Shrink + dual-boot: akcje krytyczne, read-back, resolver nowej partycji, konsumpcja TRY_NO_CONTINUE na pty, realny parser sfdisk (78 assertions)
 bash tests/test_surface.sh       # Surface detection, config vars, kernel types, inference (25 assertions)
 bash tests/test_peripherals.sh   # Peripheral detection, config vars, inference (38 assertions)
@@ -293,6 +293,14 @@ Pojedynczy test = uruchom jego plik bezpośrednio (`bash tests/test_<x>.sh`). Br
 Gentoo Live ISO daje dostęp do wielu TTY (`Ctrl+Alt+F1`..`F6`). TTY1 = installer, TTY2-6 = wolne konsole. SSH na Live ISO można skonfigurować ręcznie — szczegóły w README.
 
 ### Multi-boot safety
+
+**Kontenery, których nie da się sprawdzić, też liczą się jako system.** `crypto_LUKS` i `LVM2_member` nie są otwierane (nie pytamy o hasło ani nie aktywujemy VG) — sam fakt istnienia wystarcza, żeby pojawiła się opcja dual-boot i uzbroiła bramka `ERASE`. Bez tego zaszyfrowana Fedora/Ubuntu (instalacja domyślna!) była **niewidoczna**: kreator pokazywał wyłącznie „auto (DESTROYS ALL DATA)", a podsumowanie mówiło „brak wykrytych systemów". Skanowane są też `ext2`/`ext3`/`f2fs`.
+
+**Fallback po katalogach w `EFI/`.** Windows miał go od zawsze (`EFI/Microsoft/Boot`), Linux nie miał żadnego. Teraz każdy katalog w `EFI/` inny niż `Boot`/`Microsoft`/`gentoo` ustawia `LINUX_EFI_LOADERS` → `LINUX_DETECTED=1`. Uwaga na kolejność: `detect_esp` biegnie PRZED `detect_installed_oses`, które zeruje `LINUX_DETECTED`, więc wynik jest doklejany na końcu tej drugiej funkcji.
+
+**Nośnik, z którego wystartował instalator (`LIVE_MEDIUM_DISK`), jest zablokowany jako cel.** `_detect_live_medium` ustala go z `findmnt` po typowych mountpointach live (`/run/initramfs/live`, `/run/archiso/bootmnt`, …) i sprowadza do całego dysku przez `lsblk -no PKNAME`. Blokada jest w trzech warstwach: opis `[INSTALL MEDIUM — DO NOT SELECT]` na liście, odmowa w `screen_disk_select`, `die` w `cleanup_target_disk` (ścieżka `--config`/preset omija kreator) oraz błąd w `validate_config`. Powód: `cleanup_target_disk` robi `umount -l` na wszystkim z tego dysku — czyli wyciąga instalatorowi spod nóg własny squashfs — a `sfdisk` zaraz potem nadpisuje tablicę. Nie ma z czego zrobić `--resume`.
+
+**`lsblk -dno NAME,SIZE,TRAN,MODEL` — MODEL na końcu.** To jedyne pole zawierające spacje („Samsung Portable SSD T7"), więc przy `MODEL` w środku transport doklejał się do modelu. A transport (`usb` vs `nvme`) to jedyny sygnał odróżniający pendrive od dysku wewnętrznego.
 
 Instalator wykrywa zainstalowane OS-y (Windows, Linux) skanując partycje. Wyniki w `DETECTED_OSES[]` (assoc array), serializowane do `DETECTED_OSES_SERIALIZED`. Zabezpieczenia:
 - Dual-boot oferowany gdy wykryto Windows LUB innego Linuksa

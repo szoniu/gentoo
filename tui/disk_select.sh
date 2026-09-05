@@ -268,7 +268,11 @@ screen_disk_select() {
     for entry in "${AVAILABLE_DISKS[@]}"; do
         local name size model tran
         IFS='|' read -r name size model tran <<< "${entry}"
-        disk_items+=("/dev/${name}" "${size} ${model} (${tran})")
+        if [[ -n "${LIVE_MEDIUM_DISK:-}" && "/dev/${name}" == "${LIVE_MEDIUM_DISK}" ]]; then
+            disk_items+=("/dev/${name}" "${size} ${model} (${tran}) [INSTALL MEDIUM — DO NOT SELECT]")
+        else
+            disk_items+=("/dev/${name}" "${size} ${model} (${tran})")
+        fi
     done
 
     if [[ ${#disk_items[@]} -eq 0 ]]; then
@@ -280,6 +284,19 @@ screen_disk_select() {
     local selected_disk
     selected_disk=$(dialog_menu "Select Target Disk" "${disk_items[@]}") \
         || return "${TUI_BACK}"
+
+    # Refuse the installer's own medium. Confirming "YES" later would not save
+    # the operator: cleanup_target_disk unmounts it and sfdisk overwrites the
+    # running installer's source, leaving nothing to resume from.
+    if [[ -n "${LIVE_MEDIUM_DISK:-}" && "${selected_disk}" == "${LIVE_MEDIUM_DISK}" ]]; then
+        dialog_msgbox "Cannot Install Onto the Install Medium" \
+            "${selected_disk} is the medium this installer booted from.\n\n\
+Partitioning it would destroy the running installer: the target disk is\n\
+unmounted and repartitioned, so the installer would lose its own files\n\
+mid-run and leave nothing to resume from.\n\n\
+Pick a different disk."
+        return "${TUI_BACK}"
+    fi
 
     TARGET_DISK="${selected_disk}"
     export TARGET_DISK

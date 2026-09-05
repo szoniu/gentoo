@@ -222,6 +222,130 @@ assert_eq "Linux-only → WINDOWS_DETECTED=0" "0" "${WINDOWS_DETECTED}"
 rm -f "${LOG_FILE}"
 
 echo ""
+echo "=== Test: containers that cannot be probed still count as an OS ==="
+
+# A LUKS or LVM partition is unreadable without a passphrase / activation, so the
+# old scanner skipped it entirely: no dual-boot option, no ERASE gate, and the
+# summary claimed "no operating systems detected" on a disk holding an encrypted
+# Fedora. Stub lsblk so the scanner sees such a disk.
+_stub_dir=$(mktemp -d)
+cat > "${_stub_dir}/lsblk" <<'STUB_EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+    case "${a}" in
+        PATH,FSTYPE)
+            echo "/dev/sda1 vfat"
+            echo "/dev/sda2 crypto_LUKS"
+            echo "/dev/sda3 LVM2_member"
+            echo "/dev/sda4 ext3"
+            echo "/dev/sda5 f2fs"
+            exit 0 ;;
+        NAME,SIZE,TRAN,MODEL)
+            printf '%s\n' "sda      7.3T usb  Samsung Portable SSD T7"
+            printf '%s\n' "nvme0n1 953G nvme KINGSTON OM8PGP41024N-A0"
+            exit 0 ;;
+        PKNAME) echo "sda"; exit 0 ;;
+    esac
+done
+exit 0
+STUB_EOF
+chmod +x "${_stub_dir}/lsblk"
+# No pvs/mount stubs: the VG name is optional and the ext3/f2fs probes simply
+# fail to mount, which is the realistic case for a foreign disk.
+cat > "${_stub_dir}/mount" <<'STUB_EOF'
+#!/usr/bin/env bash
+exit 1
+STUB_EOF
+chmod +x "${_stub_dir}/mount"
+
+(
+    export PATH="${_stub_dir}:${PATH}"
+    declare -ga ESP_PARTITIONS=("/dev/sda1")
+    DRY_RUN=0
+    detect_installed_oses >/dev/null 2>&1
+    printf '%s\n' "LINUX_DETECTED=${LINUX_DETECTED:-unset}"
+    printf '%s\n' "LUKS=${DETECTED_OSES[/dev/sda2]:-}"
+    printf '%s\n' "LVM=${DETECTED_OSES[/dev/sda3]:-}"
+) > "${_stub_dir}/out.txt" 2>&1
+
+assert_contains "encrypted volume marks Linux as present" "LINUX_DETECTED=1" "$(cat "${_stub_dir}/out.txt")"
+assert_contains "LUKS partition is named in DETECTED_OSES" "LUKS=Encrypted volume (LUKS)" "$(cat "${_stub_dir}/out.txt")"
+assert_contains "LVM physical volume is named in DETECTED_OSES" "LVM=LVM physical volume" "$(cat "${_stub_dir}/out.txt")"
+
+echo ""
+echo "=== Test: an EFI bootloader directory alone marks Linux as present ==="
+
+# detect_esp runs BEFORE detect_installed_oses, which resets LINUX_DETECTED —
+# so the ESP result has to be folded back in at the end.
+# Deliberately a SEPARATE stub with nothing detectable on it: reusing the stub
+# above would set LINUX_DETECTED=1 through the LUKS partition and the assertion
+# would pass no matter what this code path does.
+_stub2_dir=$(mktemp -d)
+cat > "${_stub2_dir}/lsblk" <<'STUB_EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+    case "${a}" in
+        PATH,FSTYPE) echo "/dev/sda1 vfat"; exit 0 ;;
+    esac
+done
+exit 0
+STUB_EOF
+chmod +x "${_stub2_dir}/lsblk"
+
+(
+    export PATH="${_stub2_dir}:${PATH}"
+    declare -ga ESP_PARTITIONS=("/dev/sda1")
+    DRY_RUN=0
+    LINUX_EFI_LOADERS="fedora"
+    detect_installed_oses >/dev/null 2>&1
+    printf '%s\n' "LINUX_DETECTED=${LINUX_DETECTED:-unset}"
+) > "${_stub2_dir}/out2.txt" 2>&1
+assert_contains "EFI loader directory survives the reset" "LINUX_DETECTED=1" "$(cat "${_stub2_dir}/out2.txt")"
+
+# Control: without the loader directory the same disk yields nothing — proves the
+# assertion above measures the fold-back and not some unrelated side effect.
+(
+    export PATH="${_stub2_dir}:${PATH}"
+    declare -ga ESP_PARTITIONS=("/dev/sda1")
+    DRY_RUN=0
+    LINUX_EFI_LOADERS=""
+    detect_installed_oses >/dev/null 2>&1
+    printf '%s\n' "LINUX_DETECTED=${LINUX_DETECTED:-unset}"
+) > "${_stub2_dir}/out2b.txt" 2>&1
+assert_contains "without a loader directory nothing is detected" "LINUX_DETECTED=0" "$(cat "${_stub2_dir}/out2b.txt")"
+rm -rf "${_stub2_dir}"
+
+echo ""
+echo "=== Test: the installer's own medium is identified and described ==="
+
+cat > "${_stub_dir}/findmnt" <<'STUB_EOF'
+#!/usr/bin/env bash
+echo "/dev/sda1"
+STUB_EOF
+chmod +x "${_stub_dir}/findmnt"
+
+(
+    export PATH="${_stub_dir}:${PATH}"
+    detect_disks >/dev/null 2>&1
+    printf '%s\n' "LIVE=${LIVE_MEDIUM_DISK:-unset}"
+    printf '%s\n' "ENTRY0=${AVAILABLE_DISKS[0]:-none}"
+) > "${_stub_dir}/out3.txt" 2>&1
+
+assert_contains "live medium resolves to the whole disk" "LIVE=/dev/sda" "$(cat "${_stub_dir}/out3.txt")"
+# MODEL is the field with spaces, so it must be read last — otherwise the
+# transport ends up glued to the model and "usb" is lost.
+assert_contains "transport survives a model containing spaces" "|Samsung Portable SSD T7|usb" "$(cat "${_stub_dir}/out3.txt")"
+
+rm -rf "${_stub_dir}"
+
+echo ""
+echo "=== Test: wiping the install medium is refused ==="
+
+out=$( ( TARGET_DISK="/dev/sda"; LIVE_MEDIUM_DISK="/dev/sda"; DRY_RUN=0
+         cleanup_target_disk ) 2>&1 ) && out="${out} NO_ABORT"
+assert_contains "cleanup refuses the install medium" "Refusing to wipe /dev/sda" "${out}"
+
+echo ""
 echo "=== Results ==="
 echo "Passed: ${PASS}"
 echo "Failed: ${FAIL}"
