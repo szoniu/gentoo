@@ -54,6 +54,22 @@ _scope_violations() {
             }
         }
 
+        # --- embedded scripts: bash -c '"'"'...'"'"' spanning several lines
+        # Their body is a separate program with its own scope, and it sits at
+        # column 0, so without this it looked like top-level code referencing
+        # undeclared names. Recognised narrowly (a bash -c line with an odd
+        # number of quotes) so that an apostrophe in a comment cannot open a
+        # region by accident.
+        sq != 0 {
+            n = gsub(/'"'"'/, "&")
+            if (n % 2 == 1) sq = 0
+            next
+        }
+        /bash -c '"'"'/ {
+            n = gsub(/'"'"'/, "&")
+            if (n % 2 == 1) { sq = 1; next }
+        }
+
         # --- heredocs
         # A quoted delimiter (<<'"'"'EOF'"'"') means the body is inert text — skip it whole.
         # An UNQUOTED delimiter (<<EOF) is expanded by bash at runtime, so an
@@ -120,15 +136,10 @@ _scope_violations() {
                 v = line; sub(/^[[:space:]]*for[[:space:]]+/, "", v); sub(/[[:space:]]+in.*$/, "", v)
                 if (v ~ /^[a-zA-Z_][a-zA-Z0-9_]*$/) { islocal[v] = 1; lo[v] = lo[v] " " cur }
             }
-            # A plain assignment binds the name from that point on: globally at
-            # top level, and within the enclosing function otherwise (bash makes
-            # it a global, but crediting only that scope keeps the check strict).
-            # Without this, an embedded `bash -c` script whose body sits at
-            # column 0 looked like a reference to an undeclared name.
-            if (match(line, /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*=/)) {
+            # anything that makes the name global: top-level assign, : "${V:=}", export, declare -g
+            if (cur == "" && match(line, /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*=/)) {
                 v = line; sub(/=.*$/, "", v); gsub(/[[:space:]]/, "", v)
-                if (cur == "") isglobal[v] = 1
-                else lo[v] = lo[v] " " cur
+                isglobal[v] = 1
             }
             if (cur == "" && match(line, /\$\{[a-zA-Z_][a-zA-Z0-9_]*:?=/)) {
                 v = substr(line, RSTART + 2, RLENGTH - 2); sub(/:?=$/, "", v)

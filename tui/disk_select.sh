@@ -250,14 +250,17 @@ screen_disk_select() {
     #     navigated away from.
     # lib/disk.sh now also refuses cross-disk values, but the state must not
     # survive this screen in the first place.
-    ROOT_PARTITION=""
-    SWAP_PARTITION=""
-    ESP_PARTITION=""
-    SHRINK_PARTITION=""
-    SHRINK_PARTITION_FSTYPE=""
-    SHRINK_NEW_SIZE_MIB=""
-    export ROOT_PARTITION SWAP_PARTITION ESP_PARTITION
-    export SHRINK_PARTITION SHRINK_PARTITION_FSTYPE SHRINK_NEW_SIZE_MIB
+    # unset, NOT ="" — the difference is load-bearing. config_save writes every
+    # variable that is SET, empty ones included (lib/config.sh: [[ -n "${!var+x}" ]]),
+    # and the chroot process re-loads that file (install.sh: config_load) on top of
+    # the environment it inherited. An empty ROOT_PARTITION in the config would
+    # therefore overwrite the real device that disk_execute_plan had resolved and
+    # exported — dracut would get no root=, and generate_fstab would call
+    # get_uuid "" and die mid-file. For auto/dual-boot these names are assigned
+    # only during disk_execute_plan, i.e. long AFTER the wizard writes the config,
+    # so leaving them unset is exactly what the previous behaviour relied on.
+    unset ROOT_PARTITION SWAP_PARTITION ESP_PARTITION
+    unset SHRINK_PARTITION SHRINK_PARTITION_FSTYPE SHRINK_NEW_SIZE_MIB
 
     # Build disk list for dialog
     local -a disk_items=()

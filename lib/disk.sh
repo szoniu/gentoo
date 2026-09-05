@@ -88,7 +88,10 @@ disk_plan_auto() {
     # Root partition — no size= means remaining space
     sfdisk_script+="type=${GPT_TYPE_LINUX}, name=linux"$'\n'
 
-    disk_plan_add_stdin "Create GPT partition table and partitions on ${disk}" \
+    # Critical: every mkfs queued below targets a device name derived from THIS
+    # layout. Skipping a failed partitioning and carrying on would point mkfs at
+    # whatever currently occupies those names.
+    disk_plan_add_stdin_critical "Create GPT partition table and partitions on ${disk}" \
         "${sfdisk_script}" \
         sfdisk --force --no-reread "${disk}"
 
@@ -170,7 +173,10 @@ disk_plan_dualboot() {
         _DUALBOOT_RESOLVE_ROOT=1
         export _DUALBOOT_PARTS_BEFORE
 
-        disk_plan_add_stdin "Create root partition in free space" \
+        # Critical: the resolver below assumes this action created exactly one
+        # partition. Skipping it would leave the snapshot diff empty (and abort
+        # there), so refusing here gives the clearer error.
+        disk_plan_add_stdin_critical "Create root partition in free space" \
             "type=${GPT_TYPE_LINUX}, name=linux"$'\n' \
             sfdisk --append --force --no-reread "${disk}"
 
@@ -241,12 +247,18 @@ _disk_resolve_appended_root() {
     if [[ "${DRY_RUN:-0}" != "1" ]]; then
         [[ -b "${ROOT_PARTITION}" ]] || die "Resolved root partition ${ROOT_PARTITION} is not a block device"
 
-        # It must be empty. If udev handed us a device that already carries a
-        # filesystem, the snapshot logic is wrong and mkfs would destroy data.
+        # A stale filesystem signature here is NORMAL, not a red flag: installing
+        # into the space of a partition someone deleted means those sectors still
+        # hold the old superblock. The device cannot be anyone'"'"'s live partition —
+        # it was absent from the snapshot taken moments ago — so wipe the leftover
+        # signature instead of refusing, which would abort the single most common
+        # dual-boot scenario.
         local sig
         sig=$(blkid -o value -s TYPE "${ROOT_PARTITION}" 2>/dev/null) || sig=""
         if [[ -n "${sig}" ]]; then
-            die "Newly created ${ROOT_PARTITION} already carries a ${sig} filesystem — refusing to format"
+            einfo "Wiping stale ${sig} signature left on the freshly created ${ROOT_PARTITION}"
+            wipefs -a "${ROOT_PARTITION}" &>/dev/null \
+                || die "Could not wipe the stale ${sig} signature from ${ROOT_PARTITION}"
         fi
     fi
 
@@ -391,7 +403,9 @@ disk_get_partition_used_mib() {
             fi
             ;;
         *)
-            echo 0
+            # Same contract as the branches above: an unsupported filesystem is
+            # "unknown", never "zero used".
+            return 1
             ;;
     esac
 }
@@ -484,12 +498,22 @@ set -eu
 part="$1"; new="$2"
 tmp=$(mktemp -d /tmp/gentoo-shrink-XXXXXX)
 mount "${part}" "${tmp}"
+# "btrfs filesystem resize <size>" targets devid 1. On a multi-device btrfs that
+# is a DIFFERENT disk, so the resize would shrink the wrong member while the
+# read-back happily confirmed it — and sfdisk would then truncate a partition
+# whose filesystem was never touched. Address this device explicitly.
+devid=$(btrfs filesystem show --raw "${tmp}" 2>/dev/null \
+        | sed -n "s|^[[:space:]]*devid[[:space:]]*\([0-9][0-9]*\).*path ${part}\$|\1|p" | head -1)
+if [ -z "${devid}" ]; then
+    umount "${tmp}"; rmdir "${tmp}"
+    echo "read-back: cannot determine btrfs devid of ${part}" >&2; exit 1
+fi
 rc=0
-btrfs filesystem resize "${new}M" "${tmp}" || rc=$?
+btrfs filesystem resize "${devid}:${new}M" "${tmp}" || rc=$?
 size=0
 if [ "${rc}" -eq 0 ]; then
     bytes=$(btrfs filesystem show --raw "${tmp}" 2>/dev/null \
-            | sed -n "s/.*size *\([0-9]*\) .*/\1/p" | head -1)
+            | sed -n "s|^[[:space:]]*devid[[:space:]]*[0-9][0-9]*[[:space:]]*size[[:space:]]*\([0-9][0-9]*\).*path ${part}\$|\1|p" | head -1)
     [ -n "${bytes}" ] && size=$(( bytes / 1048576 ))
 fi
 umount "${tmp}"; rmdir "${tmp}"
@@ -498,6 +522,13 @@ umount "${tmp}"; rmdir "${tmp}"
 [ "${size}" -le "${new}" ] || {
     echo "read-back: btrfs on ${part} is still ${size} MiB, asked for ${new} MiB" >&2; exit 1; }
 ' -- "${part}" "${new_size}"
+            ;;
+        *)
+            # No shrink action was queued, so the truncation below would cut the
+            # partition out from under an untouched filesystem. The wizard gates
+            # this with disk_can_shrink_fstype, but a preset or --config can put
+            # any string into SHRINK_PARTITION_FSTYPE.
+            die "Cannot shrink ${part}: unsupported or empty filesystem type (${fstype})"
             ;;
     esac
 
@@ -603,7 +634,13 @@ disk_execute_plan() {
         # newly created one.
         if [[ "${_DUALBOOT_RESOLVE_ROOT:-0}" == "1" ]]; then
             _disk_resolve_appended_root
+            local _before_fmt="${#DISK_ACTIONS[@]}"
             _disk_plan_format_root "${ROOT_PARTITION}" "${FILESYSTEM:-ext4}"
+            # An unknown FILESYSTEM queues nothing, and DISK_ACTIONS[-1] would then
+            # be the PREVIOUS action — re-running sfdisk --append instead of mkfs.
+            if [[ "${#DISK_ACTIONS[@]}" -ne $(( _before_fmt + 1 )) ]]; then
+                die "No mkfs action queued for filesystem '"'"'${FILESYSTEM:-ext4}'"'"' — refusing to run an unrelated command"
+            fi
             local fmt_entry fmt_desc fmt_cmd
             fmt_entry="${DISK_ACTIONS[-1]}"
             fmt_desc="${fmt_entry%%|||*}"
