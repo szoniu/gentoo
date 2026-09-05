@@ -287,6 +287,7 @@ _verify_grub_config() {
 
     local -a missing_oses=()
     local part
+    local skipped_containers=0
 
     for part in "${!DETECTED_OSES[@]}"; do
         # Skip our own root partition
@@ -303,6 +304,7 @@ _verify_grub_config() {
         case "${os_name}" in
             "Encrypted volume (LUKS)"*|"LVM physical volume"*)
                 einfo "Skipping GRUB verification for ${part} (${os_name%% —*}) — os-prober cannot read it"
+                skipped_containers=$(( skipped_containers + 1 ))
                 continue
                 ;;
         esac
@@ -335,7 +337,14 @@ _verify_grub_config() {
     done
 
     if [[ ${#missing_oses[@]} -eq 0 ]]; then
-        einfo "GRUB configuration verified — all detected OSes found"
+        if [[ ${skipped_containers} -gt 0 ]]; then
+            # Do not claim completeness we did not check: an unopened container
+            # is invisible to os-prober, so nothing was verified about it.
+            einfo "GRUB configuration verified — all readable OSes found (${skipped_containers} encrypted/LVM volume(s) not checked)"
+            ewarn "Encrypted or LVM volumes will NOT appear in the GRUB menu until you unlock them and re-run grub-mkconfig"
+        else
+            einfo "GRUB configuration verified — all detected OSes found"
+        fi
         return 0
     fi
 

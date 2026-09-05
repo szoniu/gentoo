@@ -240,7 +240,12 @@ for a in "$@"; do
             echo "/dev/sda4 ext3"
             echo "/dev/sda5 f2fs"
             exit 0 ;;
+        -P) seen_P=1 ;;
         NAME,SIZE,TRAN,MODEL)
+            # Refuse to answer unless -P was actually requested: a stub that
+            # emits key="value" no matter what makes the production code's -P
+            # flag untestable — removing it would not redden a single assertion.
+            [ "${seen_P:-0}" = "1" ] || { echo "stub: -P not requested" >&2; exit 1; }
             # -P output: key="value". Note the SD-reader row — empty TRAN with a
             # non-empty MODEL, the case positional splitting got wrong.
             printf '%s\n' 'NAME="sda" SIZE="7.3T" TRAN="usb" MODEL="Samsung Portable SSD T7"'
@@ -410,9 +415,29 @@ assert_eq "climbs through the dm layer to the whole disk" "/dev/sdb" "${result}"
 echo ""
 echo "=== Test: wiping the install medium is refused ==="
 
-out=$( ( TARGET_DISK="/dev/sda"; LIVE_MEDIUM_DISK="/dev/sda"; DRY_RUN=0
+# Device name that cannot exist, plus logging stubs for the two destructive
+# tools. cleanup_target_disk unmounts everything matching the target disk in
+# /proc/mounts, so calling it with DRY_RUN=0 on a REAL name meant the only thing
+# standing between this test and "umount -l /mnt/hdd" was the guard under test.
+# A regression in that guard would have made the test itself wipe mounts.
+_guard_stub=$(mktemp -d)
+for _t in umount swapoff; do
+    cat > "${_guard_stub}/${_t}" <<STUB_EOF
+#!/usr/bin/env bash
+echo "REAL-OP ${_t} \$*" >> "${_guard_stub}/ops.log"
+exit 0
+STUB_EOF
+    chmod +x "${_guard_stub}/${_t}"
+done
+: > "${_guard_stub}/ops.log"
+
+out=$( ( export PATH="${_guard_stub}:${PATH}"
+         TARGET_DISK="/dev/zz-nonexistent-test"; LIVE_MEDIUM_DISK="/dev/zz-nonexistent-test"
+         DRY_RUN=0
          cleanup_target_disk ) 2>&1 ) && out="${out} NO_ABORT"
-assert_contains "cleanup refuses the install medium" "Refusing to wipe /dev/sda" "${out}"
+assert_contains "cleanup refuses the install medium" "Refusing to wipe /dev/zz-nonexistent-test" "${out}"
+assert_eq "the guard fires BEFORE anything touches the disk" "0" \
+    "$(wc -l < "${_guard_stub}/ops.log" | tr -d ' ')"
 
 echo ""
 echo "=== Test: OEM directories on the ESP are not another Linux ==="
@@ -449,12 +474,17 @@ exit 0
 STUB_EOF
 chmod +x "${_cli_stub}/findmnt" "${_cli_stub}/lsblk"
 
-out=$( ( export PATH="${_cli_stub}:${PATH}"
+cp "${_guard_stub}/umount" "${_guard_stub}/swapoff" "${_cli_stub}/" 2>/dev/null || true
+: > "${_guard_stub}/ops.log"
+out=$( ( export PATH="${_cli_stub}:${_guard_stub}:${PATH}"
          unset LIVE_MEDIUM_DISK
          TARGET_DISK="/dev/sdb"; DRY_RUN=0
          cleanup_target_disk ) 2>&1 ) && out="${out} NO_ABORT"
 rm -rf "${_cli_stub}"
 assert_contains "guard fires with no wizard run" "Refusing to wipe /dev/sdb" "${out}"
+assert_eq "nothing touched the disk on the CLI path either" "0" \
+    "$(wc -l < "${_guard_stub}/ops.log" | tr -d ' ')"
+rm -rf "${_guard_stub}"
 
 echo ""
 echo "=== Test: a full wipe clears the EFI-only Linux flag ==="
@@ -516,6 +546,78 @@ assert_eq "the refusal loops back to the disk list" "1" \
     "$(printf '%s' "${_sel_src}" | grep -A12 'Cannot Install Onto the Install Medium' | grep -c 'continue' || true)"
 assert_eq "the refusal does not return TUI_BACK" "0" \
     "$(printf '%s' "${_sel_src}" | grep -A12 'Cannot Install Onto the Install Medium' | grep -c 'return "${TUI_BACK}"' || true)"
+
+echo ""
+echo "=== Test: detect_esp skips the ESP on the install medium ==="
+
+# Previously untested: the install stick has an ESP too, and its EFI/ directories
+# would report a Linux that lives on the medium rather than on the target.
+_esp_stub=$(mktemp -d)
+cat > "${_esp_stub}/lsblk" <<'STUB_EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+    case "${a}" in
+        PATH,PARTTYPE)
+            echo "/dev/sda1 c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+            echo "/dev/sdb1 c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+            exit 0 ;;
+    esac
+done
+exit 0
+STUB_EOF
+cat > "${_esp_stub}/mount" <<'STUB_EOF'
+#!/usr/bin/env bash
+exit 1
+STUB_EOF
+chmod +x "${_esp_stub}/lsblk" "${_esp_stub}/mount"
+
+result=$( export PATH="${_esp_stub}:${PATH}"
+          LIVE_MEDIUM_DISK="/dev/sdb"
+          detect_esp >/dev/null 2>&1 || true
+          printf '%s' "${ESP_PARTITIONS[*]:-none}" )
+assert_eq "only the target machine's ESP is kept" "/dev/sda1" "${result}"
+
+result=$( export PATH="${_esp_stub}:${PATH}"
+          unset LIVE_MEDIUM_DISK
+          detect_esp >/dev/null 2>&1 || true
+          printf '%s' "${ESP_PARTITIONS[*]:-none}" )
+rm -rf "${_esp_stub}"
+assert_eq "without a known medium both ESPs are kept" "/dev/sda1 /dev/sdb1" "${result}"
+
+echo ""
+echo "=== Test: loop-mounted media do not kill the installer ==="
+
+# _walk_up_to_disk returns 1 for a loop device with no parent; the caller must
+# absorb that. Without "|| dev=''" the failing substitution killed the shell
+# under set -e — on the very first hardware-detection screen.
+_loop_stub=$(mktemp -d)
+cat > "${_loop_stub}/findmnt" <<'STUB_EOF'
+#!/usr/bin/env bash
+echo "/dev/loop0"
+STUB_EOF
+cat > "${_loop_stub}/lsblk" <<'STUB_EOF'
+#!/usr/bin/env bash
+for a in "$@"; do case "${a}" in TYPE) echo "loop"; exit 0 ;; PKNAME) exit 1 ;; esac; done
+exit 0
+STUB_EOF
+chmod +x "${_loop_stub}/findmnt" "${_loop_stub}/lsblk"
+
+# set -e + inherit_errexit INSIDE the substitution: without them a $( ) subshell
+# runs with errexit off, so a failing command substitution inside the function
+# would not abort — and the test could not tell the fixed code from the broken
+# code it is meant to guard. install.sh sets both, so this mirrors production.
+_loop_rc=0
+set +e
+result=$( set -e; shopt -s inherit_errexit
+          export PATH="${_loop_stub}:${PATH}"
+          unset LIVE_MEDIUM_DISK
+          _detect_live_medium >/dev/null 2>&1
+          printf 'SURVIVED:%s' "${LIVE_MEDIUM_DISK:-empty}" )
+_loop_rc=$?
+set -e
+[[ ${_loop_rc} -eq 0 ]] || result="DIED(rc=${_loop_rc})"
+rm -rf "${_loop_stub}"
+assert_eq "an unresolvable medium leaves the installer alive" "SURVIVED:empty" "${result}"
 
 echo ""
 echo "=== Results ==="

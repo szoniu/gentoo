@@ -290,6 +290,33 @@ screen_disk_select() {
             || return "${TUI_BACK}"
 
         if [[ -n "${LIVE_MEDIUM_DISK:-}" && "${selected_disk}" == "${LIVE_MEDIUM_DISK}" ]]; then
+            # An escape hatch is required, not optional: an ISO copied onto an
+            # internal disk and booted through GRUB loopback makes that disk both
+            # "the medium" and the only sensible target. Without a way through,
+            # the loop below would have no exit at all on a single-disk machine.
+            if [[ ${#disk_items[@]} -le 2 ]]; then
+                dialog_msgbox "Only Disk Is the Install Medium" \
+                    "${selected_disk} is the medium this installer booted from, and it is\n\
+the only disk in this machine.\n\n\
+That happens when the ISO was copied onto an internal disk and booted\n\
+through GRUB loopback. Installing here is possible, but the installer\n\
+loses its own files the moment the disk is repartitioned — so the run\n\
+must finish in one go and cannot be resumed.\n\n\
+Confirm on the next screen, or cancel to go back."
+
+                local override
+                override=$(dialog_inputbox "Confirm Install Medium" \
+                    "Type OVERRIDE to install onto ${selected_disk} anyway:" "") \
+                    || return "${TUI_BACK}"
+                if [[ "${override}" == "OVERRIDE" ]]; then
+                    LIVE_MEDIUM_OVERRIDE="yes"
+                    export LIVE_MEDIUM_OVERRIDE
+                    ewarn "Operator overrode the install-medium guard for ${selected_disk}"
+                    break
+                fi
+                continue
+            fi
+
             dialog_msgbox "Cannot Install Onto the Install Medium" \
                 "${selected_disk} is the medium this installer booted from.\n\n\
 Partitioning it would destroy the running installer: the target disk is\n\

@@ -135,7 +135,17 @@ disk_plan_dualboot() {
         disk_plan_shrink
     fi
 
-    # ESP is reused, never formatted
+    # ESP is reused, never formatted — but it still has to live on the target
+    # disk. The ESP picker lists partitions from EVERY disk in the machine, so
+    # a dual-boot plan could otherwise point the bootloader at a stranger's ESP.
+    if [[ -n "${ESP_PARTITION:-}" ]]; then
+        local esp_disk
+        esp_disk=$(_partition_to_disk "${ESP_PARTITION}")
+        if [[ "${esp_disk}" != "${disk}" ]]; then
+            ewarn "ESP ${ESP_PARTITION} lives on ${esp_disk}, not on the target disk ${disk}"
+            ewarn "That is legal on multi-disk machines, but verify it is the ESP this machine boots from"
+        fi
+    fi
     einfo "Reusing existing ESP: ${ESP_PARTITION}"
 
     _DUALBOOT_RESOLVE_ROOT=0
@@ -573,7 +583,13 @@ cleanup_target_disk() {
     # from under it moments before sfdisk overwrites the partition table. The
     # wizard already refuses this, but a preset or --config reaches here directly.
     if [[ -n "${LIVE_MEDIUM_DISK:-}" && "${disk}" == "${LIVE_MEDIUM_DISK}" ]]; then
-        die "Refusing to wipe ${disk}: this is the medium the installer booted from"
+        # LIVE_MEDIUM_OVERRIDE is set only by an explicit typed confirmation in
+        # screen_disk_select, for the single-disk loopback case.
+        if [[ "${LIVE_MEDIUM_OVERRIDE:-no}" == "yes" ]]; then
+            ewarn "Proceeding on ${disk} despite it being the install medium (operator override)"
+        else
+            die "Refusing to wipe ${disk}: this is the medium the installer booted from"
+        fi
     fi
 
     einfo "Cleaning up ${disk} (unmounting partitions, deactivating swap)..."

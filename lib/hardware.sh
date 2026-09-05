@@ -590,7 +590,14 @@ _detect_live_medium() {
         src=$(findmnt -n --nofsroot -o SOURCE --target "${mp}" 2>/dev/null | head -1) || src=""
         [[ -n "${src}" && "${src}" == /dev/* ]] || continue
 
-        dev=$(_walk_up_to_disk "${src}")
+        # || dev="": _walk_up_to_disk returns 1 when it cannot reach a whole disk
+        # (loop-mounted ISO, Ventoy, an unresolvable dm layer). Under
+        # set -euo pipefail + inherit_errexit a failing command substitution
+        # kills the shell, and detect_all_hardware is called bare from
+        # tui/hw_detect.sh — so the installer died on the FIRST screen, silently,
+        # through the EXIT trap. The loop below is written to keep probing; that
+        # was unreachable code.
+        dev=$(_walk_up_to_disk "${src}") || dev=""
         if [[ -n "${dev}" ]]; then
             LIVE_MEDIUM_DISK="${dev}"
             einfo "Installer booted from ${LIVE_MEDIUM_DISK} (mounted at ${mp})"

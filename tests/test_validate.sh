@@ -15,6 +15,7 @@ export DRY_RUN=1
 source "${LIB_DIR}/constants.sh"
 source "${LIB_DIR}/logging.sh"
 source "${LIB_DIR}/config.sh"
+source "${LIB_DIR}/hardware.sh"   # validate_config calls ensure_live_medium_detected
 
 PASS=0
 FAIL=0
@@ -292,6 +293,37 @@ set_valid_config
 LIVE_MEDIUM_DISK="/dev/sdb"
 if validate_config >/dev/null 2>&1; then rc=0; else rc=1; fi
 assert_eq "a different disk is still accepted" "0" "${rc}"
+LIVE_MEDIUM_DISK=""
+
+# With LIVE_MEDIUM_DISK unset, validate_config has to run detection itself —
+# --config and --resume never go through the wizard that would set it. Without
+# that call the check below has nothing to compare and silently passes.
+_vstub=$(mktemp -d)
+cat > "${_vstub}/findmnt" <<'STUB_EOF'
+#!/usr/bin/env bash
+echo "/dev/sdc1"
+STUB_EOF
+cat > "${_vstub}/lsblk" <<'STUB_EOF'
+#!/usr/bin/env bash
+dev=""
+for x in "$@"; do case "${x}" in /dev/*) dev="${x}" ;; esac; done
+for a in "$@"; do
+    case "${a}" in
+        TYPE)   case "${dev}" in /dev/sdc1) echo "part" ;; /dev/sdc) echo "disk" ;; *) exit 1 ;; esac; exit 0 ;;
+        PKNAME) case "${dev}" in /dev/sdc1) echo "sdc" ;; *) exit 1 ;; esac; exit 0 ;;
+    esac
+done
+exit 0
+STUB_EOF
+chmod +x "${_vstub}/findmnt" "${_vstub}/lsblk"
+
+clear_config
+set_valid_config
+TARGET_DISK="/dev/sdc"
+errors_out=$( export PATH="${_vstub}:${PATH}"; unset LIVE_MEDIUM_DISK
+              validate_config 2>&1 ) && errors_out="${errors_out} NO_ERROR"
+rm -rf "${_vstub}"
+assert_contains "detection runs when the wizard did not" "medium the installer booted from" "${errors_out}"
 LIVE_MEDIUM_DISK=""
 
 echo ""

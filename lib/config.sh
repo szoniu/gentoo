@@ -225,7 +225,8 @@ validate_config() {
     # The installer's own medium is never a valid target: partitioning it
     # destroys the running installer. The wizard refuses it too, but a preset or
     # --config reaches validation without passing through that screen.
-    if [[ -n "${LIVE_MEDIUM_DISK:-}" && "${TARGET_DISK:-}" == "${LIVE_MEDIUM_DISK}" ]]; then
+    if [[ -n "${LIVE_MEDIUM_DISK:-}" && "${TARGET_DISK:-}" == "${LIVE_MEDIUM_DISK}" ]] && \
+       [[ "${LIVE_MEDIUM_OVERRIDE:-no}" != "yes" ]]; then
         errors+=("TARGET_DISK='${TARGET_DISK}' — this is the medium the installer booted from")
     fi
 
