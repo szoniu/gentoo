@@ -277,7 +277,9 @@ _unmount_osprober_mounts() {
 
 # _verify_grub_config — Check that grub.cfg contains entries for all detected OSes
 _verify_grub_config() {
-    local grub_cfg="/boot/grub/grub.cfg"
+    # Overridable so tests can point at a fixture (same pattern as
+    # _KERNEL_CPUINFO_FILE in lib/kernel.sh).
+    local grub_cfg="${_GRUB_CFG_FILE:-/boot/grub/grub.cfg}"
     [[ ! -f "${grub_cfg}" ]] && return 0
     [[ ${#DETECTED_OSES[@]} -eq 0 ]] && return 0
 
@@ -291,6 +293,20 @@ _verify_grub_config() {
         [[ "${part}" == "${ROOT_PARTITION:-}" ]] && continue
 
         local os_name="${DETECTED_OSES[${part}]}"
+
+        # Unopened containers (LUKS, LVM PV) are recorded so the ERASE gate and
+        # the dual-boot option exist — but os-prober cannot look inside them, so
+        # they can never appear in grub.cfg. Verifying them produced a permanent,
+        # scary "OS missing from GRUB" warning at the end of EVERY successful
+        # install on an encrypted machine (the first word, "Encrypted", never
+        # matches, and the container's UUID is not what os-prober would record).
+        case "${os_name}" in
+            "Encrypted volume (LUKS)"*|"LVM physical volume"*)
+                einfo "Skipping GRUB verification for ${part} (${os_name%% —*}) — os-prober cannot read it"
+                continue
+                ;;
+        esac
+
         local found=0
 
         # For Windows: check for 'windows' (case-insensitive)

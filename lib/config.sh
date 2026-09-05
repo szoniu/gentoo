@@ -216,6 +216,12 @@ validate_config() {
         fi
     fi
 
+    # Same reason as in cleanup_target_disk: --config and --resume never run
+    # hardware detection, so without this the check below has nothing to compare.
+    if declare -f ensure_live_medium_detected &>/dev/null; then
+        ensure_live_medium_detected
+    fi
+
     # The installer's own medium is never a valid target: partitioning it
     # destroys the running installer. The wizard refuses it too, but a preset or
     # --config reaches validation without passing through that screen.

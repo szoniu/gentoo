@@ -228,7 +228,7 @@ bash tests/test_disk.sh          # Disk planning dry-run with sfdisk (21 asserti
 bash tests/test_makeconf.sh      # make.conf generation (29 assertions)
 bash tests/test_checkpoint.sh    # Checkpoint validate + migrate (16 assertions)
 bash tests/test_resume.sh        # Resume from disk scanning + recovery (26 assertions)
-bash tests/test_multiboot.sh     # Multi-boot: detekcja OS-ów, LUKS/LVM, fallback EFI, nośnik live (34 assertions)
+bash tests/test_multiboot.sh     # Multi-boot: detekcja OS-ów, LUKS/LVM, wykluczenia EFI, nośnik live (także za dm), czyszczenie po wipe (62 assertions)
 bash tests/test_infer_config.sh  # Config inference from installed system (59 assertions)
 bash tests/test_hybrid_gpu.sh    # Hybrid GPU + ASUS ROG + recommendation (27 assertions)
 bash tests/test_validate.sh      # Config validation before install, w tym odrzucenie nośnika live (37 assertions)
@@ -298,9 +298,21 @@ Gentoo Live ISO daje dostęp do wielu TTY (`Ctrl+Alt+F1`..`F6`). TTY1 = installe
 
 **Fallback po katalogach w `EFI/`.** Windows miał go od zawsze (`EFI/Microsoft/Boot`), Linux nie miał żadnego. Teraz każdy katalog w `EFI/` inny niż `Boot`/`Microsoft`/`gentoo` ustawia `LINUX_EFI_LOADERS` → `LINUX_DETECTED=1`. Uwaga na kolejność: `detect_esp` biegnie PRZED `detect_installed_oses`, które zeruje `LINUX_DETECTED`, więc wynik jest doklejany na końcu tej drugiej funkcji.
 
-**Nośnik, z którego wystartował instalator (`LIVE_MEDIUM_DISK`), jest zablokowany jako cel.** `_detect_live_medium` ustala go z `findmnt` po typowych mountpointach live (`/run/initramfs/live`, `/run/archiso/bootmnt`, …) i sprowadza do całego dysku przez `lsblk -no PKNAME`. Blokada jest w trzech warstwach: opis `[INSTALL MEDIUM — DO NOT SELECT]` na liście, odmowa w `screen_disk_select`, `die` w `cleanup_target_disk` (ścieżka `--config`/preset omija kreator) oraz błąd w `validate_config`. Powód: `cleanup_target_disk` robi `umount -l` na wszystkim z tego dysku — czyli wyciąga instalatorowi spod nóg własny squashfs — a `sfdisk` zaraz potem nadpisuje tablicę. Nie ma z czego zrobić `--resume`.
+**Nośnik, z którego wystartował instalator (`LIVE_MEDIUM_DISK`), jest zablokowany jako cel.** Powód: `cleanup_target_disk` robi `umount -l` na wszystkim z tego dysku — czyli wyciąga instalatorowi spod nóg własny squashfs — a `sfdisk` zaraz potem nadpisuje tablicę. Nie ma z czego zrobić `--resume`. Trzy rzeczy, które muszą tu zostać:
 
-**`lsblk -dno NAME,SIZE,TRAN,MODEL` — MODEL na końcu.** To jedyne pole zawierające spacje („Samsung Portable SSD T7"), więc przy `MODEL` w środku transport doklejał się do modelu. A transport (`usb` vs `nvme`) to jedyny sygnał odróżniający pendrive od dysku wewnętrznego.
+1. **`ensure_live_medium_detected` wołane poza kreatorem.** `detect_all_hardware` biegnie WYŁĄCZNIE z `tui/hw_detect.sh`, więc `--install --config` i `--resume` nigdy go nie uruchamiają. Bez tego wywołania w `cleanup_target_disk` i `validate_config` cała blokada była martwym kodem dokładnie na tych ścieżkach. Zmienna celowo NIE jest w `CONFIG_VARS` — nazwy urządzeń zmieniają się między bootami, więc zapisana odpowiedź byłaby gorsza niż żadna.
+2. **`findmnt --nofsroot`.** Bez tego dla subwoluminu btrfs wychodzi `/dev/nvme0n1p3[/@]`, co przechodzi test `/dev/*`, a potem każde `lsblk` pada z „not a block device" — czyli funkcja jest no-opem na układzie, który ten instalator sam domyślnie tworzy.
+3. **`_walk_up_to_disk` idzie w górę aż do `TYPE=disk`.** Jeden skok `PKNAME` nie wystarcza: Ventoy i ISO mapowane przez device-mappera wstawiają warstwę pośrednią, więc wynik byłby partycją albo węzłem dm, który nigdy nie zrówna się z wpisem w `AVAILABLE_DISKS`.
+
+Blokada jest w czterech warstwach: opis `[INSTALL MEDIUM — DO NOT SELECT]` na liście, pętla (nie `TUI_BACK`!) w `screen_disk_select`, błąd w `validate_config` i `die` w `cleanup_target_disk`. `detect_esp` pomija też ESP leżący na tym nośniku — inaczej katalogi z EFI pendrive'a raportowałyby Linuksa na czystej maszynie docelowej.
+
+**`lsblk -dn -P` (key="value"), nie parsowanie pozycyjne.** Sama zmiana kolejności kolumn nie wystarczy: urządzenie z PUSTYM `TRAN` i niepustym `MODEL` (czytniki SD/MMC, md, dm, virtio) i tak przesuwa model do pola transportu — `mmcblk0 29.1G  SC32G` parsuje się jako `tran=SC32G`. Wartości wyciągane `sed`em, **nigdy `eval`em**: model to dane z urządzenia, a `MODEL="$(...)"` wykonałoby się (reguła o `eval` niżej).
+
+**Fallback po `EFI/` ma wykluczenia (`_efi_dir_is_linux_loader`).** Każdy ESP OEM-owy nosi `EFI/Dell`, `EFI/HP`, `EFI/tools`, `EFI/Recovery` — bez listy wykluczeń Windows-only Dell dostawał „Dual-boot with Windows + Linux" i podsumowanie z nieistniejącym systemem.
+
+**Po pełnym wipe (`_disk_clear_pre_wipe_detection`) czyszczone jest też `LINUX_EFI_LOADERS`.** Fallback po ESP ustawia `LINUX_DETECTED` NIE zapisując żadnej partycji, więc bramkowanie czyszczenia na `DETECTED_OSES_SERIALIZED` zostawiało flagę zapaloną po skasowaniu dysku — a `lib/bootloader.sh` emergował potem `os-prober` dla systemu, którego już nie ma.
+
+**`_verify_grub_config` pomija kontenery LUKS/LVM.** `os-prober` nie zajrzy do nieotwartego kontenera, więc nie trafi on do `grub.cfg` — weryfikacja dawała trwałe, straszące ostrzeżenie „OS missing from GRUB" na koniec KAŻDEJ udanej instalacji na zaszyfrowanej maszynie.
 
 Instalator wykrywa zainstalowane OS-y (Windows, Linux) skanując partycje. Wyniki w `DETECTED_OSES[]` (assoc array), serializowane do `DETECTED_OSES_SERIALIZED`. Zabezpieczenia:
 - Dual-boot oferowany gdy wykryto Windows LUB innego Linuksa

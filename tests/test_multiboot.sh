@@ -241,10 +241,26 @@ for a in "$@"; do
             echo "/dev/sda5 f2fs"
             exit 0 ;;
         NAME,SIZE,TRAN,MODEL)
-            printf '%s\n' "sda      7.3T usb  Samsung Portable SSD T7"
-            printf '%s\n' "nvme0n1 953G nvme KINGSTON OM8PGP41024N-A0"
+            # -P output: key="value". Note the SD-reader row — empty TRAN with a
+            # non-empty MODEL, the case positional splitting got wrong.
+            printf '%s\n' 'NAME="sda" SIZE="7.3T" TRAN="usb" MODEL="Samsung Portable SSD T7"'
+            printf '%s\n' 'NAME="nvme0n1" SIZE="953G" TRAN="nvme" MODEL="KINGSTON OM8PGP41024N-A0"'
+            printf '%s\n' 'NAME="mmcblk0" SIZE="29.1G" TRAN="" MODEL="SC32G"'
             exit 0 ;;
-        PKNAME) echo "sda"; exit 0 ;;
+        TYPE|PKNAME)
+            # Exact match on the device argument, like the real tool: a path such
+            # as "/dev/sda1[/@]" (findmnt without --nofsroot) is NOT a block
+            # device and must fail here, otherwise the test cannot catch a
+            # missing --nofsroot.
+            dev=""
+            for x in "$@"; do case "${x}" in /dev/*) dev="${x}" ;; esac; done
+            case "${a}:${dev}" in
+                TYPE:/dev/sda1)   echo "part" ;;
+                TYPE:/dev/sda)    echo "disk" ;;
+                PKNAME:/dev/sda1) echo "sda" ;;
+                *) exit 1 ;;
+            esac
+            exit 0 ;;
     esac
 done
 exit 0
@@ -320,23 +336,76 @@ echo "=== Test: the installer's own medium is identified and described ==="
 
 cat > "${_stub_dir}/findmnt" <<'STUB_EOF'
 #!/usr/bin/env bash
-echo "/dev/sda1"
+# Mirrors real findmnt: without --nofsroot the filesystem root is appended for
+# btrfs subvolumes and bind mounts, which then makes every lsblk lookup fail
+# with "not a block device". The stub must reproduce that, otherwise the test
+# cannot tell a correct call from a broken one.
+for a in "$@"; do
+    [ "${a}" = "--nofsroot" ] && { echo "/dev/sda1"; exit 0; }
+done
+echo "/dev/sda1[/@]"
 STUB_EOF
 chmod +x "${_stub_dir}/findmnt"
 
 (
     export PATH="${_stub_dir}:${PATH}"
-    detect_disks >/dev/null 2>&1
+    detect_disks >/dev/null 2>&1 || true
     printf '%s\n' "LIVE=${LIVE_MEDIUM_DISK:-unset}"
     printf '%s\n' "ENTRY0=${AVAILABLE_DISKS[0]:-none}"
+    printf '%s\n' "ENTRY2=${AVAILABLE_DISKS[2]:-none}"
 ) > "${_stub_dir}/out3.txt" 2>&1
 
 assert_contains "live medium resolves to the whole disk" "LIVE=/dev/sda" "$(cat "${_stub_dir}/out3.txt")"
 # MODEL is the field with spaces, so it must be read last — otherwise the
 # transport ends up glued to the model and "usb" is lost.
 assert_contains "transport survives a model containing spaces" "|Samsung Portable SSD T7|usb" "$(cat "${_stub_dir}/out3.txt")"
+# Empty TRAN with a non-empty MODEL: positional splitting put the model into the
+# transport field, so the one signal distinguishing a USB stick was garbage.
+assert_contains "empty transport does not swallow the model" "mmcblk0|29.1G|SC32G|unknown" "$(cat "${_stub_dir}/out3.txt")"
 
 rm -rf "${_stub_dir}"
+
+echo ""
+echo "=== Test: a device-mapper layer does not hide the medium (Ventoy) ==="
+
+# One PKNAME hop is not enough there: /dev/mapper/ventoy -> /dev/sdb1 -> /dev/sdb.
+# Stopping at the first hop yields a PARTITION, which never equals any entry in
+# AVAILABLE_DISKS, so the stick would be silently unprotected.
+_dm_stub=$(mktemp -d)
+cat > "${_dm_stub}/findmnt" <<'STUB_EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+    [ "${a}" = "--nofsroot" ] && { echo "/dev/mapper/ventoy"; exit 0; }
+done
+echo "/dev/mapper/ventoy"
+STUB_EOF
+cat > "${_dm_stub}/lsblk" <<'STUB_EOF'
+#!/usr/bin/env bash
+dev=""
+for x in "$@"; do case "${x}" in /dev/*) dev="${x}" ;; esac; done
+for a in "$@"; do
+    case "${a}" in
+        TYPE)
+            case "${dev}" in
+                /dev/mapper/ventoy) echo "dm" ;; /dev/sdb1) echo "part" ;;
+                /dev/sdb) echo "disk" ;; *) exit 1 ;;
+            esac; exit 0 ;;
+        PKNAME)
+            case "${dev}" in
+                /dev/mapper/ventoy) echo "sdb1" ;; /dev/sdb1) echo "sdb" ;; *) exit 1 ;;
+            esac; exit 0 ;;
+    esac
+done
+exit 0
+STUB_EOF
+chmod +x "${_dm_stub}/findmnt" "${_dm_stub}/lsblk"
+
+result=$( export PATH="${_dm_stub}:${PATH}"
+          unset LIVE_MEDIUM_DISK
+          _detect_live_medium >/dev/null 2>&1 || true
+          printf '%s' "${LIVE_MEDIUM_DISK:-unset}" )
+rm -rf "${_dm_stub}"
+assert_eq "climbs through the dm layer to the whole disk" "/dev/sdb" "${result}"
 
 echo ""
 echo "=== Test: wiping the install medium is refused ==="
@@ -344,6 +413,109 @@ echo "=== Test: wiping the install medium is refused ==="
 out=$( ( TARGET_DISK="/dev/sda"; LIVE_MEDIUM_DISK="/dev/sda"; DRY_RUN=0
          cleanup_target_disk ) 2>&1 ) && out="${out} NO_ABORT"
 assert_contains "cleanup refuses the install medium" "Refusing to wipe /dev/sda" "${out}"
+
+echo ""
+echo "=== Test: OEM directories on the ESP are not another Linux ==="
+
+for d in fedora ubuntu debian opensuse arch systemd-boot refind; do
+    if _efi_dir_is_linux_loader "${d}"; then rc=0; else rc=1; fi
+    assert_eq "EFI/${d} counts as a Linux" "0" "${rc}"
+done
+for d in Boot Microsoft gentoo Dell HP Lenovo tools Recovery Firmware BOOTCAMP; do
+    if _efi_dir_is_linux_loader "${d}"; then rc=0; else rc=1; fi
+    assert_eq "EFI/${d} does NOT count as a Linux" "1" "${rc}"
+done
+
+echo ""
+echo "=== Test: the live-medium guard works without the wizard ==="
+
+# detect_all_hardware runs only from tui/hw_detect.sh, so --config and --resume
+# used to reach cleanup_target_disk with LIVE_MEDIUM_DISK empty — the guard was
+# dead code on exactly the paths where the operator cannot re-read the disk list.
+_cli_stub=$(mktemp -d)
+cat > "${_cli_stub}/findmnt" <<'STUB_EOF'
+#!/usr/bin/env bash
+echo "/dev/sdb1"
+STUB_EOF
+cat > "${_cli_stub}/lsblk" <<'STUB_EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+    case "${a}" in
+        TYPE) case "${*}" in *"/dev/sdb1"*) echo "part" ;; *"/dev/sdb"*) echo "disk" ;; esac; exit 0 ;;
+        PKNAME) case "${*}" in *"/dev/sdb1"*) echo "sdb" ;; esac; exit 0 ;;
+    esac
+done
+exit 0
+STUB_EOF
+chmod +x "${_cli_stub}/findmnt" "${_cli_stub}/lsblk"
+
+out=$( ( export PATH="${_cli_stub}:${PATH}"
+         unset LIVE_MEDIUM_DISK
+         TARGET_DISK="/dev/sdb"; DRY_RUN=0
+         cleanup_target_disk ) 2>&1 ) && out="${out} NO_ABORT"
+rm -rf "${_cli_stub}"
+assert_contains "guard fires with no wizard run" "Refusing to wipe /dev/sdb" "${out}"
+
+echo ""
+echo "=== Test: a full wipe clears the EFI-only Linux flag ==="
+
+# Tests the clearing directly — NEVER via disk_execute_plan, which would run a
+# real sfdisk against whatever TARGET_DISK happens to name.
+declare -gA DETECTED_OSES=()
+DETECTED_OSES_SERIALIZED=""
+LINUX_DETECTED=1
+LINUX_EFI_LOADERS="fedora"
+WINDOWS_DETECTED=0
+
+_disk_clear_pre_wipe_detection >/dev/null 2>&1
+
+assert_eq "flag cleared after auto wipe" "0" "${LINUX_DETECTED}"
+assert_eq "EFI loaders cleared after auto wipe" "" "${LINUX_EFI_LOADERS}"
+
+echo ""
+echo "=== Test: GRUB verification skips containers os-prober cannot read ==="
+
+# An unopened LUKS/LVM container is recorded so the ERASE gate exists, but
+# os-prober cannot look inside it — so it can never appear in grub.cfg. Verifying
+# it produced a permanent "OS missing from GRUB" warning at the end of every
+# successful install on an encrypted machine.
+source "${LIB_DIR}/bootloader.sh" 2>/dev/null || true
+
+_grub_fixture=$(mktemp -d)
+cat > "${_grub_fixture}/grub.cfg" <<'GRUB_EOF'
+menuentry 'Gentoo GNU/Linux' { linux /vmlinuz root=UUID=1111 }
+menuentry 'Windows Boot Manager (on /dev/sda1)' { chainloader /EFI/Microsoft/Boot/bootmgfw.efi }
+GRUB_EOF
+
+declare -gA DETECTED_OSES=()
+DETECTED_OSES["/dev/sda2"]="Windows (system)"
+DETECTED_OSES["/dev/sda3"]="Encrypted volume (LUKS) — contents unknown"
+DETECTED_OSES["/dev/sda4"]="LVM physical volume — contents unknown"
+ROOT_PARTITION="/dev/sda9"
+
+out=$( _GRUB_CFG_FILE="${_grub_fixture}/grub.cfg" NON_INTERACTIVE=1 \
+       _verify_grub_config 2>&1 ) || true
+rm -rf "${_grub_fixture}"
+
+# Mentioning the container in a "skipping" line is fine; what must not happen is
+# the warning that says GRUB missed an operating system.
+assert_eq "no missing-OS warning at all" "0" \
+    "$(printf '%s' "${out}" | grep -c 'may not have detected' || true)"
+assert_eq "the LUKS container is not listed as missing" "0" \
+    "$(printf '%s' "${out}" | grep 'may not have detected' -A5 | grep -c 'sda3' || true)"
+assert_contains "the container is explicitly skipped" "Skipping GRUB verification for /dev/sda3" "${out}"
+assert_contains "verification still reports success" "verified" "${out}"
+
+echo ""
+echo "=== Test: refusing the install medium re-asks instead of going back ==="
+
+# run_wizard decrements the screen index on TUI_BACK, so returning it after
+# "Pick a different disk." would drop the operator on the PREVIOUS screen.
+_sel_src=$(sed -n '/^screen_disk_select()/,/^}/p' "${SCRIPT_DIR}/tui/disk_select.sh")
+assert_eq "the refusal loops back to the disk list" "1" \
+    "$(printf '%s' "${_sel_src}" | grep -A12 'Cannot Install Onto the Install Medium' | grep -c 'continue' || true)"
+assert_eq "the refusal does not return TUI_BACK" "0" \
+    "$(printf '%s' "${_sel_src}" | grep -A12 'Cannot Install Onto the Install Medium' | grep -c 'return "${TUI_BACK}"' || true)"
 
 echo ""
 echo "=== Results ==="
