@@ -229,6 +229,7 @@ bash tests/test_surface.sh       # Surface detection, config vars, kernel types,
 bash tests/test_peripherals.sh   # Peripheral detection, config vars, inference (38 assertions)
 bash tests/test_umpc.sh          # UMPC detection (GPD/Chuwi) + GRUB cmdline (36 assertions)
 bash tests/test_kernel_config.sh # _patch_kernel_config: promocja =m→=y, brak downgrade'u, WWAN/IOSM, xe/i915, pinctrl, Framework EC, idempotencja (41 assertions)
+bash tests/test_local_scope.sh  # Zmienne `local` referowane spoza deklarującej je funkcji — cała lib/ + tui/ (2 assertions)
 
 bash tests/shellcheck.sh         # Lint wszystkich *.sh (severity=warning, excl. SC1091/2034/2154/1090/2155)
 ```
