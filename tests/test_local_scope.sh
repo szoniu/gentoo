@@ -44,14 +44,30 @@ echo "=== Test: local variable scope leaks ==="
 _scope_violations() {
     local file="$1"
     awk '
-        # --- heredocs: their body is data, not code (a "}" inside one would
-        #     otherwise close the enclosing function and wreck every range)
+        # collect_refs — harvest ${var} AND $var references from one line
+        function collect_refs(s,   v) {
+            while (match(s, /\$\{?[a-zA-Z_][a-zA-Z0-9_]*/)) {
+                v = substr(s, RSTART + 1, RLENGTH - 1)
+                sub(/^\{/, "", v)
+                refline[++nref] = NR; refvar[nref] = v; reffn[nref] = cur
+                s = substr(s, RSTART + RLENGTH)
+            }
+        }
+
+        # --- heredocs
+        # A quoted delimiter (<<'"'"'EOF'"'"') means the body is inert text — skip it whole.
+        # An UNQUOTED delimiter (<<EOF) is expanded by bash at runtime, so an
+        # out-of-scope local in there dies under set -u exactly like real code:
+        # skip the structural parsing (a "}" in the body must not close the
+        # function) but still harvest the references.
         heredoc != "" {
-            if ($0 ~ "^[[:space:]]*" heredoc "[[:space:]]*$") heredoc = ""
+            if ($0 ~ "^[[:space:]]*" heredoc "[[:space:]]*$") { heredoc = ""; next }
+            if (!hd_quoted) collect_refs($0)
             next
         }
         match($0, /<<-?[[:space:]]*['"'"'"]?[A-Za-z_][A-Za-z0-9_]*/) {
             tag = substr($0, RSTART, RLENGTH)
+            hd_quoted = (tag ~ /['"'"'"]/)
             sub(/^<<-?[[:space:]]*/, "", tag); gsub(/['"'"'"]/, "", tag)
             heredoc = tag
             # the opening line itself is still code — fall through
@@ -80,14 +96,16 @@ _scope_violations() {
                     lo[v] = lo[v] " " cur            # a name may be local in several functions
                 }
             }
-            # names bound by read/for inside a scope behave like locals of that scope
-            if (match(line, /(^|[|;][[:space:]]*)read[[:space:]]+/) || line ~ /^[[:space:]]*while[[:space:]]+.*read[[:space:]]+/) {
-                rest = line; sub(/^.*read[[:space:]]+/, "", rest)
-                sub(/<<.*$/, "", rest); sub(/;.*$/, "", rest)
+            # names bound by read/for behave like locals of the enclosing scope.
+            # Must match indented and IFS-prefixed forms — the repo writes
+            # "    read -r a b c" and "IFS=: read -r x y", never at column 0.
+            if (match(line, /(^|[[:space:]]|[|;&])read[[:space:]]+/)) {
+                rest = line; sub(/^.*[^a-zA-Z0-9_]read[[:space:]]+|^read[[:space:]]+/, "", rest)
+                sub(/<<.*$/, "", rest); sub(/[<>].*$/, "", rest); sub(/;.*$/, "", rest)
                 n = split(rest, toks, /[[:space:]]+/)
                 for (i = 1; i <= n; i++) {
                     v = toks[i]
-                    if (v ~ /^-/ || v ~ /^[<>$"]/) continue
+                    if (v ~ /^-/ || v ~ /^[$"'"'"']/) continue
                     if (v !~ /^[a-zA-Z_][a-zA-Z0-9_]*$/) continue
                     islocal[v] = 1; lo[v] = lo[v] " " cur
                 }
@@ -112,15 +130,8 @@ _scope_violations() {
             }
         }
 
-        # --- collect every ${var} reference together with its enclosing function
-        {
-            s = $0
-            while (match(s, /\$\{[a-zA-Z_][a-zA-Z0-9_]*/)) {
-                v = substr(s, RSTART + 2, RLENGTH - 2)
-                refline[++nref] = NR; refvar[nref] = v; reffn[nref] = cur
-                s = substr(s, RSTART + RLENGTH)
-            }
-        }
+        # --- every reference, with its enclosing function
+        { collect_refs($0) }
 
         END {
             for (i = 1; i <= nref; i++) {
@@ -145,7 +156,7 @@ _is_config_var() {
 
 violations=""
 count=0
-for f in "${SCRIPT_DIR}"/lib/*.sh "${SCRIPT_DIR}"/tui/*.sh "${SCRIPT_DIR}/install.sh"; do
+for f in "${SCRIPT_DIR}"/lib/*.sh "${SCRIPT_DIR}"/tui/*.sh "${SCRIPT_DIR}"/data/*.sh "${SCRIPT_DIR}/install.sh"; do
     while IFS= read -r hit; do
         [[ -z "${hit}" ]] && continue
         var="${hit#*:}"
