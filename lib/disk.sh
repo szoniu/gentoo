@@ -583,9 +583,11 @@ cleanup_target_disk() {
     # from under it moments before sfdisk overwrites the partition table. The
     # wizard already refuses this, but a preset or --config reaches here directly.
     if [[ -n "${LIVE_MEDIUM_DISK:-}" && "${disk}" == "${LIVE_MEDIUM_DISK}" ]]; then
-        # LIVE_MEDIUM_OVERRIDE is set only by an explicit typed confirmation in
-        # screen_disk_select, for the single-disk loopback case.
-        if [[ "${LIVE_MEDIUM_OVERRIDE:-no}" == "yes" ]]; then
+        # LIVE_MEDIUM_OVERRIDE_DISK holds the disk the operator explicitly
+        # confirmed in screen_disk_select, never a bare "yes" — so it cannot be
+        # carried by a preset to a machine where it would wave through a
+        # completely different device.
+        if [[ "${LIVE_MEDIUM_OVERRIDE_DISK:-}" == "${disk}" ]]; then
             ewarn "Proceeding on ${disk} despite it being the install medium (operator override)"
         else
             die "Refusing to wipe ${disk}: this is the medium the installer booted from"

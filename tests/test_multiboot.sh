@@ -460,28 +460,28 @@ echo "=== Test: the live-medium guard works without the wizard ==="
 _cli_stub=$(mktemp -d)
 cat > "${_cli_stub}/findmnt" <<'STUB_EOF'
 #!/usr/bin/env bash
-echo "/dev/sdb1"
+echo "/dev/zz-cli-medium1"
 STUB_EOF
 cat > "${_cli_stub}/lsblk" <<'STUB_EOF'
 #!/usr/bin/env bash
 for a in "$@"; do
     case "${a}" in
-        TYPE) case "${*}" in *"/dev/sdb1"*) echo "part" ;; *"/dev/sdb"*) echo "disk" ;; esac; exit 0 ;;
-        PKNAME) case "${*}" in *"/dev/sdb1"*) echo "sdb" ;; esac; exit 0 ;;
+        TYPE) case "${*}" in *"/dev/zz-cli-medium1"*) echo "part" ;; *"/dev/zz-cli-medium"*) echo "disk" ;; esac; exit 0 ;;
+        PKNAME) case "${*}" in *"/dev/zz-cli-medium1"*) echo "zz-cli-medium" ;; esac; exit 0 ;;
     esac
 done
 exit 0
 STUB_EOF
 chmod +x "${_cli_stub}/findmnt" "${_cli_stub}/lsblk"
 
-cp "${_guard_stub}/umount" "${_guard_stub}/swapoff" "${_cli_stub}/" 2>/dev/null || true
+cp "${_guard_stub}/umount" "${_guard_stub}/swapoff" "${_cli_stub}/"   # must not fail silently
 : > "${_guard_stub}/ops.log"
 out=$( ( export PATH="${_cli_stub}:${_guard_stub}:${PATH}"
          unset LIVE_MEDIUM_DISK
-         TARGET_DISK="/dev/sdb"; DRY_RUN=0
+         TARGET_DISK="/dev/zz-cli-medium"; DRY_RUN=0
          cleanup_target_disk ) 2>&1 ) && out="${out} NO_ABORT"
 rm -rf "${_cli_stub}"
-assert_contains "guard fires with no wizard run" "Refusing to wipe /dev/sdb" "${out}"
+assert_contains "guard fires with no wizard run" "Refusing to wipe /dev/zz-cli-medium" "${out}"
 assert_eq "nothing touched the disk on the CLI path either" "0" \
     "$(wc -l < "${_guard_stub}/ops.log" | tr -d ' ')"
 rm -rf "${_guard_stub}"

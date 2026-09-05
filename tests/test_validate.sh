@@ -327,6 +327,33 @@ assert_contains "detection runs when the wizard did not" "medium the installer b
 LIVE_MEDIUM_DISK=""
 
 echo ""
+echo "=== Test: the install-medium override is disk-bound and not portable ==="
+
+# It must never be a bare "yes": config_save would persist it and preset_export
+# would ship it as portable configuration, waving through the live USB of every
+# machine the preset is imported on.
+_ov=0
+for v in "${CONFIG_VARS[@]}"; do
+    [[ "${v}" == "LIVE_MEDIUM_OVERRIDE" || "${v}" == "LIVE_MEDIUM_OVERRIDE_DISK" ]] && _ov=1
+done
+assert_eq "override is NOT persisted in CONFIG_VARS" "0" "${_ov}"
+
+clear_config
+set_valid_config
+TARGET_DISK="/dev/sda"
+LIVE_MEDIUM_DISK="/dev/sda"
+LIVE_MEDIUM_OVERRIDE_DISK="/dev/sda"
+if validate_config >/dev/null 2>&1; then rc=0; else rc=1; fi
+assert_eq "override for THIS disk is honoured" "0" "${rc}"
+
+# Same override value, different disk — must not carry over
+LIVE_MEDIUM_OVERRIDE_DISK="/dev/sdb"
+errors_out=$(validate_config 2>&1) && errors_out="${errors_out} NO_ERROR"
+assert_contains "override does not transfer to another disk" "medium the installer booted from" "${errors_out}"
+unset LIVE_MEDIUM_OVERRIDE_DISK
+LIVE_MEDIUM_DISK=""
+
+echo ""
 echo "=== Results ==="
 echo "Passed: ${PASS}"
 echo "Failed: ${FAIL}"

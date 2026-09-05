@@ -231,7 +231,7 @@ bash tests/test_resume.sh        # Resume from disk scanning + recovery (26 asse
 bash tests/test_multiboot.sh     # Multi-boot: detekcja OS-ów, LUKS/LVM, wykluczenia EFI, nośnik live (dm/loop), pomijanie ESP nośnika, czyszczenie po wipe (67 assertions)
 bash tests/test_infer_config.sh  # Config inference from installed system (59 assertions)
 bash tests/test_hybrid_gpu.sh    # Hybrid GPU + ASUS ROG + recommendation (27 assertions)
-bash tests/test_validate.sh      # Config validation before install, w tym odrzucenie nośnika live i detekcja poza kreatorem (38 assertions)
+bash tests/test_validate.sh      # Config validation before install: nośnik live, detekcja poza kreatorem, override związany z dyskiem (41 assertions)
 bash tests/test_shrink.sh        # Shrink + dual-boot: akcje krytyczne, read-back, resolver nowej partycji, konsumpcja TRY_NO_CONTINUE na pty, realny parser sfdisk (78 assertions)
 bash tests/test_surface.sh       # Surface detection, config vars, kernel types, inference (25 assertions)
 bash tests/test_peripherals.sh   # Peripheral detection, config vars, inference (38 assertions)
@@ -306,7 +306,13 @@ Gentoo Live ISO daje dostęp do wielu TTY (`Ctrl+Alt+F1`..`F6`). TTY1 = installe
 2. **`findmnt --nofsroot`.** Bez tego dla subwoluminu btrfs wychodzi `/dev/nvme0n1p3[/@]`, co przechodzi test `/dev/*`, a potem każde `lsblk` pada z „not a block device" — czyli funkcja jest no-opem na układzie, który ten instalator sam domyślnie tworzy.
 3. **`_walk_up_to_disk` idzie w górę aż do `TYPE=disk`.** Jeden skok `PKNAME` nie wystarcza: Ventoy i ISO mapowane przez device-mappera wstawiają warstwę pośrednią, więc wynik byłby partycją albo węzłem dm, który nigdy nie zrówna się z wpisem w `AVAILABLE_DISKS`.
 
-Blokada jest w czterech warstwach: opis `[INSTALL MEDIUM — DO NOT SELECT]` na liście, pętla (nie `TUI_BACK`!) w `screen_disk_select`, błąd w `validate_config` i `die` w `cleanup_target_disk`. **Furtka jest konieczna, nie opcjonalna:** ISO skopiowane na dysk wewnętrzny i bootowane przez GRUB loopback czyni ten dysk jednocześnie „nośnikiem" i jedynym sensownym celem — przy jednym dysku w maszynie kreator prosi o wpisanie `OVERRIDE` i ustawia `LIVE_MEDIUM_OVERRIDE=yes`, które honorują `validate_config` i `cleanup_target_disk`. Bez tego pętla wyboru nie miałaby wyjścia. `detect_esp` pomija też ESP leżący na tym nośniku — inaczej katalogi z EFI pendrive'a raportowałyby Linuksa na czystej maszynie docelowej.
+Blokada jest w czterech warstwach: opis `[INSTALL MEDIUM — DO NOT SELECT]` na liście, pętla (nie `TUI_BACK`!) w `screen_disk_select`, błąd w `validate_config` i `die` w `cleanup_target_disk`. **Furtka jest konieczna, nie opcjonalna:** ISO skopiowane na dysk wewnętrzny i bootowane przez GRUB loopback czyni ten dysk jednocześnie „nośnikiem" i jedynym sensownym celem — bez furtki pętla wyboru nie miałaby wyjścia. Trzy warunki, które muszą zostać:
+
+- **`LIVE_MEDIUM_OVERRIDE_DISK` trzyma NAZWĘ DYSKU, nigdy gołego `yes`, i NIE jest w `CONFIG_VARS`.** Wartość `yes` zapisana przez `config_save` trafiłaby przez `preset_export` do przenośnej części presetu (nie ma jej w `PRESET_HW_VARS`) i na innej maszynie przepuściłaby jej pendrive'a — czyli dokładnie ta utrata danych, przed którą strażnik broni, przywrócona przez plik konfiguracyjny.
+- **Warunek to `${#AVAILABLE_DISKS[@]} -le 1` ORAZ transport inny niż `usb`.** Liczenie komórek dialogu (`-le 2`) zaszywało założenie „dwie komórki na dysk", a niewykryty dysk wewnętrzny (Intel RST, brak sterownika) też zostawia pendrive'a jako jedyny wpis — wtedy okno namawiałoby operatora na skasowanie własnego nośnika instalacyjnego.
+- **Ostrzeżenie o braku `toram`.** Po `sfdisk` `copy_installer_to_chroot` wciąż czyta instalator i config **z dysku**, więc bez nośnika w RAM-ie przebieg nie tyle „nie da się wznowić", co **przerwie się w połowie z już przepartycjonowanym dyskiem**. Kreator sprawdza `/proc/cmdline` i mówi to wprost.
+
+Zejście z dual-boota na `auto` (brak ESP w maszynie) ma **własne** potwierdzenie zniszczenia danych — bramka z gałęzi `auto)` nigdy się tam nie wykonuje, bo ustawienie `PARTITION_SCHEME="auto"` następuje wewnątrz gałęzi `dual-boot)`. `detect_esp` pomija też ESP leżący na tym nośniku — inaczej katalogi z EFI pendrive'a raportowałyby Linuksa na czystej maszynie docelowej.
 
 **`lsblk -dn -P` (key="value"), nie parsowanie pozycyjne.** Sama zmiana kolejności kolumn nie wystarczy: urządzenie z PUSTYM `TRAN` i niepustym `MODEL` (czytniki SD/MMC, md, dm, virtio) i tak przesuwa model do pola transportu — `mmcblk0 29.1G  SC32G` parsuje się jako `tran=SC32G`. Wartości wyciągane `sed`em, **nigdy `eval`em**: model to dane z urządzenia, a `MODEL="$(...)"` wykonałoby się (reguła o `eval` niżej).
 
