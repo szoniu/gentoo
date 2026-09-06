@@ -228,10 +228,10 @@ bash tests/test_disk.sh          # Disk planning dry-run with sfdisk (21 asserti
 bash tests/test_makeconf.sh      # make.conf generation (29 assertions)
 bash tests/test_checkpoint.sh    # Checkpoint validate + migrate (16 assertions)
 bash tests/test_resume.sh        # Resume from disk scanning + recovery (26 assertions)
-bash tests/test_multiboot.sh     # Multi-boot OS detection + serialization (26 assertions)
+bash tests/test_multiboot.sh     # Multi-boot: detekcja OS-ów, LUKS/LVM, wykluczenia EFI, nośnik live (dm/loop), pomijanie ESP nośnika, czyszczenie po wipe (67 assertions)
 bash tests/test_infer_config.sh  # Config inference from installed system (59 assertions)
 bash tests/test_hybrid_gpu.sh    # Hybrid GPU + ASUS ROG + recommendation (27 assertions)
-bash tests/test_validate.sh      # Config validation before install (35 assertions)
+bash tests/test_validate.sh      # Config validation before install: nośnik live, detekcja poza kreatorem, override związany z dyskiem (41 assertions)
 bash tests/test_shrink.sh        # Shrink + dual-boot: akcje krytyczne, read-back, resolver nowej partycji, konsumpcja TRY_NO_CONTINUE na pty, realny parser sfdisk (78 assertions)
 bash tests/test_surface.sh       # Surface detection, config vars, kernel types, inference (25 assertions)
 bash tests/test_peripherals.sh   # Peripheral detection, config vars, inference (38 assertions)
@@ -286,6 +286,8 @@ Pojedynczy test = uruchom jego plik bezpośrednio (`bash tests/test_<x>.sh`). Br
 - **`stage3_extract` cleanup odmontowuje ESP**: Cleanup usuwał stare pliki przy retry, ale katalog `efi/` (mount point ESP) też był łapany przez `find`. Po ekstrakcji stage3 `grub-install --efi-directory=/efi` failował. Fix: cleanup pomija `efi`, ESP re-montowany po ekstrakcji; safety net w `_execute_chroot_phase()` re-montuje ESP przed chroot.
 - **`STAGE3_FILE` unbound przy resume**: Gdy `stage3_download` checkpoint przetrwa ale faza pominięta, `STAGE3_FILE` nie ustawione. `stage3_verify()`/`stage3_extract()` używają `_find_stage3_file()` (szuka `stage3-amd64-*.tar.xz` na MOUNTPOINT).
 - **`infer_config_from_partition` i testowanie**: Przy `_RESUME_TEST_DIR` używa `_RESUME_TEST_DIR/mnt/<part>`, UUID resolver czyta z `_INFER_UUID_MAP`. Parsowanie make.conf: single-line only (nie obsługuje backslash continuation).
+- **Testy NIGDY nie wołają funkcji dyskowych z `DRY_RUN=0` na realnych nazwach urządzeń.** `cleanup_target_disk` robi `umount -l` na wszystkim, co w `/proc/mounts` pasuje do `^<disk>[p]?[0-9]`, a `disk_execute_plan` odpala zakolejkowany plan — więc test wołający je z `TARGET_DISK=/dev/sda` jest bezpieczny wyłącznie dopóki testowany strażnik działa. Zdarzyło się to w tym repo **dwa razy**: raz poleciał realny `sfdisk` na dysku dewelopera, raz `umount -l /mnt/hdd` (oba przeżyły tylko dlatego, że testy nie biegną jako root, a błąd połyka `2>/dev/null || true`). Reguła: nazwa urządzenia w teście musi być niemożliwa (`/dev/zz-nonexistent-test`), a w `PATH` mają stać logujące atrapy `umount`/`swapoff` z asercją, że **nie zostały wywołane**.
+- **Podstawienie po LEWEJ stronie `||` ma wyłączony `errexit` — i przy `inherit_errexit` rozbraja całą podpowłokę.** `result=$(...) || result="DIED"` wygląda jak przechwycenie awarii, a w rzeczywistości sprawia, że kod w środku podstawienia przestaje przerywać na błędzie: test przechodzi tak samo dla kodu poprawnego i zepsutego. Tak samo `$( ... )` bez `shopt -s inherit_errexit` w skrypcie testowym — podpowłoka podstawienia NIE ma `errexit`, choć produkcja (`install.sh`) ma. Przepis: `set +e; result=$( set -e; shopt -s inherit_errexit; … ); rc=$?; set -e` i osobne sprawdzenie `rc`.
 - **`[[ -n "$x" ]] && cmd` pod `set -e` + `inherit_errexit` w funkcjach**: Gdy `x` puste, `[[ -n "" ]]` zwraca exit 1, `&&` short-circuituje, funkcja exituje z rc=1 → `set -e` zabija test. Użyć pełnego `if [[ -n "$x" ]]; then ...; fi`. (Łapał się w test_umpc.sh przy opcjonalnym board_name.)
 
 ## Debugowanie podczas instalacji na żywym sprzęcie
@@ -293,6 +295,32 @@ Pojedynczy test = uruchom jego plik bezpośrednio (`bash tests/test_<x>.sh`). Br
 Gentoo Live ISO daje dostęp do wielu TTY (`Ctrl+Alt+F1`..`F6`). TTY1 = installer, TTY2-6 = wolne konsole. SSH na Live ISO można skonfigurować ręcznie — szczegóły w README.
 
 ### Multi-boot safety
+
+**Kontenery, których nie da się sprawdzić, też liczą się jako system.** `crypto_LUKS` i `LVM2_member` nie są otwierane (nie pytamy o hasło ani nie aktywujemy VG) — sam fakt istnienia wystarcza, żeby pojawiła się opcja dual-boot i uzbroiła bramka `ERASE`. Bez tego zaszyfrowana Fedora/Ubuntu (instalacja domyślna!) była **niewidoczna**: kreator pokazywał wyłącznie „auto (DESTROYS ALL DATA)", a podsumowanie mówiło „brak wykrytych systemów". Skanowane są też `ext2`/`ext3`/`f2fs`.
+
+**Fallback po katalogach w `EFI/`.** Windows miał go od zawsze (`EFI/Microsoft/Boot`), Linux nie miał żadnego. Teraz każdy katalog w `EFI/` inny niż `Boot`/`Microsoft`/`gentoo` ustawia `LINUX_EFI_LOADERS` → `LINUX_DETECTED=1`. Uwaga na kolejność: `detect_esp` biegnie PRZED `detect_installed_oses`, które zeruje `LINUX_DETECTED`, więc wynik jest doklejany na końcu tej drugiej funkcji.
+
+**Nośnik, z którego wystartował instalator (`LIVE_MEDIUM_DISK`), jest zablokowany jako cel.** Powód: `cleanup_target_disk` robi `umount -l` na wszystkim z tego dysku — czyli wyciąga instalatorowi spod nóg własny squashfs — a `sfdisk` zaraz potem nadpisuje tablicę. Nie ma z czego zrobić `--resume`. Trzy rzeczy, które muszą tu zostać:
+
+1. **`ensure_live_medium_detected` wołane poza kreatorem.** `detect_all_hardware` biegnie WYŁĄCZNIE z `tui/hw_detect.sh`, więc `--install --config` i `--resume` nigdy go nie uruchamiają. Bez tego wywołania w `cleanup_target_disk` i `validate_config` cała blokada była martwym kodem dokładnie na tych ścieżkach. Zmienna celowo NIE jest w `CONFIG_VARS` — nazwy urządzeń zmieniają się między bootami, więc zapisana odpowiedź byłaby gorsza niż żadna.
+2. **`findmnt --nofsroot`.** Bez tego dla subwoluminu btrfs wychodzi `/dev/nvme0n1p3[/@]`, co przechodzi test `/dev/*`, a potem każde `lsblk` pada z „not a block device" — czyli funkcja jest no-opem na układzie, który ten instalator sam domyślnie tworzy.
+3. **`_walk_up_to_disk` idzie w górę aż do `TYPE=disk`.** Jeden skok `PKNAME` nie wystarcza: Ventoy i ISO mapowane przez device-mappera wstawiają warstwę pośrednią, więc wynik byłby partycją albo węzłem dm, który nigdy nie zrówna się z wpisem w `AVAILABLE_DISKS`.
+
+Blokada jest w czterech warstwach: opis `[INSTALL MEDIUM — DO NOT SELECT]` na liście, pętla (nie `TUI_BACK`!) w `screen_disk_select`, błąd w `validate_config` i `die` w `cleanup_target_disk`. **Furtka jest konieczna, nie opcjonalna:** ISO skopiowane na dysk wewnętrzny i bootowane przez GRUB loopback czyni ten dysk jednocześnie „nośnikiem" i jedynym sensownym celem — bez furtki pętla wyboru nie miałaby wyjścia. Trzy warunki, które muszą zostać:
+
+- **`LIVE_MEDIUM_OVERRIDE_DISK` trzyma NAZWĘ DYSKU, nigdy gołego `yes`, i NIE jest w `CONFIG_VARS`.** Wartość `yes` zapisana przez `config_save` trafiłaby przez `preset_export` do przenośnej części presetu (nie ma jej w `PRESET_HW_VARS`) i na innej maszynie przepuściłaby jej pendrive'a — czyli dokładnie ta utrata danych, przed którą strażnik broni, przywrócona przez plik konfiguracyjny.
+- **Warunek to `${#AVAILABLE_DISKS[@]} -le 1` ORAZ transport inny niż `usb`.** Liczenie komórek dialogu (`-le 2`) zaszywało założenie „dwie komórki na dysk", a niewykryty dysk wewnętrzny (Intel RST, brak sterownika) też zostawia pendrive'a jako jedyny wpis — wtedy okno namawiałoby operatora na skasowanie własnego nośnika instalacyjnego.
+- **Ostrzeżenie o braku `toram`.** Po `sfdisk` `copy_installer_to_chroot` wciąż czyta instalator i config **z dysku**, więc bez nośnika w RAM-ie przebieg nie tyle „nie da się wznowić", co **przerwie się w połowie z już przepartycjonowanym dyskiem**. Kreator sprawdza `/proc/cmdline` i mówi to wprost.
+
+Zejście z dual-boota na `auto` (brak ESP w maszynie) ma **własne** potwierdzenie zniszczenia danych — bramka z gałęzi `auto)` nigdy się tam nie wykonuje, bo ustawienie `PARTITION_SCHEME="auto"` następuje wewnątrz gałęzi `dual-boot)`. `detect_esp` pomija też ESP leżący na tym nośniku — inaczej katalogi z EFI pendrive'a raportowałyby Linuksa na czystej maszynie docelowej.
+
+**`lsblk -dn -P` (key="value"), nie parsowanie pozycyjne.** Sama zmiana kolejności kolumn nie wystarczy: urządzenie z PUSTYM `TRAN` i niepustym `MODEL` (czytniki SD/MMC, md, dm, virtio) i tak przesuwa model do pola transportu — `mmcblk0 29.1G  SC32G` parsuje się jako `tran=SC32G`. Wartości wyciągane `sed`em, **nigdy `eval`em**: model to dane z urządzenia, a `MODEL="$(...)"` wykonałoby się (reguła o `eval` niżej).
+
+**Fallback po `EFI/` ma wykluczenia (`_efi_dir_is_linux_loader`).** Każdy ESP OEM-owy nosi `EFI/Dell`, `EFI/HP`, `EFI/tools`, `EFI/Recovery` — bez listy wykluczeń Windows-only Dell dostawał „Dual-boot with Windows + Linux" i podsumowanie z nieistniejącym systemem.
+
+**Po pełnym wipe (`_disk_clear_pre_wipe_detection`) czyszczone jest też `LINUX_EFI_LOADERS`.** Fallback po ESP ustawia `LINUX_DETECTED` NIE zapisując żadnej partycji, więc bramkowanie czyszczenia na `DETECTED_OSES_SERIALIZED` zostawiało flagę zapaloną po skasowaniu dysku — a `lib/bootloader.sh` emergował potem `os-prober` dla systemu, którego już nie ma.
+
+**`_verify_grub_config` pomija kontenery LUKS/LVM.** `os-prober` nie zajrzy do nieotwartego kontenera, więc nie trafi on do `grub.cfg` — weryfikacja dawała trwałe, straszące ostrzeżenie „OS missing from GRUB" na koniec KAŻDEJ udanej instalacji na zaszyfrowanej maszynie.
 
 Instalator wykrywa zainstalowane OS-y (Windows, Linux) skanując partycje. Wyniki w `DETECTED_OSES[]` (assoc array), serializowane do `DETECTED_OSES_SERIALIZED`. Zabezpieczenia:
 - Dual-boot oferowany gdy wykryto Windows LUB innego Linuksa

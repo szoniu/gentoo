@@ -261,6 +261,7 @@ screen_disk_select() {
     # so leaving them unset is exactly what the previous behaviour relied on.
     unset ROOT_PARTITION SWAP_PARTITION ESP_PARTITION
     unset SHRINK_PARTITION SHRINK_PARTITION_FSTYPE SHRINK_NEW_SIZE_MIB
+    unset LIVE_MEDIUM_OVERRIDE_DISK
 
     # Build disk list for dialog
     local -a disk_items=()
@@ -268,7 +269,11 @@ screen_disk_select() {
     for entry in "${AVAILABLE_DISKS[@]}"; do
         local name size model tran
         IFS='|' read -r name size model tran <<< "${entry}"
-        disk_items+=("/dev/${name}" "${size} ${model} (${tran})")
+        if [[ -n "${LIVE_MEDIUM_DISK:-}" && "/dev/${name}" == "${LIVE_MEDIUM_DISK}" ]]; then
+            disk_items+=("/dev/${name}" "${size} ${model} (${tran}) [INSTALL MEDIUM — DO NOT SELECT]")
+        else
+            disk_items+=("/dev/${name}" "${size} ${model} (${tran})")
+        fi
     done
 
     if [[ ${#disk_items[@]} -eq 0 ]]; then
@@ -276,10 +281,84 @@ screen_disk_select() {
         return "${TUI_ABORT}"
     fi
 
-    # Select target disk
+    # Select target disk. Looping here rather than returning TUI_BACK on refusal:
+    # run_wizard decrements the screen index on TUI_BACK, so "pick a different
+    # disk" would drop the operator on the PREVIOUS screen and make them walk
+    # forward again — the opposite of what the message says.
     local selected_disk
-    selected_disk=$(dialog_menu "Select Target Disk" "${disk_items[@]}") \
-        || return "${TUI_BACK}"
+    while true; do
+        selected_disk=$(dialog_menu "Select Target Disk" "${disk_items[@]}") \
+            || return "${TUI_BACK}"
+
+        if [[ -n "${LIVE_MEDIUM_DISK:-}" && "${selected_disk}" == "${LIVE_MEDIUM_DISK}" ]]; then
+            # An escape hatch is required, not optional: an ISO copied onto an
+            # internal disk and booted through GRUB loopback makes that disk both
+            # "the medium" and the only sensible target. Without a way through,
+            # the loop below would have no exit at all on a single-disk machine.
+            # Count disks, not dialog cells: "-le 2" silently encoded "two array
+            # entries per disk" and would become unreachable if a column were
+            # ever added — restoring the exit-less loop this branch exists to
+            # prevent. And a removable medium is never the loopback case: an
+            # undetected internal disk (Intel RST, missing driver) also leaves
+            # the USB stick as the only entry, and then this dialog would be
+            # talking the operator into wiping their install stick.
+            local _medium_tran="" _d
+            for _d in "${AVAILABLE_DISKS[@]}"; do
+                [[ "/dev/${_d%%|*}" == "${LIVE_MEDIUM_DISK}" ]] && _medium_tran="${_d##*|}"
+            done
+
+            if [[ ${#AVAILABLE_DISKS[@]} -le 1 && "${_medium_tran}" != "usb" ]]; then
+                # Whether this can work at all depends on the medium being in
+                # RAM: after sfdisk, copy_installer_to_chroot still reads the
+                # installer and the config FROM DISK. Without toram the run does
+                # not merely become unresumable — it aborts partway, with the
+                # disk already repartitioned. Say which case this is.
+                local _ram_warning=""
+                if ! grep -qE '(^| )(toram|rd\.live\.ram=1)( |$)' /proc/cmdline 2>/dev/null; then
+                    _ram_warning="\n\nWARNING: this medium does NOT look RAM-loaded (no toram /\n\
+rd.live.ram on the kernel command line). The installer reads its own\n\
+files from this disk AFTER partitioning it, so the run will most likely\n\
+ABORT partway — with the disk already repartitioned. Reboot with toram\n\
+first if you can."
+                fi
+
+                dialog_msgbox "Only Disk Is the Install Medium" \
+                    "${selected_disk} is the medium this installer booted from, and it is\n\
+the only disk in this machine.\n\n\
+That happens when the ISO was copied onto an internal disk and booted\n\
+through GRUB loopback. Installing here means the installer loses its own\n\
+files the moment the disk is repartitioned, so the run must finish in one\n\
+go and cannot be resumed.${_ram_warning}\n\n\
+Confirm on the next screen, or cancel to go back."
+
+                local override
+                override=$(dialog_inputbox "Confirm Install Medium" \
+                    "Type OVERRIDE to install onto ${selected_disk} anyway:" "") \
+                    || return "${TUI_BACK}"
+                if [[ "${override}" == "OVERRIDE" ]]; then
+                    # Records WHICH disk was granted, never a bare "yes", and is
+                    # kept out of CONFIG_VARS on purpose: a portable preset
+                    # carrying "override = yes" would wave through the live USB
+                    # of every other machine it is imported on — re-enabling
+                    # exactly the data loss this guard exists to prevent.
+                    LIVE_MEDIUM_OVERRIDE_DISK="${selected_disk}"
+                    export LIVE_MEDIUM_OVERRIDE_DISK
+                    ewarn "Operator overrode the install-medium guard for ${selected_disk}"
+                    break
+                fi
+                continue
+            fi
+
+            dialog_msgbox "Cannot Install Onto the Install Medium" \
+                "${selected_disk} is the medium this installer booted from.\n\n\
+Partitioning it would destroy the running installer: the target disk is\n\
+unmounted and repartitioned, so the installer would lose its own files\n\
+mid-run and leave nothing to resume from.\n\n\
+Pick a different disk."
+            continue
+        fi
+        break
+    done
 
     TARGET_DISK="${selected_disk}"
     export TARGET_DISK
@@ -326,8 +405,21 @@ screen_disk_select() {
                     || return "${TUI_BACK}"
                 ESP_REUSE="yes"
             else
+                # Falling back to auto from inside the dual-boot arm means the
+                # auto arm — and with it the "DESTROY ALL DATA" yes/no gate —
+                # never runs. The operator asked for dual-boot; do not hand them
+                # a full-disk wipe on the strength of an informational box.
                 dialog_msgbox "No ESP Found" \
-                    "No existing ESP found. Falling back to auto-partition."
+                    "No existing ESP was found on this machine.\n\n\
+Dual-boot needs an existing EFI System Partition to reuse, so it is not\n\
+possible here. The alternative is auto-partitioning, which ERASES the\n\
+whole disk."
+                if ! dialog_yesno "WARNING: Data Destruction" \
+                    "Switch to auto-partitioning?\n\n\
+This DESTROYS ALL DATA on:\n\n  ${TARGET_DISK}\n\n\
+Choose No to go back and pick a different disk or scheme."; then
+                    return "${TUI_BACK}"
+                fi
                 PARTITION_SCHEME="auto"
                 ESP_REUSE="no"
             fi
@@ -335,7 +427,7 @@ screen_disk_select() {
 
             # For dual-boot, select the partition for Gentoo root
             local -a part_items=()
-            _get_partition_info_for_dialog "${TARGET_DISK}" "${ESP_PARTITION}"
+            _get_partition_info_for_dialog "${TARGET_DISK}" "${ESP_PARTITION:-}"
 
             if [[ ${#part_items[@]} -gt 0 ]]; then
                 local use_existing

@@ -553,16 +553,116 @@ detect_wwan() {
 
 # detect_disks — List available block devices
 # Populates AVAILABLE_DISKS array: "device|size|model|transport"
+# ensure_live_medium_detected — Populate LIVE_MEDIUM_DISK if nothing did yet
+#
+# detect_all_hardware runs ONLY from tui/hw_detect.sh, i.e. inside the wizard.
+# `--install --config file` and `--resume` never go through it, so every guard
+# built on LIVE_MEDIUM_DISK used to be dead code on exactly those paths — the
+# ones where the operator cannot see the disk list and re-read the labels.
+#
+# The value is deliberately NOT in CONFIG_VARS: device names are reassigned at
+# every boot, so a persisted answer would be worse than none. Detect on demand.
+ensure_live_medium_detected() {
+    [[ -n "${LIVE_MEDIUM_DISK:-}" ]] && return 0
+    _detect_live_medium
+}
+
+# _detect_live_medium — Disk the running installer booted from
+#
+# Nothing downstream used to know this, so the USB stick carrying the live ISO
+# sat in the target list like any other disk. Picking it is not merely a mistake
+# to undo: cleanup_target_disk lazily unmounts everything on the chosen disk —
+# the live medium included — and sfdisk then writes a fresh GPT over the running
+# installer's own source. The squashfs vanishes mid-install and there is nothing
+# left to --resume from.
+_detect_live_medium() {
+    LIVE_MEDIUM_DISK=""
+
+    local mp src dev
+    # Mount points used by the common live images, plus / as a last resort.
+    for mp in /run/initramfs/live /run/archiso/bootmnt /run/live/medium /mnt/cdrom /lib/live/mount/medium /; do
+        [[ -d "${mp}" ]] || continue
+        # --nofsroot: without it findmnt appends the filesystem root for btrfs
+        # subvolumes and bind mounts ("/dev/nvme0n1p3[/@]"), which passes the
+        # /dev/* test and then makes every lsblk call fail with "not a block
+        # device" — silently disabling this whole function on the layout this
+        # installer itself creates by default.
+        src=$(findmnt -n --nofsroot -o SOURCE --target "${mp}" 2>/dev/null | head -1) || src=""
+        [[ -n "${src}" && "${src}" == /dev/* ]] || continue
+
+        # || dev="": _walk_up_to_disk returns 1 when it cannot reach a whole disk
+        # (loop-mounted ISO, Ventoy, an unresolvable dm layer). Under
+        # set -euo pipefail + inherit_errexit a failing command substitution
+        # kills the shell, and detect_all_hardware is called bare from
+        # tui/hw_detect.sh — so the installer died on the FIRST screen, silently,
+        # through the EXIT trap. The loop below is written to keep probing; that
+        # was unreachable code.
+        dev=$(_walk_up_to_disk "${src}") || dev=""
+        if [[ -n "${dev}" ]]; then
+            LIVE_MEDIUM_DISK="${dev}"
+            einfo "Installer booted from ${LIVE_MEDIUM_DISK} (mounted at ${mp})"
+            break
+        fi
+        # No whole disk behind this mount point (loop-mounted ISO, dm layer we
+        # cannot resolve) — keep probing the remaining candidates instead of
+        # giving up with a value that can never match a target disk.
+    done
+
+    export LIVE_MEDIUM_DISK
+}
+
+# _walk_up_to_disk — Resolve a block device to the whole disk holding it
+#
+# One PKNAME hop is not enough: Ventoy and dm-mapped ISOs put a device-mapper
+# layer in between, so a single hop yields a partition or another dm node, and
+# the result then never equals any entry in AVAILABLE_DISKS. Climb until lsblk
+# reports TYPE=disk, and return nothing rather than something unusable.
+_walk_up_to_disk() {
+    local dev="$1" hops=0 type parent
+    while [[ -n "${dev}" && ${hops} -lt 8 ]]; do
+        type=$(lsblk -dno TYPE "${dev}" 2>/dev/null | head -1) || type=""
+        if [[ "${type}" == "disk" ]]; then
+            echo "${dev}"
+            return 0
+        fi
+        parent=$(lsblk -no PKNAME "${dev}" 2>/dev/null | head -1) || parent=""
+        [[ -n "${parent}" ]] || return 1
+        dev="/dev/${parent}"
+        (( hops++ )) || true
+    done
+    return 1
+}
+
 detect_disks() {
     declare -ga AVAILABLE_DISKS=()
 
+    _detect_live_medium
+
     while IFS= read -r line; do
         [[ -z "${line}" ]] && continue
-        local name size model tran
-        read -r name size model tran <<< "${line}"
+        # -P (key="value") instead of positional splitting. Reordering the
+        # columns was not enough: a device with an EMPTY transport but a
+        # non-empty model (SD/MMC readers, md, dm, virtio) still shifted the
+        # model into the transport field — "mmcblk0 29.1G  SC32G" parsed as
+        # tran=SC32G. Transport is the one signal that tells a USB stick apart
+        # from an internal disk, so it has to be read unambiguously.
+        # Extracted with sed, never eval: the model string comes from the
+        # device and CLAUDE.md forbids eval on external data — MODEL="$(...)"
+        # would be command-substituted by the shell.
+        local name size tran model
+        name=$(printf '%s' "${line}" | sed -n 's/.*NAME="\([^"]*\)".*/\1/p')
+        size=$(printf '%s' "${line}" | sed -n 's/.*[^A-Z]SIZE="\([^"]*\)".*/\1/p')
+        tran=$(printf '%s' "${line}" | sed -n 's/.*TRAN="\([^"]*\)".*/\1/p')
+        model=$(printf '%s' "${line}" | sed -n 's/.*MODEL="\([^"]*\)".*/\1/p')
+        [[ -n "${name}" ]] || continue
         AVAILABLE_DISKS+=("${name}|${size}|${model:-unknown}|${tran:-unknown}")
-        einfo "Disk: /dev/${name} — ${size} — ${model:-unknown} (${tran:-unknown})"
-    done < <(lsblk -dno NAME,SIZE,MODEL,TRAN 2>/dev/null | grep -v '^loop\|^sr\|^rom\|^ram\|^zram')
+        if [[ -n "${LIVE_MEDIUM_DISK:-}" && "/dev/${name}" == "${LIVE_MEDIUM_DISK}" ]]; then
+            ewarn "Disk: /dev/${name} — ${size} — ${model:-unknown} (${tran:-unknown}) [INSTALL MEDIUM]"
+        else
+            einfo "Disk: /dev/${name} — ${size} — ${model:-unknown} (${tran:-unknown})"
+        fi
+    done < <(lsblk -dn -P -o NAME,SIZE,TRAN,MODEL 2>/dev/null \
+             | grep -v 'NAME="\(loop\|sr\|rom\|ram\|zram\)')
 
     export AVAILABLE_DISKS
 
@@ -584,12 +684,29 @@ get_disk_list_for_dialog() {
 
 # --- ESP / Windows Detection ---
 
+# _efi_dir_is_linux_loader — Does a directory under EFI/ indicate another Linux?
+#
+# Returns 1 for our own directory, Windows, the removable-media fallback path,
+# and for firmware/vendor directories. Every OEM ESP carries a few of those, and
+# counting them as a Linux made a Windows-only Dell offer "Dual-boot with
+# Windows + Linux" and claim an operating system that does not exist.
+_efi_dir_is_linux_loader() {
+    case "${1,,}" in
+        boot|microsoft|gentoo) return 1 ;;
+        dell|hp|hewlett*|lenovo|asus|acer|msi|samsung|toshiba|sony|huawei) return 1 ;;
+        framework|gigabyte|razer|fujitsu|packardbell|insyde|american*|phoenix) return 1 ;;
+        tools|recovery|oem|firmware|bootcamp|apple|dellutility|diags) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
 # detect_esp — Find existing EFI System Partitions
 # Populates ESP_PARTITIONS array and checks for Windows
 detect_esp() {
     declare -ga ESP_PARTITIONS=()
     WINDOWS_DETECTED=0
     WINDOWS_ESP=""
+    LINUX_EFI_LOADERS=""
 
     # Use lsblk to find EFI System Partitions by GPT type GUID
     # This is more reliable than blkid -o export which may omit PART_ENTRY_TYPE
@@ -597,6 +714,17 @@ detect_esp() {
     while IFS=' ' read -r part parttype; do
         [[ -z "${part}" || -z "${parttype}" ]] && continue
         if [[ "${parttype,,}" == "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" ]]; then
+            # The install stick has an ESP too, and it is not evidence about the
+            # TARGET machine: its EFI/ directories would report a Linux that
+            # lives on the medium itself, and the dual-boot ESP picker could then
+            # offer the stick as the partition to reuse. detect_disks runs first,
+            # so LIVE_MEDIUM_DISK is already known here.
+            if [[ -n "${LIVE_MEDIUM_DISK:-}" ]] && \
+               [[ "$(_partition_to_disk "${part}")" == "${LIVE_MEDIUM_DISK}" ]]; then
+                einfo "Skipping ESP on the install medium: ${part}"
+                continue
+            fi
+
             ESP_PARTITIONS+=("${part}")
             einfo "Found ESP: ${part}"
 
@@ -609,13 +737,28 @@ detect_esp() {
                     WINDOWS_ESP="${part}"
                     einfo "Windows Boot Manager found on ${part}"
                 fi
+
+                # Windows has this fallback (the directory above), Linux had none:
+                # a distro whose root we cannot read — LUKS, LVM, or simply a
+                # filesystem this kernel does not have — was completely invisible.
+                # Every distro drops a directory here, so treat anything that is
+                # not ours, Microsoft's or the removable-media path as a Linux.
+                local d name
+                for d in "${tmp_mount}"/EFI/*/; do
+                    [[ -d "${d}" ]] || continue
+                    name=$(basename "${d}")
+                    _efi_dir_is_linux_loader "${name}" || continue
+                    LINUX_EFI_LOADERS+="${LINUX_EFI_LOADERS:+ }${name}"
+                    einfo "Found EFI bootloader directory: ${name} (on ${part})"
+                done
+
                 umount "${tmp_mount}" 2>/dev/null
             fi
             rmdir "${tmp_mount}" 2>/dev/null || true
         fi
     done < <(lsblk -lno PATH,PARTTYPE 2>/dev/null)
 
-    export ESP_PARTITIONS WINDOWS_DETECTED WINDOWS_ESP
+    export ESP_PARTITIONS WINDOWS_DETECTED WINDOWS_ESP LINUX_EFI_LOADERS
 }
 
 # --- Installed OS Detection ---
@@ -672,8 +815,32 @@ detect_installed_oses() {
         fi
 
         case "${fstype}" in
-            ext4|xfs)
+            ext2|ext3|ext4|xfs|f2fs)
                 _detect_linux_on_partition "${part}" "${fstype}" ""
+                ;;
+            crypto_LUKS)
+                # A LUKS container cannot be probed without the passphrase, and we
+                # are NOT going to ask for one. Its mere existence is enough: it
+                # makes the dual-boot option appear and arms the ERASE gate, which
+                # is the whole point. Fedora and Ubuntu install this way by default.
+                DETECTED_OSES["${part}"]="Encrypted volume (LUKS) — contents unknown"
+                LINUX_DETECTED=1
+                einfo "Found encrypted volume: ${part} (LUKS)"
+                ;;
+            LVM2_member)
+                # Same reasoning: the PV holds logical volumes we are not going to
+                # activate. Name the volume group when LVM tooling is present.
+                local vg=""
+                if command -v pvs &>/dev/null; then
+                    vg=$(pvs --noheadings -o vg_name "${part}" 2>/dev/null | tr -d '[:space:]') || vg=""
+                fi
+                if [[ -n "${vg}" ]]; then
+                    DETECTED_OSES["${part}"]="LVM physical volume (volume group: ${vg})"
+                else
+                    DETECTED_OSES["${part}"]="LVM physical volume — contents unknown"
+                fi
+                LINUX_DETECTED=1
+                einfo "Found LVM physical volume: ${part}${vg:+ (VG ${vg})}"
                 ;;
             btrfs)
                 _detect_linux_on_partition "${part}" "${fstype}" ""
@@ -687,6 +854,14 @@ detect_installed_oses() {
                 ;;
         esac
     done < <(lsblk -lno PATH,FSTYPE 2>/dev/null | awk '$2 != "" {print}')
+
+    # detect_esp runs BEFORE this function and this function resets
+    # LINUX_DETECTED, so fold its result back in here. A bootloader directory on
+    # the ESP is sometimes the only trace of a Linux whose root we cannot read
+    # (LUKS on LVM, a filesystem this kernel lacks, a detached /boot).
+    if [[ -n "${LINUX_EFI_LOADERS:-}" ]]; then
+        LINUX_DETECTED=1
+    fi
 
     export LINUX_DETECTED DETECTED_OSES
 

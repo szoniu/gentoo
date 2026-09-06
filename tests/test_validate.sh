@@ -15,6 +15,7 @@ export DRY_RUN=1
 source "${LIB_DIR}/constants.sh"
 source "${LIB_DIR}/logging.sh"
 source "${LIB_DIR}/config.sh"
+source "${LIB_DIR}/hardware.sh"   # validate_config calls ensure_live_medium_detected
 
 PASS=0
 FAIL=0
@@ -277,6 +278,80 @@ assert_eq "DRY_RUN=1 skips block device check" "0" "${rc}"
 
 # Cleanup
 rm -f "${LOG_FILE}"
+
+echo ""
+echo "=== Test: the install medium is rejected as a target ==="
+
+clear_config
+set_valid_config
+LIVE_MEDIUM_DISK="/dev/sda"
+errors_out=$(validate_config 2>&1) && errors_out="${errors_out} NO_ERROR"
+assert_contains "install medium rejected" "medium the installer booted from" "${errors_out}"
+
+clear_config
+set_valid_config
+LIVE_MEDIUM_DISK="/dev/sdb"
+if validate_config >/dev/null 2>&1; then rc=0; else rc=1; fi
+assert_eq "a different disk is still accepted" "0" "${rc}"
+LIVE_MEDIUM_DISK=""
+
+# With LIVE_MEDIUM_DISK unset, validate_config has to run detection itself —
+# --config and --resume never go through the wizard that would set it. Without
+# that call the check below has nothing to compare and silently passes.
+_vstub=$(mktemp -d)
+cat > "${_vstub}/findmnt" <<'STUB_EOF'
+#!/usr/bin/env bash
+echo "/dev/sdc1"
+STUB_EOF
+cat > "${_vstub}/lsblk" <<'STUB_EOF'
+#!/usr/bin/env bash
+dev=""
+for x in "$@"; do case "${x}" in /dev/*) dev="${x}" ;; esac; done
+for a in "$@"; do
+    case "${a}" in
+        TYPE)   case "${dev}" in /dev/sdc1) echo "part" ;; /dev/sdc) echo "disk" ;; *) exit 1 ;; esac; exit 0 ;;
+        PKNAME) case "${dev}" in /dev/sdc1) echo "sdc" ;; *) exit 1 ;; esac; exit 0 ;;
+    esac
+done
+exit 0
+STUB_EOF
+chmod +x "${_vstub}/findmnt" "${_vstub}/lsblk"
+
+clear_config
+set_valid_config
+TARGET_DISK="/dev/sdc"
+errors_out=$( export PATH="${_vstub}:${PATH}"; unset LIVE_MEDIUM_DISK
+              validate_config 2>&1 ) && errors_out="${errors_out} NO_ERROR"
+rm -rf "${_vstub}"
+assert_contains "detection runs when the wizard did not" "medium the installer booted from" "${errors_out}"
+LIVE_MEDIUM_DISK=""
+
+echo ""
+echo "=== Test: the install-medium override is disk-bound and not portable ==="
+
+# It must never be a bare "yes": config_save would persist it and preset_export
+# would ship it as portable configuration, waving through the live USB of every
+# machine the preset is imported on.
+_ov=0
+for v in "${CONFIG_VARS[@]}"; do
+    [[ "${v}" == "LIVE_MEDIUM_OVERRIDE" || "${v}" == "LIVE_MEDIUM_OVERRIDE_DISK" ]] && _ov=1
+done
+assert_eq "override is NOT persisted in CONFIG_VARS" "0" "${_ov}"
+
+clear_config
+set_valid_config
+TARGET_DISK="/dev/sda"
+LIVE_MEDIUM_DISK="/dev/sda"
+LIVE_MEDIUM_OVERRIDE_DISK="/dev/sda"
+if validate_config >/dev/null 2>&1; then rc=0; else rc=1; fi
+assert_eq "override for THIS disk is honoured" "0" "${rc}"
+
+# Same override value, different disk — must not carry over
+LIVE_MEDIUM_OVERRIDE_DISK="/dev/sdb"
+errors_out=$(validate_config 2>&1) && errors_out="${errors_out} NO_ERROR"
+assert_contains "override does not transfer to another disk" "medium the installer booted from" "${errors_out}"
+unset LIVE_MEDIUM_OVERRIDE_DISK
+LIVE_MEDIUM_DISK=""
 
 echo ""
 echo "=== Results ==="
