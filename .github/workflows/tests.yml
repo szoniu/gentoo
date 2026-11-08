@@ -1,0 +1,18 @@
+name: Testy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalacja ShellCheck
+        run: sudo apt-get install -y shellcheck
+      - name: ShellCheck
+        run: bash tests/shellcheck.sh
+      - name: Testy
+        run: bash tests/run_all.sh --no-shellcheck
