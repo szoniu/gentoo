@@ -3,8 +3,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# Mapa plik:narzędzie dla testów wymagających rozszerzeń GNU.
-GNU_REQUIREMENTS=("tests/test_infer_config.sh:sed" "tests/test_resume.sh:stat")
+# Mapa plik:narzędzie dla testów wymagających wersji GNU (script — z util-linux, flagi -qec).
+# test_shrink.sh: gałąź z pty woła `timeout … script -qec`; BSD script (macOS) tych flag nie zna.
+GNU_REQUIREMENTS=("tests/test_infer_config.sh:sed" "tests/test_resume.sh:stat"
+    "tests/test_shrink.sh:timeout" "tests/test_shrink.sh:script")
 
 include_shellcheck=true
 for option in "$@"; do
@@ -18,7 +20,7 @@ cd "${SCRIPT_DIR}"
 TEMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TEMP_DIR}"' EXIT
 mkdir -p "${TEMP_DIR}/bin"
-for tool in sed stat; do
+for tool in sed stat timeout; do
     if ! "${tool}" --version 2>/dev/null | grep -q GNU; then
         if command -v "g${tool}" >/dev/null 2>&1; then
             ln -s "$(command -v "g${tool}")" "${TEMP_DIR}/bin/${tool}"
@@ -27,10 +29,13 @@ for tool in sed stat; do
 done
 export PATH="${TEMP_DIR}/bin:${PATH}"
 
-gnu_sed=false
-gnu_stat=false
-if sed --version 2>/dev/null | grep -q GNU; then gnu_sed=true; fi
-if stat --version 2>/dev/null | grep -q GNU; then gnu_stat=true; fi
+has_gnu() {
+    case "$1" in
+        # Bez script test_shrink.sh sam pomija gałąź z pty — przeszkadza tylko obcy script.
+        script) ! command -v script >/dev/null 2>&1 || script --version 2>&1 | grep -q util-linux ;;
+        *) "$1" --version 2>/dev/null | grep -q GNU ;;
+    esac
+}
 
 files=(tests/test_*.sh)
 if ${include_shellcheck}; then files+=(tests/shellcheck.sh); fi
@@ -45,8 +50,7 @@ for file in "${files[@]}"; do
     for requirement in "${GNU_REQUIREMENTS[@]}"; do
         if [[ ${requirement%:*} == "${file}" ]]; then
             tool="${requirement##*:}"
-            if [[ ${tool} == sed && ${gnu_sed} == false ]] ||
-               [[ ${tool} == stat && ${gnu_stat} == false ]]; then
+            if ! has_gnu "${tool}"; then
                 reason="wymaga GNU ${tool}"
             fi
         fi
@@ -66,6 +70,7 @@ for file in "${files[@]}"; do
     bash "${file}" >"${log}" 2>&1 || code=$?
     elapsed=$((SECONDS - start))
     counts=""
+    file_failed=0
     while read -r label count; do
         [[ ${count} =~ ^[0-9]+$ ]] || continue
         counts+=" ${label} ${count}"
@@ -73,10 +78,12 @@ for file in "${files[@]}"; do
             assertions_passed=$((assertions_passed + count))
         else
             assertions_failed=$((assertions_failed + count))
+            file_failed=$((file_failed + count))
         fi
     done < <(awk '/^[[:space:]]*(Passed|Failed):/ {print $1, $2}' "${log}")
 
-    if [[ ${code} -ne 0 ]]; then
+    # Kod 0 przy `Failed: N>0` to też FAIL — runner nie polega na tym, że każdy test sam kończy się kodem 1.
+    if [[ ${code} -ne 0 || ${file_failed} -gt 0 ]]; then
         status=FAIL
         (( failed++ )) || true
     elif grep -q '^SKIP:' "${log}" && ! grep -q '^[[:space:]]*Passed:' "${log}"; then
