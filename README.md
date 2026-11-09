@@ -511,6 +511,13 @@ Zmienne środowiskowe:
 ## Uruchamianie testów
 
 ```bash
+bash tests/run_all.sh            # Wszystko po kolei: PASS/FAIL/SKIP per plik, kod 1 przy FAIL
+bash tests/run_all.sh --no-shellcheck   # bez lintu (CI ma go jako osobny krok)
+```
+
+Pojedynczo:
+
+```bash
 bash tests/test_config.sh        # Config round-trip
 bash tests/test_hardware.sh      # CPU march (w tym Panther/Wildcat Lake) + GPU database
 bash tests/test_disk.sh          # Disk planning dry-run
@@ -526,6 +533,7 @@ bash tests/test_peripherals.sh   # Peripheral detection + inference
 bash tests/test_shrink.sh        # Shrink wizard partition resizing
 bash tests/test_umpc.sh          # UMPC detection (GPD/Chuwi) + GRUB cmdline
 bash tests/test_kernel_config.sh # _patch_kernel_config: xe/i915, pinctrl, Framework EC, promocja =m->=y
+bash tests/test_local_scope.sh   # Zmienne `local` referowane spoza deklarującej je funkcji
 
 bash tests/shellcheck.sh         # Lint wszystkich *.sh
 ```
@@ -534,6 +542,10 @@ bash tests/shellcheck.sh         # Lint wszystkich *.sh
 > docelowe Gentoo Live ISO. Na macOS/BSD część asercji `test_resume.sh`
 > i `test_infer_config.sh` zgłosi fałszywe niepowodzenia (`stat -c`,
 > `sed ...; T; q` to rozszerzenia GNU). Uruchamiaj testy na Linuksie.
+> `tests/run_all.sh` podstawia wtedy `gsed`/`gstat`/`gtimeout`, a gdy ich brak — te testy
+> (oraz `test_shrink.sh` przy BSD `script`) dostają SKIP z powodem zamiast fałszywego FAIL-a.
+> CI: `.github/workflows/tests.yml` (ubuntu-latest, ShellCheck + `run_all.sh`) przy pushu do `main`
+> i każdym pull requeście.
 
 ## Struktura projektu
 
@@ -550,7 +562,7 @@ tui/                    — Ekrany TUI (każdy = funkcja, return 0/1/2)
 data/                   — Bazy danych, motyw TUI, bundled gum binary
 presets/                — Gotowe presety
 hooks/                  — Hooki (*.sh.example)
-tests/                  — Testy + shellcheck.sh
+tests/                  — Testy + shellcheck.sh + run_all.sh (runner zbiorczy)
 docs/                   — HARDWARE.md + notatki per-urządzenie (POCKET4, X1NANO, FRAMEWORK12)
 ```
 

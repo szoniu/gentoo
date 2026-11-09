@@ -51,7 +51,7 @@ data/                   — Statyczne bazy danych + bundled assets (cpu_march/gp
                           use_flags_desktop, dialogrc, gum.tar.gz, grub-theme/,
                           fprintd-pam-setup.sh — post-boot PAM helper dla OpenRC)
 presets/                — Przykładowe konfiguracje
-tests/                  — Testy + shellcheck.sh (standalone, bez root/hardware)
+tests/                  — Testy + shellcheck.sh + run_all.sh (runner zbiorczy; standalone, bez root/hardware)
 hooks/                  — *.sh.example
 TODO.md                 — Planowane ulepszenia
 ```
@@ -222,6 +222,9 @@ Gdy `dialog` nie jest dostępny (np. wewnątrz chroota stage3), `try()` używa p
 Wszystkie testy są standalone — nie wymagają root ani hardware. Używają `DRY_RUN=1` i `NON_INTERACTIVE=1`. **Wymagają GNU coreutils + GNU sed** (środowisko docelowe = Gentoo Live ISO). Na macOS/BSD `test_resume.sh` (`stat -c` GNU-only) i `test_infer_config.sh` (`sed '...; T; q'` GNU-only `T`) zgłaszają fałszywe FAIL-e — weryfikację rób na Linuksie. `test_kernel_config.sh` radzi sobie sam: wykrywa nie-GNU `sed` i podstawia `gsed` przez shim w `PATH` (bez `gsed` → czysty SKIP zamiast fałszywego FAIL-a) — wzorzec do skopiowania, gdy kolejny test uderzy w ten sam problem.
 
 ```bash
+bash tests/run_all.sh            # Wszystkie test_*.sh + shellcheck.sh po kolei; PASS/FAIL/SKIP per plik, kod 1 przy FAIL
+bash tests/run_all.sh --no-shellcheck  # bez lintu (CI: osobny krok)
+
 bash tests/test_config.sh        # Config round-trip (13 assertions)
 bash tests/test_hardware.sh      # CPU march + GPU database (32 assertions)
 bash tests/test_disk.sh          # Disk planning dry-run with sfdisk (21 assertions)
@@ -242,7 +245,7 @@ bash tests/test_local_scope.sh  # Zmienne `local` referowane spoza deklarującej
 bash tests/shellcheck.sh         # Lint wszystkich *.sh (severity=warning, excl. SC1091/2034/2154/1090/2155)
 ```
 
-Pojedynczy test = uruchom jego plik bezpośrednio (`bash tests/test_<x>.sh`). Brak runnera zbiorczego.
+Pojedynczy test = uruchom jego plik bezpośrednio (`bash tests/test_<x>.sh`). Całość: `bash tests/run_all.sh` (Forgejo #5) — nowy `tests/test_*.sh` wchodzi do niego sam (glob). Status pliku: kod ≠ 0 albo `Failed:` > 0 → FAIL; `SKIP:` na początku linii bez `Passed:` → SKIP. Test, który wymaga narzędzia GNU, dopisujesz do `GNU_REQUIREMENTS` w runnerze (dziś `test_infer_config.sh` — sed, `test_resume.sh` — stat, `test_shrink.sh` — timeout i util-linux `script`): runner podstawia `g<narzędzie>`, a bez niego daje SKIP z powodem. CI: `.github/workflows/tests.yml` (push do `main`, pull request; ubuntu-latest).
 
 ## Znane wzorce i pułapki
 
