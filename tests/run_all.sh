@@ -95,6 +95,9 @@ for file in "${files[@]}"; do
     fi
     printf '%s: %s [%s s]%s\n' "${file}" "${status}" "${elapsed}" "${counts}"
     if [[ ${status} == FAIL ]]; then
+        # Najpierw linie asercji FAIL (bywają daleko przed końcem logu), potem ogon logu.
+        { grep -E '^[[:space:]]*FAIL' "${log}" || true; } | head -n 20 | sed 's/^/    /'
+        echo "    --- ostatnie 20 linii logu ---"
         tail -n 20 "${log}" | sed 's/^/    /'
     elif [[ ${status} == SKIP ]]; then
         grep '^SKIP:' "${log}" | sed 's/^/    /'

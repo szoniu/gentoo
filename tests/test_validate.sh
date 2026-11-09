@@ -59,6 +59,10 @@ set_valid_config() {
     export USERNAME="user"
     export ROOT_PASSWORD_HASH='$6$rounds=500000$salt$hash'
     export USER_PASSWORD_HASH='$6$rounds=500000$salt$hash'
+    # Nośnik instalatora na niemożliwym urządzeniu: bez tego validate_config wykrywa go z `/` HOSTA, a na runnerze
+    # CI (root na /dev/sda) odrzucał poprawną konfigurację z TARGET_DISK=/dev/sda jako „medium the installer booted
+    # from”. Testy nośnika niżej nadpisują tę wartość po wywołaniu helpera; test detekcji robi `unset`.
+    LIVE_MEDIUM_DISK="/dev/zz-nonexistent-test-medium"
 }
 
 clear_config() {
